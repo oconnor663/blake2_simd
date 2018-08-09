@@ -45,6 +45,7 @@ const SIGMA: [[u8; 16]; 12] = [
 // caller first to the four columns of V, and then to its four diagonals. X and
 // Y are words of input, chosen by the caller according to the message
 // schedule, SIGMA.
+#[inline(always)]
 fn g(v: &mut [u64; 16], a: usize, b: usize, c: usize, d: usize, x: u64, y: u64) {
     v[a] = v[a].wrapping_add(v[b]).wrapping_add(x);
     v[d] = (v[d] ^ v[a]).rotate_right(32);
@@ -54,6 +55,24 @@ fn g(v: &mut [u64; 16], a: usize, b: usize, c: usize, d: usize, x: u64, y: u64) 
     v[d] = (v[d] ^ v[a]).rotate_right(16);
     v[c] = v[c].wrapping_add(v[d]);
     v[b] = (v[b] ^ v[c]).rotate_right(63);
+}
+
+#[inline(always)]
+fn round(r: usize, m: &[u64; 16], v: &mut [u64; 16]) {
+    // Select the message schedule based on the round.
+    let s = SIGMA[r];
+
+    // Mix the columns.
+    g(v, 0, 4, 8, 12, m[s[0] as usize], m[s[1] as usize]);
+    g(v, 1, 5, 9, 13, m[s[2] as usize], m[s[3] as usize]);
+    g(v, 2, 6, 10, 14, m[s[4] as usize], m[s[5] as usize]);
+    g(v, 3, 7, 11, 15, m[s[6] as usize], m[s[7] as usize]);
+
+    // Mix the rows.
+    g(v, 0, 5, 10, 15, m[s[8] as usize], m[s[9] as usize]);
+    g(v, 1, 6, 11, 12, m[s[10] as usize], m[s[11] as usize]);
+    g(v, 2, 7, 8, 13, m[s[12] as usize], m[s[13] as usize]);
+    g(v, 3, 4, 9, 14, m[s[14] as usize], m[s[15] as usize]);
 }
 
 // H is the 8-word state vector. `msg` is BLOCKBYTES of input, possibly padded
@@ -76,22 +95,18 @@ fn compress(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, finalize: boo
     let mut m = [0; 16];
     LittleEndian::read_u64_into(msg, &mut m);
 
-    for round in 0..12 {
-        // Select the message schedule based on the round.
-        let s = SIGMA[round];
-
-        // Mix the columns.
-        g(&mut v, 0, 4, 8, 12, m[s[0] as usize], m[s[1] as usize]);
-        g(&mut v, 1, 5, 9, 13, m[s[2] as usize], m[s[3] as usize]);
-        g(&mut v, 2, 6, 10, 14, m[s[4] as usize], m[s[5] as usize]);
-        g(&mut v, 3, 7, 11, 15, m[s[6] as usize], m[s[7] as usize]);
-
-        // Mix the rows.
-        g(&mut v, 0, 5, 10, 15, m[s[8] as usize], m[s[9] as usize]);
-        g(&mut v, 1, 6, 11, 12, m[s[10] as usize], m[s[11] as usize]);
-        g(&mut v, 2, 7, 8, 13, m[s[12] as usize], m[s[13] as usize]);
-        g(&mut v, 3, 4, 9, 14, m[s[14] as usize], m[s[15] as usize]);
-    }
+    round(0, &m, &mut v);
+    round(1, &m, &mut v);
+    round(2, &m, &mut v);
+    round(3, &m, &mut v);
+    round(4, &m, &mut v);
+    round(5, &m, &mut v);
+    round(6, &m, &mut v);
+    round(7, &m, &mut v);
+    round(8, &m, &mut v);
+    round(9, &m, &mut v);
+    round(10, &m, &mut v);
+    round(11, &m, &mut v);
 
     for i in 0..8 {
         h[i] ^= v[i] ^ v[i + 8];
