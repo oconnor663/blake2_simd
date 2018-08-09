@@ -81,13 +81,24 @@ fn round(r: usize, m: &[u64; 16], v: &mut [u64; 16]) {
 // `finalize` is set to true only in the final call.
 fn compress(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, lastblock: u64) {
     // Initialize the compression state.
-    let mut v = [0; 16];
-    v[..8].copy_from_slice(h);
-    v[8..].copy_from_slice(&IV);
-    v[12] ^= count as u64;
-    v[13] ^= (count >> 64) as u64;
-    v[14] ^= lastblock;
-    // v[15] would be the last node flag.
+    let mut v = [
+        h[0],
+        h[1],
+        h[2],
+        h[3],
+        h[4],
+        h[5],
+        h[6],
+        h[7],
+        IV[0],
+        IV[1],
+        IV[2],
+        IV[3],
+        IV[4] ^ count as u64,
+        IV[5] ^ (count >> 64) as u64,
+        IV[6] ^ lastblock,
+        IV[7], // The last node flag would be XOR'd here.
+    ];
 
     // Parse the message bytes as ints in little endian order.
     let mut m = [0; 16];
@@ -106,9 +117,14 @@ fn compress(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, lastblock: u6
     round(10, &m, &mut v);
     round(11, &m, &mut v);
 
-    for i in 0..8 {
-        h[i] ^= v[i] ^ v[i + 8];
-    }
+    h[0] ^= v[0] ^ v[8];
+    h[1] ^= v[1] ^ v[9];
+    h[2] ^= v[2] ^ v[10];
+    h[3] ^= v[3] ^ v[11];
+    h[4] ^= v[4] ^ v[12];
+    h[5] ^= v[5] ^ v[13];
+    h[6] ^= v[6] ^ v[14];
+    h[7] ^= v[7] ^ v[15];
 }
 
 pub struct State {
