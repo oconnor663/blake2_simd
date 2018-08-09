@@ -1,6 +1,9 @@
+#[macro_use]
+extern crate arrayref;
 extern crate byteorder;
 
 use byteorder::{ByteOrder, LittleEndian};
+use std::cmp;
 
 type Digest = [u8; OUTBYTES];
 
@@ -117,18 +120,37 @@ impl State {
         }
     }
 
+    fn fill_buf(&mut self, input: &mut &[u8]) {
+        let take = cmp::min(BLOCKBYTES - self.buflen, input.len());
+        self.buf[self.buflen..self.buflen + take].copy_from_slice(&input[..take]);
+        self.buflen += take;
+        self.count += take as u128;
+        *input = &input[take..];
+    }
+
     pub fn update(&mut self, mut input: &[u8]) {
-        while !input.is_empty() {
-            if self.buflen == BLOCKBYTES {
+        // If we have a partial buffer, try to complete it. If we complete it and there's more
+        // input waiting (so we know we don't need to finalize), compress it.
+        if self.buflen > 0 {
+            self.fill_buf(&mut input);
+            if !input.is_empty() {
                 compress(&mut self.h, &self.buf, self.count, false);
                 self.buflen = 0;
             }
-            let take = (BLOCKBYTES - self.buflen).min(input.len());
-            self.buf[self.buflen..self.buflen + take].copy_from_slice(&input[..take]);
-            self.buflen += take;
-            self.count += take as u128;
-            input = &input[take..];
         }
+        // If there's more than a block of input left, compress it directly instead of buffering it.
+        while input.len() > BLOCKBYTES {
+            self.count += BLOCKBYTES as u128;
+            compress(
+                &mut self.h,
+                array_ref!(input, 0, BLOCKBYTES),
+                self.count,
+                false,
+            );
+            input = &input[BLOCKBYTES..];
+        }
+        // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
+        self.fill_buf(&mut input);
     }
 
     pub fn finalize(&mut self) -> Digest {

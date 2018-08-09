@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Jack O'Connor <oconnor663@gmail.com>"]
 
 [dependencies]
+arrayref = "0.3.4"
 byteorder = { version = "1.2.4", default-features = false }
 
 [dev-dependencies]
