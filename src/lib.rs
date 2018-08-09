@@ -79,17 +79,15 @@ fn round(r: usize, m: &[u64; 16], v: &mut [u64; 16]) {
 // with zero bytes in the final block. `count` is the number of bytes fed so
 // far, including in this call, though not including padding in the final call.
 // `finalize` is set to true only in the final call.
-fn compress(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, finalize: bool) {
+fn compress(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, lastblock: u64) {
     // Initialize the compression state.
     let mut v = [0; 16];
     v[..8].copy_from_slice(h);
     v[8..].copy_from_slice(&IV);
     v[12] ^= count as u64;
     v[13] ^= (count >> 64) as u64;
-    if finalize {
-        v[14] ^= !0;
-        // v[15] would be the last node flag.
-    }
+    v[14] ^= lastblock;
+    // v[15] would be the last node flag.
 
     // Parse the message bytes as ints in little endian order.
     let mut m = [0; 16];
@@ -149,19 +147,14 @@ impl State {
         if self.buflen > 0 {
             self.fill_buf(&mut input);
             if !input.is_empty() {
-                compress(&mut self.h, &self.buf, self.count, false);
+                compress(&mut self.h, &self.buf, self.count, 0);
                 self.buflen = 0;
             }
         }
         // If there's more than a block of input left, compress it directly instead of buffering it.
         while input.len() > BLOCKBYTES {
             self.count += BLOCKBYTES as u128;
-            compress(
-                &mut self.h,
-                array_ref!(input, 0, BLOCKBYTES),
-                self.count,
-                false,
-            );
+            compress(&mut self.h, array_ref!(input, 0, BLOCKBYTES), self.count, 0);
             input = &input[BLOCKBYTES..];
         }
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
@@ -172,7 +165,7 @@ impl State {
         for i in self.buflen..BLOCKBYTES {
             self.buf[i] = 0;
         }
-        compress(&mut self.h, &self.buf, self.count, true);
+        compress(&mut self.h, &self.buf, self.count, !0);
         let mut out = [0; OUTBYTES];
         LittleEndian::write_u64_into(&self.h, &mut out);
         out
