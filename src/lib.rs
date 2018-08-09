@@ -57,14 +57,16 @@ fn g(v: &mut [u64; 16], a: usize, b: usize, c: usize, d: usize, x: u64, y: u64) 
 // with zero bytes in the final block. `count` is the number of bytes fed so
 // far, including in this call, though not including padding in the final call.
 // `finalize` is set to true only in the final call.
-fn compress(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u64, finalize: bool) {
+fn compress(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, finalize: bool) {
     // Initialize the compression state.
     let mut v = [0; 16];
     v[..8].copy_from_slice(h);
     v[8..].copy_from_slice(&IV);
-    v[12] ^= count;
+    v[12] ^= count as u64;
+    v[13] ^= (count >> 64) as u64;
     if finalize {
         v[14] ^= !0;
+        // v[15] would be the last node flag.
     }
 
     // Parse the message bytes as ints in little endian order.
@@ -97,7 +99,7 @@ pub struct State {
     h: [u64; 8],
     buf: [u8; BLOCKBYTES],
     buflen: usize,
-    count: u64,
+    count: u128,
 }
 
 impl State {
@@ -124,7 +126,7 @@ impl State {
             let take = (BLOCKBYTES - self.buflen).min(input.len());
             self.buf[self.buflen..self.buflen + take].copy_from_slice(&input[..take]);
             self.buflen += take;
-            self.count += take as u64;
+            self.count += take as u128;
             input = &input[take..];
         }
     }
