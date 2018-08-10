@@ -53,13 +53,3 @@ fn test_two_times_five_hundred() {
         "1ee4e51ecab5210a518f26150e882627ec839967f19d763e1508b12cfefed14858f6a1c9d1f969bc224dc9440f5a6955277e755b9c513f9ba4421c5e50c8d787",
     );
 }
-
-#[test]
-fn test_bench_compress() {
-    let expected = blake2b(&[0; BLOCKBYTES + 1]);
-    let mut state = State::new();
-    state._bench_compress(&[0; BLOCKBYTES]);
-    state.update(&[0]);
-    let found = state.finalize();
-    assert_eq!(expected[..], found[..]);
-}

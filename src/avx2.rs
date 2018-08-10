@@ -114,7 +114,7 @@ unsafe fn blake2b_undiag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, 
 // array_ref triggers unused_unsafe (https://github.com/droundy/arrayref/pull/14)
 #[allow(unused_unsafe)]
 #[target_feature(enable = "avx2")]
-unsafe fn compress_unsafe(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, lastblock: u64) {
+pub unsafe fn compress(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, lastblock: u64) {
     unsafe {
         let mut a = load_256_unaligned(array_ref!(h, 0, 4));
         let mut b = load_256_unaligned(array_ref!(h, 4, 4));
@@ -378,8 +378,4 @@ unsafe fn compress_unsafe(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128,
         store_256_unaligned(array_mut_ref!(h, 0, 4), a);
         store_256_unaligned(array_mut_ref!(h, 4, 4), b);
     }
-}
-
-pub fn compress(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, lastblock: u64) {
-    unsafe { compress_unsafe(h, msg, count, lastblock) }
 }

@@ -5,8 +5,12 @@ extern crate byteorder;
 use byteorder::{ByteOrder, LittleEndian};
 use std::cmp;
 
-mod avx2;
-mod portable;
+// These modules are only pub for benchmarks. Their API isn't stable.
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[doc(hidden)]
+pub mod avx2;
+#[doc(hidden)]
+pub mod portable;
 
 #[cfg(test)]
 mod test;
@@ -66,14 +70,14 @@ impl State {
         if self.buflen > 0 {
             self.fill_buf(&mut input);
             if !input.is_empty() {
-                avx2::compress(&mut self.h, &self.buf, self.count, 0);
+                compress(&mut self.h, &self.buf, self.count, 0);
                 self.buflen = 0;
             }
         }
         // If there's more than a block of input left, compress it directly instead of buffering it.
         while input.len() > BLOCKBYTES {
             self.count += BLOCKBYTES as u128;
-            avx2::compress(&mut self.h, array_ref!(input, 0, BLOCKBYTES), self.count, 0);
+            compress(&mut self.h, array_ref!(input, 0, BLOCKBYTES), self.count, 0);
             input = &input[BLOCKBYTES..];
         }
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
@@ -84,27 +88,21 @@ impl State {
         for i in self.buflen..BLOCKBYTES {
             self.buf[i] = 0;
         }
-        avx2::compress(&mut self.h, &self.buf, self.count, !0);
+        compress(&mut self.h, &self.buf, self.count, !0);
         let mut out = [0; OUTBYTES];
         LittleEndian::write_u64_into(&self.h, &mut out);
         out
     }
+}
 
-    #[doc(hidden)]
-    pub fn _bench_compress(&mut self, block: &[u8; BLOCKBYTES]) {
-        // This assumes that the current buffer is empty, and that more input will follow to be
-        // properly finalized.
-        self.count += BLOCKBYTES as u128;
-        portable::compress(&mut self.h, block, self.count, 0);
+fn compress(h: &mut [u64; 8], block: &[u8; BLOCKBYTES], count: u128, lastblock: u64) {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        if is_x86_feature_detected!("avx2") {
+            return unsafe { avx2::compress(h, block, count, lastblock) };
+        }
     }
-
-    #[doc(hidden)]
-    pub fn _bench_compress_simd(&mut self, block: &[u8; BLOCKBYTES]) {
-        // This assumes that the current buffer is empty, and that more input will follow to be
-        // properly finalized.
-        self.count += BLOCKBYTES as u128;
-        avx2::compress(&mut self.h, block, self.count, 0);
-    }
+    portable::compress(h, block, count, lastblock)
 }
 
 pub fn blake2b(input: &[u8]) -> Digest {

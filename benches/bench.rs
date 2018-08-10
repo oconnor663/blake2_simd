@@ -24,15 +24,21 @@ fn blake2b_1mb(b: &mut Bencher) {
 }
 
 #[bench]
-fn blake2b_compress(b: &mut Bencher) {
-    b.bytes = blake2b_simd::BLOCKBYTES as u64;
-    let mut state = blake2b_simd::State::new();
-    b.iter(|| state._bench_compress(&[0; blake2b_simd::BLOCKBYTES]));
+fn blake2b_compress_portable(b: &mut Bencher) {
+    let input = &[0; blake2b_simd::BLOCKBYTES];
+    b.bytes = input.len() as u64;
+    let mut h = [0; 8];
+    b.iter(|| blake2b_simd::portable::compress(&mut h, input, 0, 0));
 }
 
 #[bench]
-fn blake2b_compress_simd(b: &mut Bencher) {
-    b.bytes = blake2b_simd::BLOCKBYTES as u64;
-    let mut state = blake2b_simd::State::new();
-    b.iter(|| state._bench_compress_simd(&[0; blake2b_simd::BLOCKBYTES]));
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn blake2b_compress_avx2(b: &mut Bencher) {
+    if !is_x86_feature_detected!("avx2") {
+        return;
+    }
+    let input = &[0; blake2b_simd::BLOCKBYTES];
+    b.bytes = input.len() as u64;
+    let mut h = [0; 8];
+    b.iter(|| unsafe { blake2b_simd::avx2::compress(&mut h, input, 0, 0) });
 }
