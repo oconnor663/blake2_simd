@@ -4,30 +4,28 @@ use BLOCKBYTES;
 use IV;
 
 #[inline(always)]
-fn load_256_unaligned(mem_addr: &[u64; 4]) -> __m256i {
-    unsafe { _mm256_loadu_si256(mem_addr.as_ptr() as *const __m256i) }
+unsafe fn load_256_unaligned(mem_addr: &[u64; 4]) -> __m256i {
+    _mm256_loadu_si256(mem_addr.as_ptr() as *const __m256i)
 }
 
 #[inline(always)]
-fn store_256_unaligned(mem_addr: &mut [u64; 4], a: __m256i) {
-    unsafe {
-        _mm256_storeu_si256(mem_addr.as_mut_ptr() as *mut __m256i, a);
-    }
+unsafe fn store_256_unaligned(mem_addr: &mut [u64; 4], a: __m256i) {
+    _mm256_storeu_si256(mem_addr.as_mut_ptr() as *mut __m256i, a);
 }
 
 #[inline(always)]
-fn load_128_unaligned(mem_addr: &[u8; 16]) -> __m128i {
-    unsafe { _mm_loadu_si128(mem_addr.as_ptr() as *const __m128i) }
+unsafe fn load_128_unaligned(mem_addr: &[u8; 16]) -> __m128i {
+    _mm_loadu_si128(mem_addr.as_ptr() as *const __m128i)
 }
 
 #[inline(always)]
-fn add(a: __m256i, b: __m256i) -> __m256i {
-    unsafe { _mm256_add_epi64(a, b) }
+unsafe fn add(a: __m256i, b: __m256i) -> __m256i {
+    _mm256_add_epi64(a, b)
 }
 
 #[inline(always)]
-fn xor(a: __m256i, b: __m256i) -> __m256i {
-    unsafe { _mm256_xor_si256(a, b) }
+unsafe fn xor(a: __m256i, b: __m256i) -> __m256i {
+    _mm256_xor_si256(a, b)
 }
 
 // Adapted from https://github.com/rust-lang-nursery/stdsimd/pull/479.
@@ -38,39 +36,35 @@ macro_rules! _MM_SHUFFLE {
 }
 
 #[inline(always)]
-fn rot32(x: __m256i) -> __m256i {
-    unsafe { _mm256_shuffle_epi32(x, _MM_SHUFFLE!(2, 3, 0, 1)) }
+unsafe fn rot32(x: __m256i) -> __m256i {
+    _mm256_shuffle_epi32(x, _MM_SHUFFLE!(2, 3, 0, 1))
 }
 
 #[inline(always)]
-fn rot24(x: __m256i) -> __m256i {
-    unsafe {
-        let rotate24 = _mm256_setr_epi8(
-            3, 4, 5, 6, 7, 0, 1, 2, 11, 12, 13, 14, 15, 8, 9, 10, 3, 4, 5, 6, 7, 0, 1, 2, 11, 12,
-            13, 14, 15, 8, 9, 10,
-        );
-        _mm256_shuffle_epi8(x, rotate24)
-    }
+unsafe fn rot24(x: __m256i) -> __m256i {
+    let rotate24 = _mm256_setr_epi8(
+        3, 4, 5, 6, 7, 0, 1, 2, 11, 12, 13, 14, 15, 8, 9, 10, 3, 4, 5, 6, 7, 0, 1, 2, 11, 12, 13,
+        14, 15, 8, 9, 10,
+    );
+    _mm256_shuffle_epi8(x, rotate24)
 }
 
 #[inline(always)]
-fn rot16(x: __m256i) -> __m256i {
-    unsafe {
-        let rotate16 = _mm256_setr_epi8(
-            2, 3, 4, 5, 6, 7, 0, 1, 10, 11, 12, 13, 14, 15, 8, 9, 2, 3, 4, 5, 6, 7, 0, 1, 10, 11,
-            12, 13, 14, 15, 8, 9,
-        );
-        _mm256_shuffle_epi8(x, rotate16)
-    }
+unsafe fn rot16(x: __m256i) -> __m256i {
+    let rotate16 = _mm256_setr_epi8(
+        2, 3, 4, 5, 6, 7, 0, 1, 10, 11, 12, 13, 14, 15, 8, 9, 2, 3, 4, 5, 6, 7, 0, 1, 10, 11, 12,
+        13, 14, 15, 8, 9,
+    );
+    _mm256_shuffle_epi8(x, rotate16)
 }
 
 #[inline(always)]
-fn rot63(x: __m256i) -> __m256i {
-    unsafe { _mm256_or_si256(_mm256_srli_epi64(x, 63), add(x, x)) }
+unsafe fn rot63(x: __m256i) -> __m256i {
+    _mm256_or_si256(_mm256_srli_epi64(x, 63), add(x, x))
 }
 
 #[inline(always)]
-fn blake2b_g1_v1(
+unsafe fn blake2b_g1_v1(
     a: &mut __m256i,
     b: &mut __m256i,
     c: &mut __m256i,
@@ -87,7 +81,7 @@ fn blake2b_g1_v1(
 }
 
 #[inline(always)]
-fn blake2b_g2_v1(
+unsafe fn blake2b_g2_v1(
     a: &mut __m256i,
     b: &mut __m256i,
     c: &mut __m256i,
@@ -104,26 +98,23 @@ fn blake2b_g2_v1(
 }
 
 #[inline(always)]
-fn blake2b_diag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, d: &mut __m256i) {
-    unsafe {
-        *d = _mm256_permute4x64_epi64(*d, _MM_SHUFFLE!(2, 1, 0, 3));
-        *c = _mm256_permute4x64_epi64(*c, _MM_SHUFFLE!(1, 0, 3, 2));
-        *b = _mm256_permute4x64_epi64(*b, _MM_SHUFFLE!(0, 3, 2, 1));
-    }
+unsafe fn blake2b_diag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, d: &mut __m256i) {
+    *d = _mm256_permute4x64_epi64(*d, _MM_SHUFFLE!(2, 1, 0, 3));
+    *c = _mm256_permute4x64_epi64(*c, _MM_SHUFFLE!(1, 0, 3, 2));
+    *b = _mm256_permute4x64_epi64(*b, _MM_SHUFFLE!(0, 3, 2, 1));
 }
 
 #[inline(always)]
-fn blake2b_undiag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, d: &mut __m256i) {
-    unsafe {
-        *d = _mm256_permute4x64_epi64(*d, _MM_SHUFFLE!(0, 3, 2, 1));
-        *c = _mm256_permute4x64_epi64(*c, _MM_SHUFFLE!(1, 0, 3, 2));
-        *b = _mm256_permute4x64_epi64(*b, _MM_SHUFFLE!(2, 1, 0, 3));
-    }
+unsafe fn blake2b_undiag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, d: &mut __m256i) {
+    *d = _mm256_permute4x64_epi64(*d, _MM_SHUFFLE!(0, 3, 2, 1));
+    *c = _mm256_permute4x64_epi64(*c, _MM_SHUFFLE!(1, 0, 3, 2));
+    *b = _mm256_permute4x64_epi64(*b, _MM_SHUFFLE!(2, 1, 0, 3));
 }
 
 // array_ref triggers unused_unsafe (https://github.com/droundy/arrayref/pull/14)
 #[allow(unused_unsafe)]
-pub fn compress(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, lastblock: u64) {
+#[target_feature(enable = "avx2")]
+unsafe fn compress_unsafe(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, lastblock: u64) {
     unsafe {
         let mut a = load_256_unaligned(array_ref!(h, 0, 4));
         let mut b = load_256_unaligned(array_ref!(h, 4, 4));
@@ -387,4 +378,8 @@ pub fn compress(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, lastblock
         store_256_unaligned(array_mut_ref!(h, 0, 4), a);
         store_256_unaligned(array_mut_ref!(h, 4, 4), b);
     }
+}
+
+pub fn compress(h: &mut [u64; 8], msg: &[u8; BLOCKBYTES], count: u128, lastblock: u64) {
+    unsafe { compress_unsafe(h, msg, count, lastblock) }
 }
