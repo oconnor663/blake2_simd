@@ -25,3 +25,9 @@ fn blake2b_compress(b: &mut Bencher) {
     let mut state = blake2b_simd::State::new();
     b.iter(|| state._bench_compress(&[0; blake2b_simd::BLOCKBYTES]));
 }
+
+#[bench]
+fn blake2b_compress_simd(b: &mut Bencher) {
+    let mut state = blake2b_simd::State::new();
+    b.iter(|| state._bench_compress_simd(&[0; blake2b_simd::BLOCKBYTES]));
+}
