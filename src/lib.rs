@@ -21,10 +21,14 @@ mod portable;
 #[cfg(test)]
 mod test;
 
-pub const BLOCKBYTES: usize = 128;
+const BLOCKBYTES: usize = 128;
+/// The max hash length.
 pub const OUTBYTES: usize = 64;
+/// The max key length.
 pub const KEYBYTES: usize = 64;
+/// The max salt length.
 pub const SALTBYTES: usize = 16;
+/// The max personalization length.
 pub const PERSONALBYTES: usize = 16;
 
 const IV: [u64; 8] = [
@@ -45,7 +49,7 @@ type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64
 type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
 
-/// Compute the BLAKE2b hash of a `&[u8]` slice. This is a small wrapper around `State`.
+/// Compute the BLAKE2b hash of a slice of bytes, using default parameters.
 pub fn blake2b(input: &[u8]) -> Hash {
     let mut state = State::new();
     state.update(input);
@@ -60,6 +64,14 @@ pub fn blake2b(input: &[u8]) -> Hash {
 ///
 /// Several of the parameters have a valid range defined in the spec and documented below. Trying
 /// to set an invalid parameter will panic.
+///
+/// # Example
+///
+/// ```
+/// let mut params = blake2b_simd::Params::default();
+/// params.set_hash_length(32);
+/// let mut state = blake2b_simd::State::with_params(&params);
+/// ```
 #[derive(Clone)]
 pub struct Params {
     hash_length: u8,
@@ -76,7 +88,7 @@ pub struct Params {
 }
 
 impl Params {
-    pub fn words(&self) -> StateWords {
+    fn words(&self) -> StateWords {
         let mut words = [0; 8];
         words[0] ^= self.hash_length as u64;
         words[0] ^= (self.key_length as u64) << 8;
@@ -94,24 +106,10 @@ impl Params {
         words
     }
 
-    pub fn key_block(&self) -> Option<[u8; BLOCKBYTES]> {
-        if self.key_length > 0 {
-            let mut block = [0; BLOCKBYTES];
-            block[..KEYBYTES].copy_from_slice(&self.key);
-            Some(block)
-        } else {
-            None
-        }
-    }
-
-    pub fn hash_length(&self) -> u8 {
-        self.hash_length
-    }
-
-    /// Set the length of the final hash. The max is `OUTBYTES` (64). Apart from controlling the
+    /// Set the length of the final hash, from 1 to `OUTBYTES` (64). Apart from controlling the
     /// length of the final `Hash`, this is also associated data, and changing it will result in a
     /// totally different hash.
-    pub fn set_hash_length(&mut self, length: usize) {
+    pub fn hash_length(&mut self, length: usize) {
         assert!(
             1 <= length && length <= OUTBYTES,
             "Bad hash length: {}",
@@ -122,7 +120,7 @@ impl Params {
 
     /// Use a secret key, so that BLAKE2b acts as a MAC. The maximum key length is `KEYBYTES` (64).
     /// An empty key is equivalent to having no key at all.
-    pub fn set_key(&mut self, key: &[u8]) {
+    pub fn key(&mut self, key: &[u8]) {
         assert!(key.len() <= KEYBYTES, "Bad key length: {}", key.len());
         self.key_length = key.len() as u8;
         self.key[..key.len()].copy_from_slice(key);
@@ -130,7 +128,7 @@ impl Params {
 
     /// At most `SALTBYTES` (16). Shorter salts are padded with null bytes. An empty salt is
     /// equivalent to having no salt at all.
-    pub fn set_salt(&mut self, salt: &[u8]) {
+    pub fn salt(&mut self, salt: &[u8]) {
         assert!(salt.len() <= SALTBYTES, "Bad salt length: {}", salt.len());
         self.salt = [0; SALTBYTES];
         self.salt[..salt.len()].copy_from_slice(salt);
@@ -138,7 +136,7 @@ impl Params {
 
     /// At most `PERSONALBYTES` (16). Shorter personalizations are padded with null bytes. An empty
     /// personalization is equivalent to having no personalization at all.
-    pub fn set_personal(&mut self, personalization: &[u8]) {
+    pub fn personal(&mut self, personalization: &[u8]) {
         assert!(
             personalization.len() <= PERSONALBYTES,
             "Bad personalization length: {}",
@@ -149,33 +147,33 @@ impl Params {
     }
 
     /// From 0 (meaning unlimited) to 255. The default is 1 (meaning sequential).
-    pub fn set_fanout(&mut self, fanout: u8) {
+    pub fn fanout(&mut self, fanout: u8) {
         self.fanout = fanout;
     }
 
     /// From 1 (the default, meaning sequential) to 255 (meaning unlimited).
-    pub fn set_max_depth(&mut self, depth: u8) {
+    pub fn max_depth(&mut self, depth: u8) {
         assert!(depth != 0, "Bad max depth: {}", depth);
         self.max_depth = depth;
     }
 
     /// From 0 (the default, meaning unlimited or sequential) to `2^32 - 1`.
-    pub fn set_max_leaf_length(&mut self, length: u32) {
+    pub fn max_leaf_length(&mut self, length: u32) {
         self.max_leaf_length = length;
     }
 
     /// From 0 (the default, meaning first, leftmost, leaf, or sequential) to `2^64 - 1`.
-    pub fn set_node_offset(&mut self, offset: u64) {
+    pub fn node_offset(&mut self, offset: u64) {
         self.node_offset = offset;
     }
 
     /// From 0 (the default, meaning leaf or sequential) to 255.
-    pub fn set_node_depth(&mut self, depth: u8) {
+    pub fn node_depth(&mut self, depth: u8) {
         self.node_depth = depth;
     }
 
     /// From 0 (the default, meaning sequential) to `OUTBYTES` (64).
-    pub fn set_inner_hash_length(&mut self, length: usize) {
+    pub fn inner_hash_length(&mut self, length: usize) {
         assert!(length <= OUTBYTES, "Bad inner hash length: {}", length);
         self.inner_hash_length = length as u8;
     }
@@ -259,9 +257,11 @@ impl State {
             buflen: 0,
             count: 0,
             last_node: false,
-            hash_length: params.hash_length(),
+            hash_length: params.hash_length,
         };
-        if let Some(key_block) = params.key_block() {
+        if params.key_length > 0 {
+            let mut key_block = [0; BLOCKBYTES];
+            key_block[..KEYBYTES].copy_from_slice(&params.key);
             state.update(&key_block);
         }
         state
@@ -377,9 +377,7 @@ fn default_compress_impl() -> CompressFn {
     portable::compress
 }
 
-/// A finalized BLAKE2 hash.
-///
-/// `Hash` supports constant-time equality checks, for cases where BLAKE2 is being used as a MAC.
+/// A finalized BLAKE2 hash, with constant-time equality.
 #[derive(Clone, Copy)]
 pub struct Hash {
     bytes: [u8; OUTBYTES],
