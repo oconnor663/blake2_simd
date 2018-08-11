@@ -1,9 +1,14 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(feature = "std")]
+extern crate core;
+
 #[macro_use]
 extern crate arrayref;
 extern crate byteorder;
 
 use byteorder::{ByteOrder, LittleEndian};
-use std::cmp;
+use core::cmp;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod avx2;
@@ -108,13 +113,37 @@ impl State {
     }
 }
 
+#[cfg(feature = "std")]
+impl std::io::Write for State {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.update(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[allow(unreachable_code)]
 fn default_compress_impl() -> CompressFn {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    // If AVX2 is enabled at the top level for the whole build (using something like
+    // RUSTFLAGS="-C target-cpu=native"), return the AVX2 implementation without doing dynamic
+    // feature detection. This isn't common, but it's the only way to use AVX2 with no_std, at
+    // least until more features get stabilized in the future.
+    #[cfg(all(target_feature = "avx2", any(target_arch = "x86", target_arch = "x86_64")))]
+    {
+        return avx2::compress;
+    }
+    // Do dynamic feature detection at runtime, and use AVX2 if the current CPU supports it. This
+    // is what the default build does. Note that no_std doesn't currently support dynamic detection.
+    #[cfg(all(feature = "std", any(target_arch = "x86", target_arch = "x86_64")))]
     {
         if is_x86_feature_detected!("avx2") {
             return avx2::compress;
         }
     }
+    // On other platforms (non-x86 or pre-AVX2) use the portable implementation.
     portable::compress
 }
 

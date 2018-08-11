@@ -53,3 +53,17 @@ fn test_two_times_five_hundred() {
         "1ee4e51ecab5210a518f26150e882627ec839967f19d763e1508b12cfefed14858f6a1c9d1f969bc224dc9440f5a6955277e755b9c513f9ba4421c5e50c8d787",
     );
 }
+
+#[cfg(feature = "std")]
+#[test]
+fn test_write() {
+    use std::io::prelude::*;
+
+    let mut state = State::new();
+    state.write_all(&[0; 1000]).unwrap();
+    let hash = state.finalize();
+    eq(
+        &hash,
+        "1ee4e51ecab5210a518f26150e882627ec839967f19d763e1508b12cfefed14858f6a1c9d1f969bc224dc9440f5a6955277e755b9c513f9ba4421c5e50c8d787",
+    );
+}
