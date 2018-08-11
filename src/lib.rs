@@ -190,6 +190,27 @@ impl Default for Params {
     }
 }
 
+impl fmt::Debug for Params {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Params {{ digest_length: {}, key_length: {}, salt: {:?}, personal: {:?}, fanout: {}, \
+             max_depth: {}, max_leaf_length: {}, node_offset: {}, node_depth: {}, inner_hash_length: {} }}",
+            self.digest_length,
+            // NB: Don't print the key itself. Debug shouldn't leak secrets.
+            self.key_length,
+            &self.salt,
+            &self.personal,
+            self.fanout,
+            self.max_depth,
+            self.max_leaf_length,
+            self.node_offset,
+            self.node_depth,
+            self.inner_hash_length,
+        )
+    }
+}
+
 #[derive(Clone)]
 pub struct State {
     h: StateWords,
@@ -295,6 +316,7 @@ impl std::io::Write for State {
 
 impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // NB: Don't print the words. Leaking them would allow length extension.
         write!(
             f,
             "State {{ count: {}, digest_length: {}, last_node: {} }}",
