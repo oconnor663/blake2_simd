@@ -45,15 +45,23 @@ type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64
 type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
 
-pub fn blake2b(input: &[u8]) -> Digest {
+pub fn blake2b(input: &[u8]) -> Hash {
     let mut state = State::new();
     state.update(input);
     state.finalize()
 }
 
+/// A parameter builder for `State` that exposes all the various BLAKE2 features.
+///
+/// Apart from `hash_length`, which controls the length of the final `Hash`, all of these
+/// parameters are just associated data that gets mixed with the input. For all the details, see
+/// [the BLAKE2 spec](https://blake2.net/blake2.pdf).
+///
+/// Several of the parameters have a valid range defined in the spec and documented below. Trying
+/// to set an invalid parameter will panic.
 #[derive(Clone)]
 pub struct Params {
-    digest_length: u8,
+    hash_length: u8,
     key_length: u8,
     key: [u8; KEYBYTES],
     salt: [u8; SALTBYTES],
@@ -68,8 +76,8 @@ pub struct Params {
 
 impl Params {
     pub fn words(&self) -> StateWords {
-        let mut words = IV;
-        words[0] ^= self.digest_length as u64;
+        let mut words = [0; 8];
+        words[0] ^= self.hash_length as u64;
         words[0] ^= (self.key_length as u64) << 8;
         words[0] ^= (self.fanout as u64) << 16;
         words[0] ^= (self.max_depth as u64) << 24;
@@ -95,19 +103,20 @@ impl Params {
         }
     }
 
-    pub fn digest_length(&self) -> u8 {
-        self.digest_length
+    pub fn hash_length(&self) -> u8 {
+        self.hash_length
     }
 
-    /// Set the length of the final hash. This is associated data too, so changing the length will
-    /// give a totally different hash. The maximum digest length is `OUTBYTES` (64).
-    pub fn set_digest_length(&mut self, length: usize) {
+    /// Set the length of the final hash. The max is `OUTBYTES` (64). Apart from controlling the
+    /// length of the final `Hash`, this is also associated data, and changing it will result in a
+    /// totally different hash.
+    pub fn set_hash_length(&mut self, length: usize) {
         assert!(
             1 <= length && length <= OUTBYTES,
-            "Bad digest length: {}",
+            "Bad hash length: {}",
             length
         );
-        self.digest_length = length as u8;
+        self.hash_length = length as u8;
     }
 
     /// Use a secret key, so that BLAKE2b acts as a MAC. The maximum key length is `KEYBYTES` (64).
@@ -174,7 +183,7 @@ impl Params {
 impl Default for Params {
     fn default() -> Self {
         Self {
-            digest_length: OUTBYTES as u8,
+            hash_length: OUTBYTES as u8,
             key_length: 0,
             key: [0; KEYBYTES],
             salt: [0; SALTBYTES],
@@ -194,9 +203,9 @@ impl fmt::Debug for Params {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Params {{ digest_length: {}, key_length: {}, salt: {:?}, personal: {:?}, fanout: {}, \
+            "Params {{ hash_length: {}, key_length: {}, salt: {:?}, personal: {:?}, fanout: {}, \
              max_depth: {}, max_leaf_length: {}, node_offset: {}, node_depth: {}, inner_hash_length: {} }}",
-            self.digest_length,
+            self.hash_length,
             // NB: Don't print the key itself. Debug shouldn't leak secrets.
             self.key_length,
             &self.salt,
@@ -219,7 +228,7 @@ pub struct State {
     count: u128,
     compress_fn: CompressFn,
     last_node: bool,
-    digest_length: u8,
+    hash_length: u8,
 }
 
 impl State {
@@ -228,14 +237,24 @@ impl State {
     }
 
     pub fn with_params(params: &Params) -> Self {
+        let param_words = params.words();
         let mut state = Self {
-            h: params.words(),
+            h: [
+                IV[0] ^ param_words[0],
+                IV[1] ^ param_words[1],
+                IV[2] ^ param_words[2],
+                IV[3] ^ param_words[3],
+                IV[4] ^ param_words[4],
+                IV[5] ^ param_words[5],
+                IV[6] ^ param_words[6],
+                IV[7] ^ param_words[7],
+            ],
             compress_fn: default_compress_impl(),
             buf: [0; BLOCKBYTES],
             buflen: 0,
             count: 0,
             last_node: false,
-            digest_length: params.digest_length(),
+            hash_length: params.hash_length(),
         };
         if let Some(key_block) = params.key_block() {
             state.update(&key_block);
@@ -282,9 +301,9 @@ impl State {
         self.fill_buf(&mut input);
     }
 
-    /// Finish the final hashing step, and return a `Digest`. Calling this multiple times will give
+    /// Finish the final hashing step, and return a `Hash`. Calling this multiple times will give
     /// the same answer. It's also allowed to `update` with more input after calling this.
-    pub fn finalize(&mut self) -> Digest {
+    pub fn finalize(&mut self) -> Hash {
         for i in self.buflen..BLOCKBYTES {
             self.buf[i] = 0;
         }
@@ -293,12 +312,12 @@ impl State {
         unsafe {
             (self.compress_fn)(&mut h_copy, &self.buf, self.count, !0, last_node);
         }
-        let mut digest = Digest {
+        let mut hash = Hash {
             bytes: [0; OUTBYTES],
-            len: self.digest_length,
+            len: self.hash_length,
         };
-        LittleEndian::write_u64_into(&h_copy, &mut digest.bytes);
-        digest
+        LittleEndian::write_u64_into(&h_copy, &mut hash.bytes);
+        hash
     }
 }
 
@@ -319,8 +338,8 @@ impl fmt::Debug for State {
         // NB: Don't print the words. Leaking them would allow length extension.
         write!(
             f,
-            "State {{ count: {}, digest_length: {}, last_node: {} }}",
-            self.count, self.digest_length, self.last_node,
+            "State {{ count: {}, hash_length: {}, last_node: {} }}",
+            self.count, self.hash_length, self.last_node,
         )
     }
 }
@@ -349,19 +368,19 @@ fn default_compress_impl() -> CompressFn {
 
 /// A finalized BLAKE2 hash.
 ///
-/// `Digest` supports constant-time equality checks, for cases where BLAKE2 is being used as a MAC.
+/// `Hash` supports constant-time equality checks, for cases where BLAKE2 is being used as a MAC.
 #[derive(Clone, Copy)]
-pub struct Digest {
+pub struct Hash {
     bytes: [u8; OUTBYTES],
     len: u8,
 }
 
-impl Digest {
+impl Hash {
     pub fn bytes(&self) -> &[u8] {
         &self.bytes[..self.len as usize]
     }
 
-    /// Convert the digest to a lowercase hexadecimal `String`. Requires `std`.
+    /// Convert the hash to a lowercase hexadecimal `String`. Requires `std`.
     pub fn hex(&self) -> ArrayString<[u8; 2 * OUTBYTES]> {
         let mut s = ArrayString::new();
         let table = b"0123456789abcdef";
@@ -373,25 +392,31 @@ impl Digest {
     }
 }
 
-/// This implementation is constant time, if the two digests are the same
-/// length.
-impl PartialEq for Digest {
-    fn eq(&self, other: &Digest) -> bool {
+/// This implementation is constant time, if the two hashes are the same length.
+impl PartialEq for Hash {
+    fn eq(&self, other: &Hash) -> bool {
         constant_time_eq::constant_time_eq(&self.bytes(), &other.bytes())
     }
 }
 
-impl Eq for Digest {}
+/// This implementation is constant time, if the slice is the same length as the hash.
+impl PartialEq<[u8]> for Hash {
+    fn eq(&self, other: &[u8]) -> bool {
+        constant_time_eq::constant_time_eq(&self.bytes(), other)
+    }
+}
 
-impl AsRef<[u8]> for Digest {
+impl Eq for Hash {}
+
+impl AsRef<[u8]> for Hash {
     fn as_ref(&self) -> &[u8] {
         self.bytes()
     }
 }
 
-impl fmt::Debug for Digest {
+impl fmt::Debug for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Digest(0x{})", self.hex())
+        write!(f, "Hash(0x{})", self.hex())
     }
 }
 
