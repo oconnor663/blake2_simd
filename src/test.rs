@@ -3,8 +3,8 @@ extern crate hex;
 use super::*;
 
 fn eq(h1: &Digest, s2: &str) {
-    let s1 = hex::encode(&h1[..]);
-    assert_eq!(s1, s2, "hash mismatch");
+    let s1 = h1.hex();
+    assert_eq!(&*s1, s2, "hash mismatch");
 }
 
 #[test]

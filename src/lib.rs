@@ -5,8 +5,11 @@ extern crate core;
 
 #[macro_use]
 extern crate arrayref;
+extern crate arrayvec;
 extern crate byteorder;
+extern crate constant_time_eq;
 
+use arrayvec::{ArrayString, ArrayVec};
 use byteorder::{ByteOrder, LittleEndian};
 use core::cmp;
 
@@ -38,9 +41,14 @@ const IV: [u64; 8] = [
 // implementation on a platform that doesn't support AVX2 is undefined behavior. That said, the
 // portable implementation is all safe code.
 type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64, lastnode: u64);
-type Digest = [u8; OUTBYTES];
 type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
+
+pub fn blake2b(input: &[u8]) -> Digest {
+    let mut state = State::new();
+    state.update(input);
+    state.finalize()
+}
 
 pub struct Params {
     words: StateWords,
@@ -234,7 +242,11 @@ impl State {
         }
         let mut out = [0; OUTBYTES];
         LittleEndian::write_u64_into(&self.h, &mut out);
-        out
+        let mut digest = Digest {
+            bytes: ArrayVec::from(out),
+        };
+        // TODO: TRUNCATE ACCORDINGLY
+        digest
     }
 }
 
@@ -272,11 +284,42 @@ fn default_compress_impl() -> CompressFn {
     portable::compress
 }
 
-pub fn blake2b(input: &[u8]) -> Digest {
-    let mut state = State::new();
-    state.update(input);
-    state.finalize()
+/// A finalized BLAKE2 hash.
+///
+/// `Digest` supports constant-time equality checks, for cases where BLAKE2 is
+/// being used as a MAC. It uses an
+/// [`ArrayVec`](https://docs.rs/arrayvec/0.4.6/arrayvec/struct.ArrayVec.html)
+/// to hold various digest lengths without needing to allocate on the heap.
+#[derive(Clone, Debug)]
+pub struct Digest {
+    // blake2b::OUTBYTES is the largest possible digest length for either algorithm.
+    pub bytes: ArrayVec<[u8; OUTBYTES]>,
 }
+
+impl Digest {
+    /// Convert the digest to a hexadecimal string. Because we know the maximum
+    /// length of the string in advance (`2 * OUTBYTES`), we can use an
+    /// [`ArrayString`](https://docs.rs/arrayvec/0.4.6/arrayvec/struct.ArrayString.html)
+    /// to avoid allocating.
+    pub fn hex(&self) -> ArrayString<[u8; 2 * OUTBYTES]> {
+        use core::fmt::Write;
+        let mut hexdigest = ArrayString::new();
+        for &b in &self.bytes {
+            write!(&mut hexdigest, "{:02x}", b).expect("too many bytes");
+        }
+        hexdigest
+    }
+}
+
+/// This implementation is constant time, if the two digests are the same
+/// length.
+impl PartialEq for Digest {
+    fn eq(&self, other: &Digest) -> bool {
+        constant_time_eq::constant_time_eq(&self.bytes, &other.bytes)
+    }
+}
+
+impl Eq for Digest {}
 
 // This module is pub for internal benchmarks only. Please don't use it.
 #[doc(hidden)]

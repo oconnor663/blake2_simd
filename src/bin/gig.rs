@@ -22,8 +22,5 @@ fn main() {
     let hash_time = Instant::now() - before;
     println!("hash {:?}", hash_time);
 
-    for b in &hash[..] {
-        print!("{:x}", b);
-    }
-    println!();
+    print!("{}", hash.hex());
 }

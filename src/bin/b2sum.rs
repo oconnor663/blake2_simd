@@ -10,11 +10,7 @@ fn main() {
     loop {
         let n = stdin.read(&mut buf).unwrap();
         if n == 0 {
-            let hash = state.finalize();
-            for b in hash.iter() {
-                print!("{:x}", b);
-            }
-            println!();
+            println!("{}", state.finalize().hex());
             return;
         }
         state.update(&buf[..n]);
