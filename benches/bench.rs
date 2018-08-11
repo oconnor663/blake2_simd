@@ -28,7 +28,7 @@ fn blake2b_avx2_compress(b: &mut Bencher) {
     let input = &[0; blake2b_simd::BLOCKBYTES];
     b.bytes = input.len() as u64;
     let mut h = [0; 8];
-    b.iter(|| unsafe { blake2b_simd::benchmarks::compress_avx2(&mut h, input, 0, 0) });
+    b.iter(|| unsafe { blake2b_simd::benchmarks::compress_avx2(&mut h, input, 0, 0, 0) });
 }
 
 #[bench]
@@ -60,5 +60,5 @@ fn blake2b_portable_compress(b: &mut Bencher) {
     let input = &[0; blake2b_simd::BLOCKBYTES];
     b.bytes = input.len() as u64;
     let mut h = [0; 8];
-    b.iter(|| blake2b_simd::benchmarks::compress_portable(&mut h, input, 0, 0));
+    b.iter(|| blake2b_simd::benchmarks::compress_portable(&mut h, input, 0, 0, 0));
 }

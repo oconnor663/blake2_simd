@@ -37,10 +37,124 @@ const IV: [u64; 8] = [
 // Safety note: The compression interface is unsafe in general, because calling the AVX2
 // implementation on a platform that doesn't support AVX2 is undefined behavior. That said, the
 // portable implementation is all safe code.
-type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64);
+type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64, lastnode: u64);
 type Digest = [u8; OUTBYTES];
 type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
+
+pub struct Params {
+    words: StateWords,
+    key: Option<[u8; KEYBYTES]>,
+}
+
+impl Params {
+    pub fn to_words(&self) -> StateWords {
+        self.words
+    }
+
+    pub fn to_key_block(&self) -> Option<[u8; BLOCKBYTES]> {
+        if let Some(ref key) = self.key {
+            let mut block = [0; BLOCKBYTES];
+            block[..KEYBYTES].copy_from_slice(key);
+            Some(block)
+        } else {
+            None
+        }
+    }
+
+    /// Set the length of the final hash. This is associated data too, so changing the length will
+    /// give a totally different hash. The maximum digest length is `OUTBYTES` (64).
+    pub fn digest_length(&mut self, length: usize) {
+        assert!(
+            1 <= length && length <= OUTBYTES,
+            "Bad digest length: {}",
+            length
+        );
+        self.words[0] ^= length as u64;
+    }
+
+    /// Use a secret key, so that BLAKE2b acts as a MAC. The maximum key length is `KEYBYTES` (64).
+    /// An empty key is equivalent to having no key at all.
+    pub fn key(&mut self, key: &[u8]) {
+        assert!(key.len() <= KEYBYTES, "Bad key length: {}", key.len());
+        self.words[0] ^= (key.len() as u64) << 8;
+        if key.len() > 0 {
+            let mut keybytes = [0; KEYBYTES];
+            keybytes[..key.len()].copy_from_slice(key);
+            self.key = Some(keybytes);
+        } else {
+            self.key = None;
+        }
+    }
+
+    /// From 0 (meaning unlimited) to 255. The default is 1 (meaning sequential).
+    pub fn fanout(&mut self, fanout: u8) {
+        self.words[0] ^= (fanout as u64) << 16;
+    }
+
+    /// From 1 (the default, meaning sequential) to 255 (meaning unlimited).
+    pub fn max_depth(&mut self, depth: u8) {
+        self.words[0] ^= (depth as u64) << 24;
+    }
+
+    /// From 0 (the default, meaning unlimited or sequential) to `2^32 - 1`.
+    pub fn max_leaf_length(&mut self, length: u32) {
+        self.words[0] ^= (length as u64) << 32;
+    }
+
+    /// From 0 (the default, meaning first, leftmost, leaf, or sequential) to `2^64 - 1`.
+    pub fn node_offset(&mut self, offset: u64) {
+        self.words[1] ^= offset;
+    }
+
+    /// From 0 (the default, meaning leaf or sequential) to 255.
+    pub fn node_depth(&mut self, depth: u8) {
+        self.words[2] ^= depth as u64;
+    }
+
+    /// From 0 (the default, meaning sequential) to `OUTBYTES` (64).
+    pub fn inner_hash_length(&mut self, length: usize) {
+        assert!(length <= OUTBYTES, "Bad inner hash length: {}", length);
+        self.words[2] ^= (length as u64) << 8;
+    }
+
+    /// At most `SALTBYTES` (16). Shorter salts are padded with null bytes. An empty salt is
+    /// equivalent to having no salt at all.
+    pub fn salt(&mut self, salt: &[u8]) {
+        assert!(salt.len() <= SALTBYTES, "Bad salt length: {}", salt.len());
+        let mut saltbytes = [0; SALTBYTES];
+        saltbytes[..salt.len()].copy_from_slice(salt);
+        self.words[4] ^= LittleEndian::read_u64(&saltbytes[..8]);
+        self.words[5] ^= LittleEndian::read_u64(&saltbytes[8..]);
+    }
+
+    /// At most `PERSONALBYTES` (16). Shorter personalizations are padded with null bytes. An empty
+    /// personalization is equivalent to having no personalization at all.
+    pub fn personalization(&mut self, personalization: &[u8]) {
+        assert!(
+            personalization.len() <= PERSONALBYTES,
+            "Bad personalization length: {}",
+            personalization.len()
+        );
+        let mut personalbytes = [0; PERSONALBYTES];
+        personalbytes[..personalization.len()].copy_from_slice(personalization);
+        self.words[6] ^= LittleEndian::read_u64(&personalbytes[..8]);
+        self.words[7] ^= LittleEndian::read_u64(&personalbytes[8..]);
+    }
+}
+
+impl Default for Params {
+    fn default() -> Params {
+        let mut params = Params {
+            words: IV,
+            key: None,
+        };
+        params.digest_length(OUTBYTES);
+        params.fanout(1);
+        params.max_depth(1);
+        params
+    }
+}
 
 pub struct State {
     h: StateWords,
@@ -48,22 +162,31 @@ pub struct State {
     buflen: usize,
     count: u128,
     compress_fn: CompressFn,
+    last_node: bool,
 }
 
 impl State {
     pub fn new() -> Self {
-        let mut h = IV;
-        // Mask in the digest length.
-        h[0] ^= OUTBYTES as u64;
-        // Mask in the fanout and depth default parameters.
-        h[0] ^= 0x01010000;
-        Self {
-            h,
+        Self::with_params(&Params::default())
+    }
+
+    pub fn with_params(params: &Params) -> Self {
+        let mut state = Self {
+            h: params.to_words(),
             compress_fn: default_compress_impl(),
             buf: [0; BLOCKBYTES],
             buflen: 0,
             count: 0,
+            last_node: false,
+        };
+        if let Some(key_block) = params.to_key_block() {
+            state.update(&key_block);
         }
+        state
+    }
+
+    pub fn set_last_node(&mut self, val: bool) {
+        self.last_node = val;
     }
 
     fn fill_buf(&mut self, input: &mut &[u8]) {
@@ -83,7 +206,7 @@ impl State {
             self.fill_buf(&mut input);
             if !input.is_empty() {
                 unsafe {
-                    (self.compress_fn)(&mut self.h, &self.buf, self.count, 0);
+                    (self.compress_fn)(&mut self.h, &self.buf, self.count, 0, 0);
                 }
                 self.buflen = 0;
             }
@@ -91,8 +214,9 @@ impl State {
         // If there's more than a block of input left, compress it directly instead of buffering it.
         while input.len() > BLOCKBYTES {
             self.count += BLOCKBYTES as u128;
+            let block = array_ref!(input, 0, BLOCKBYTES);
             unsafe {
-                (self.compress_fn)(&mut self.h, array_ref!(input, 0, BLOCKBYTES), self.count, 0);
+                (self.compress_fn)(&mut self.h, block, self.count, 0, 0);
             }
             input = &input[BLOCKBYTES..];
         }
@@ -104,8 +228,9 @@ impl State {
         for i in self.buflen..BLOCKBYTES {
             self.buf[i] = 0;
         }
+        let last_node = if self.last_node { !0 } else { 0 };
         unsafe {
-            (self.compress_fn)(&mut self.h, &self.buf, self.count, !0);
+            (self.compress_fn)(&mut self.h, &self.buf, self.count, !0, last_node);
         }
         let mut out = [0; OUTBYTES];
         LittleEndian::write_u64_into(&self.h, &mut out);
