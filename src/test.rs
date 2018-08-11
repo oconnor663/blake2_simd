@@ -58,3 +58,40 @@ fn test_write() {
     let hash = state.finalize();
     assert_eq!(&hash.hex(), THOUSAND_HASH, "hash mismatch");
 }
+
+// You can check this case against the equivalent Python:
+//
+// import hashlib
+// hashlib.blake2b(
+//     b'foo',
+//     digest_size=17,
+//     key=b"bar",
+//     salt=b"baz",
+//     person=b"bing",
+//     fanout=2,
+//     depth=3,
+//     leaf_size=0x04050607,
+//     node_offset=0x08090a0b0c0d0e0f,
+//     node_depth=16,
+//     inner_size=17,
+//     last_node=True,
+// ).hexdigest()
+#[test]
+fn test_all_parameters() {
+    let mut params = Params::default();
+    params.hash_length(17);
+    params.key(b"bar");
+    params.salt(b"baz");
+    params.personal(b"bing");
+    params.fanout(2);
+    params.max_depth(3);
+    params.max_leaf_length(0x04050607);
+    params.node_offset(0x08090a0b0c0d0e0f);
+    params.node_depth(16);
+    params.inner_hash_length(17);
+    let mut state = State::with_params(&params);
+    state.set_last_node(true);
+    state.update(b"foo");
+    let hash = state.finalize();
+    assert_eq!("0dea28da297ebeb1abb7fdd4c573887349", &hash.hex());
+}
