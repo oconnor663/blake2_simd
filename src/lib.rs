@@ -1,3 +1,14 @@
+//! An implementation of the BLAKE2b hash with:
+//!
+//! - 100% stable Rust.
+//! - A fast AVX2 implementation ported from [libsodium](https://github.com/jedisct1/libsodium).
+//! - A portable, safe implementation for other platforms.
+//! - Dynamic CPU feature detection. All x86 binaries include the AVX2 implementation and use it on
+//!   platforms that support it.
+//! - `no_std` support. `std` is on by default, for feature detection and `std::io::Write`.
+//! - All the features from the [the BLAKE2 spec](https://blake2.net/blake2.pdf), like adjustable
+//!   length, keying, and associated data for tree hashing.
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "std")]
@@ -42,9 +53,9 @@ const IV: [u64; 8] = [
     0x5BE0CD19137E2179,
 ];
 
-// Safety note: The compression interface is unsafe in general, because calling the AVX2
-// implementation on a platform that doesn't support AVX2 is undefined behavior. That said, the
-// portable implementation is all safe code.
+// Safety note: The compression interface is unsafe in general, even though the portable
+// implementation is safe, because calling the AVX2 implementation on a platform that doesn't
+// support AVX2 is undefined behavior.
 type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64, lastnode: u64);
 type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
@@ -69,7 +80,7 @@ pub fn blake2b(input: &[u8]) -> Hash {
 ///
 /// ```
 /// let mut params = blake2b_simd::Params::default();
-/// params.set_hash_length(32);
+/// params.hash_length(32);
 /// let mut state = blake2b_simd::State::with_params(&params);
 /// ```
 #[derive(Clone)]
@@ -220,6 +231,17 @@ impl fmt::Debug for Params {
 }
 
 /// An incremental hasher for BLAKE2b.
+///
+/// # Example
+///
+/// ```
+/// let mut state = blake2b_simd::State::new();
+/// state.update(b"foo");
+/// let hash1 = state.finalize();
+/// state.update(b"bar");
+/// let hash2 = state.finalize();
+/// assert!(hash1 != hash2);
+/// ```
 #[derive(Clone)]
 pub struct State {
     h: StateWords,
@@ -232,7 +254,7 @@ pub struct State {
 }
 
 impl State {
-    /// Construct a new `State` with all default parameters.
+    /// Construct a new `State` with default parameters.
     pub fn new() -> Self {
         Self::with_params(&Params::default())
     }
@@ -385,6 +407,8 @@ pub struct Hash {
 }
 
 impl Hash {
+    /// Get the hash as a slice of bytes. Note that slices don't provide constant-time equality
+    /// checks, so avoid this method if you're using BLAKE2b as a MAC.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes[..self.len as usize]
     }
