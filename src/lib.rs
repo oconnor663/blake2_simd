@@ -293,6 +293,16 @@ impl std::io::Write for State {
     }
 }
 
+impl fmt::Debug for State {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "State {{ count: {}, digest_length: {}, last_node: {} }}",
+            self.count, self.digest_length, self.last_node,
+        )
+    }
+}
+
 #[allow(unreachable_code)]
 fn default_compress_impl() -> CompressFn {
     // If AVX2 is enabled at the top level for the whole build (using something like
@@ -318,7 +328,7 @@ fn default_compress_impl() -> CompressFn {
 /// A finalized BLAKE2 hash.
 ///
 /// `Digest` supports constant-time equality checks, for cases where BLAKE2 is being used as a MAC.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Digest {
     bytes: [u8; OUTBYTES],
     len: u8,
@@ -359,7 +369,7 @@ impl AsRef<[u8]> for Digest {
 
 impl fmt::Debug for Digest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Digest({})", self.hex())
+        write!(f, "Digest(0x{})", self.hex())
     }
 }
 

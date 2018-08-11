@@ -60,17 +60,3 @@ fn test_write() {
     let hash = state.finalize();
     assert_eq!(&hash.hex(), THOUSAND_HASH, "hash mismatch");
 }
-
-// std-only for the format! macro
-#[cfg(feature = "std")]
-#[test]
-fn test_digest_debug() {
-    let mut digest = Digest {
-        bytes: [0; OUTBYTES],
-        len: 3,
-    };
-    digest.bytes[0] = 161;
-    digest.bytes[1] = 162;
-    digest.bytes[2] = 163;
-    assert_eq!("Digest(a1a2a3)", &format!("{:?}", digest));
-}
