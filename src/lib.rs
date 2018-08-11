@@ -8,6 +8,21 @@
 //! - `no_std` support. `std` is on by default, for feature detection and `std::io::Write`.
 //! - All the features from the [the BLAKE2 spec](https://blake2.net/blake2.pdf), like adjustable
 //!   length, keying, and associated data for tree hashing.
+//!
+//! # Example
+//!
+//! ```
+//! let mut params = blake2b_simd::Params::default();
+//! params.hash_length(16);
+//! params.key(b"The Magic Words are Squeamish Ossifrage");
+//! params.personal(b"L. P. Waterhouse");
+//! let mut state = blake2b_simd::State::with_params(&params);
+//! state.update(b"foo");
+//! state.update(b"bar");
+//! state.update(b"baz");
+//! let hash = state.finalize();
+//! assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.hex());
+//! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
