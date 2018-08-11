@@ -4,7 +4,7 @@ use super::*;
 
 fn eq(h1: &Digest, s2: &str) {
     let s1 = h1.hex();
-    assert_eq!(&*s1, s2, "hash mismatch");
+    assert_eq!(&s1, s2, "hash mismatch");
 }
 
 #[test]
@@ -66,4 +66,18 @@ fn test_write() {
         &hash,
         "1ee4e51ecab5210a518f26150e882627ec839967f19d763e1508b12cfefed14858f6a1c9d1f969bc224dc9440f5a6955277e755b9c513f9ba4421c5e50c8d787",
     );
+}
+
+// std-only for the format! macro
+#[cfg(feature = "std")]
+#[test]
+fn test_digest_debug() {
+    let mut digest = Digest {
+        bytes: [0; OUTBYTES],
+        len: 3,
+    };
+    digest.bytes[0] = 161;
+    digest.bytes[1] = 162;
+    digest.bytes[2] = 163;
+    assert_eq!("Digest(a1a2a3)", &format!("{:?}", digest));
 }

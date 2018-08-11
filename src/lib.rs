@@ -9,9 +9,10 @@ extern crate arrayvec;
 extern crate byteorder;
 extern crate constant_time_eq;
 
-use arrayvec::{ArrayString, ArrayVec};
+use arrayvec::ArrayString;
 use byteorder::{ByteOrder, LittleEndian};
 use core::cmp;
+use core::fmt;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod avx2;
@@ -50,120 +51,146 @@ pub fn blake2b(input: &[u8]) -> Digest {
     state.finalize()
 }
 
+#[derive(Clone)]
 pub struct Params {
-    words: StateWords,
-    key: Option<[u8; KEYBYTES]>,
+    digest_length: u8,
+    key_length: u8,
+    key: [u8; KEYBYTES],
+    salt: [u8; SALTBYTES],
+    personal: [u8; PERSONALBYTES],
+    fanout: u8,
+    max_depth: u8,
+    max_leaf_length: u32,
+    node_offset: u64,
+    node_depth: u8,
+    inner_hash_length: u8,
 }
 
 impl Params {
-    pub fn to_words(&self) -> StateWords {
-        self.words
+    pub fn words(&self) -> StateWords {
+        let mut words = IV;
+        words[0] ^= self.digest_length as u64;
+        words[0] ^= (self.key_length as u64) << 8;
+        words[0] ^= (self.fanout as u64) << 16;
+        words[0] ^= (self.max_depth as u64) << 24;
+        words[0] ^= (self.max_leaf_length as u64) << 32;
+        words[1] ^= self.node_offset;
+        words[2] ^= self.node_depth as u64;
+        words[2] ^= (self.inner_hash_length as u64) << 8;
+        // The last half of word 2 and all of word 3 are reserved.
+        words[4] ^= LittleEndian::read_u64(&self.salt[..8]);
+        words[5] ^= LittleEndian::read_u64(&self.salt[8..]);
+        words[6] ^= LittleEndian::read_u64(&self.personal[..8]);
+        words[7] ^= LittleEndian::read_u64(&self.personal[8..]);
+        words
     }
 
-    pub fn to_key_block(&self) -> Option<[u8; BLOCKBYTES]> {
-        if let Some(ref key) = self.key {
+    pub fn key_block(&self) -> Option<[u8; BLOCKBYTES]> {
+        if self.key_length > 0 {
             let mut block = [0; BLOCKBYTES];
-            block[..KEYBYTES].copy_from_slice(key);
+            block[..KEYBYTES].copy_from_slice(&self.key);
             Some(block)
         } else {
             None
         }
     }
 
+    pub fn digest_length(&self) -> u8 {
+        self.digest_length
+    }
+
     /// Set the length of the final hash. This is associated data too, so changing the length will
     /// give a totally different hash. The maximum digest length is `OUTBYTES` (64).
-    pub fn digest_length(&mut self, length: usize) {
+    pub fn set_digest_length(&mut self, length: usize) {
         assert!(
             1 <= length && length <= OUTBYTES,
             "Bad digest length: {}",
             length
         );
-        self.words[0] ^= length as u64;
+        self.digest_length = length as u8;
     }
 
     /// Use a secret key, so that BLAKE2b acts as a MAC. The maximum key length is `KEYBYTES` (64).
     /// An empty key is equivalent to having no key at all.
-    pub fn key(&mut self, key: &[u8]) {
+    pub fn set_key(&mut self, key: &[u8]) {
         assert!(key.len() <= KEYBYTES, "Bad key length: {}", key.len());
-        self.words[0] ^= (key.len() as u64) << 8;
-        if key.len() > 0 {
-            let mut keybytes = [0; KEYBYTES];
-            keybytes[..key.len()].copy_from_slice(key);
-            self.key = Some(keybytes);
-        } else {
-            self.key = None;
-        }
-    }
-
-    /// From 0 (meaning unlimited) to 255. The default is 1 (meaning sequential).
-    pub fn fanout(&mut self, fanout: u8) {
-        self.words[0] ^= (fanout as u64) << 16;
-    }
-
-    /// From 1 (the default, meaning sequential) to 255 (meaning unlimited).
-    pub fn max_depth(&mut self, depth: u8) {
-        self.words[0] ^= (depth as u64) << 24;
-    }
-
-    /// From 0 (the default, meaning unlimited or sequential) to `2^32 - 1`.
-    pub fn max_leaf_length(&mut self, length: u32) {
-        self.words[0] ^= (length as u64) << 32;
-    }
-
-    /// From 0 (the default, meaning first, leftmost, leaf, or sequential) to `2^64 - 1`.
-    pub fn node_offset(&mut self, offset: u64) {
-        self.words[1] ^= offset;
-    }
-
-    /// From 0 (the default, meaning leaf or sequential) to 255.
-    pub fn node_depth(&mut self, depth: u8) {
-        self.words[2] ^= depth as u64;
-    }
-
-    /// From 0 (the default, meaning sequential) to `OUTBYTES` (64).
-    pub fn inner_hash_length(&mut self, length: usize) {
-        assert!(length <= OUTBYTES, "Bad inner hash length: {}", length);
-        self.words[2] ^= (length as u64) << 8;
+        self.key_length = key.len() as u8;
+        self.key[..key.len()].copy_from_slice(key);
     }
 
     /// At most `SALTBYTES` (16). Shorter salts are padded with null bytes. An empty salt is
     /// equivalent to having no salt at all.
-    pub fn salt(&mut self, salt: &[u8]) {
+    pub fn set_salt(&mut self, salt: &[u8]) {
         assert!(salt.len() <= SALTBYTES, "Bad salt length: {}", salt.len());
-        let mut saltbytes = [0; SALTBYTES];
-        saltbytes[..salt.len()].copy_from_slice(salt);
-        self.words[4] ^= LittleEndian::read_u64(&saltbytes[..8]);
-        self.words[5] ^= LittleEndian::read_u64(&saltbytes[8..]);
+        self.salt = [0; SALTBYTES];
+        self.salt[..salt.len()].copy_from_slice(salt);
     }
 
     /// At most `PERSONALBYTES` (16). Shorter personalizations are padded with null bytes. An empty
     /// personalization is equivalent to having no personalization at all.
-    pub fn personalization(&mut self, personalization: &[u8]) {
+    pub fn set_personal(&mut self, personalization: &[u8]) {
         assert!(
             personalization.len() <= PERSONALBYTES,
             "Bad personalization length: {}",
             personalization.len()
         );
-        let mut personalbytes = [0; PERSONALBYTES];
-        personalbytes[..personalization.len()].copy_from_slice(personalization);
-        self.words[6] ^= LittleEndian::read_u64(&personalbytes[..8]);
-        self.words[7] ^= LittleEndian::read_u64(&personalbytes[8..]);
+        self.personal = [0; PERSONALBYTES];
+        self.personal[..personalization.len()].copy_from_slice(personalization);
+    }
+
+    /// From 0 (meaning unlimited) to 255. The default is 1 (meaning sequential).
+    pub fn set_fanout(&mut self, fanout: u8) {
+        self.fanout = fanout;
+    }
+
+    /// From 1 (the default, meaning sequential) to 255 (meaning unlimited).
+    pub fn set_max_depth(&mut self, depth: u8) {
+        assert!(depth != 0, "Bad max depth: {}", depth);
+        self.max_depth = depth;
+    }
+
+    /// From 0 (the default, meaning unlimited or sequential) to `2^32 - 1`.
+    pub fn set_max_leaf_length(&mut self, length: u32) {
+        self.max_leaf_length = length;
+    }
+
+    /// From 0 (the default, meaning first, leftmost, leaf, or sequential) to `2^64 - 1`.
+    pub fn set_node_offset(&mut self, offset: u64) {
+        self.node_offset = offset;
+    }
+
+    /// From 0 (the default, meaning leaf or sequential) to 255.
+    pub fn set_node_depth(&mut self, depth: u8) {
+        self.node_depth = depth;
+    }
+
+    /// From 0 (the default, meaning sequential) to `OUTBYTES` (64).
+    pub fn set_inner_hash_length(&mut self, length: usize) {
+        assert!(length <= OUTBYTES, "Bad inner hash length: {}", length);
+        self.inner_hash_length = length as u8;
     }
 }
 
 impl Default for Params {
-    fn default() -> Params {
-        let mut params = Params {
-            words: IV,
-            key: None,
-        };
-        params.digest_length(OUTBYTES);
-        params.fanout(1);
-        params.max_depth(1);
-        params
+    fn default() -> Self {
+        Self {
+            digest_length: OUTBYTES as u8,
+            key_length: 0,
+            key: [0; KEYBYTES],
+            salt: [0; SALTBYTES],
+            personal: [0; PERSONALBYTES],
+            // NOTE: fanout and max_depth don't default to zero!
+            fanout: 1,
+            max_depth: 1,
+            max_leaf_length: 0,
+            node_offset: 0,
+            node_depth: 0,
+            inner_hash_length: 0,
+        }
     }
 }
 
+#[derive(Clone)]
 pub struct State {
     h: StateWords,
     buf: Block,
@@ -171,6 +198,7 @@ pub struct State {
     count: u128,
     compress_fn: CompressFn,
     last_node: bool,
+    digest_length: u8,
 }
 
 impl State {
@@ -180,14 +208,15 @@ impl State {
 
     pub fn with_params(params: &Params) -> Self {
         let mut state = Self {
-            h: params.to_words(),
+            h: params.words(),
             compress_fn: default_compress_impl(),
             buf: [0; BLOCKBYTES],
             buflen: 0,
             count: 0,
             last_node: false,
+            digest_length: params.digest_length(),
         };
-        if let Some(key_block) = params.to_key_block() {
+        if let Some(key_block) = params.key_block() {
             state.update(&key_block);
         }
         state
@@ -232,6 +261,7 @@ impl State {
         self.fill_buf(&mut input);
     }
 
+    /// Finish the final hashing step, and return a `Digest`.
     pub fn finalize(&mut self) -> Digest {
         for i in self.buflen..BLOCKBYTES {
             self.buf[i] = 0;
@@ -240,12 +270,11 @@ impl State {
         unsafe {
             (self.compress_fn)(&mut self.h, &self.buf, self.count, !0, last_node);
         }
-        let mut out = [0; OUTBYTES];
-        LittleEndian::write_u64_into(&self.h, &mut out);
         let mut digest = Digest {
-            bytes: ArrayVec::from(out),
+            bytes: [0; OUTBYTES],
+            len: self.digest_length,
         };
-        // TODO: TRUNCATE ACCORDINGLY
+        LittleEndian::write_u64_into(&self.h, &mut digest.bytes);
         digest
     }
 }
@@ -286,28 +315,27 @@ fn default_compress_impl() -> CompressFn {
 
 /// A finalized BLAKE2 hash.
 ///
-/// `Digest` supports constant-time equality checks, for cases where BLAKE2 is
-/// being used as a MAC. It uses an
-/// [`ArrayVec`](https://docs.rs/arrayvec/0.4.6/arrayvec/struct.ArrayVec.html)
-/// to hold various digest lengths without needing to allocate on the heap.
-#[derive(Clone, Debug)]
+/// `Digest` supports constant-time equality checks, for cases where BLAKE2 is being used as a MAC.
+#[derive(Clone)]
 pub struct Digest {
-    // blake2b::OUTBYTES is the largest possible digest length for either algorithm.
-    pub bytes: ArrayVec<[u8; OUTBYTES]>,
+    bytes: [u8; OUTBYTES],
+    len: u8,
 }
 
 impl Digest {
-    /// Convert the digest to a hexadecimal string. Because we know the maximum
-    /// length of the string in advance (`2 * OUTBYTES`), we can use an
-    /// [`ArrayString`](https://docs.rs/arrayvec/0.4.6/arrayvec/struct.ArrayString.html)
-    /// to avoid allocating.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes[..self.len as usize]
+    }
+
+    /// Convert the digest to a lowercase hexadecimal `String`. Requires `std`.
     pub fn hex(&self) -> ArrayString<[u8; 2 * OUTBYTES]> {
-        use core::fmt::Write;
-        let mut hexdigest = ArrayString::new();
-        for &b in &self.bytes {
-            write!(&mut hexdigest, "{:02x}", b).expect("too many bytes");
+        let mut s = ArrayString::new();
+        let table = b"0123456789abcdef";
+        for &b in self.bytes() {
+            s.push(table[(b >> 4) as usize] as char);
+            s.push(table[(b & 0xf) as usize] as char);
         }
-        hexdigest
+        s
     }
 }
 
@@ -315,11 +343,23 @@ impl Digest {
 /// length.
 impl PartialEq for Digest {
     fn eq(&self, other: &Digest) -> bool {
-        constant_time_eq::constant_time_eq(&self.bytes, &other.bytes)
+        constant_time_eq::constant_time_eq(&self.bytes(), &other.bytes())
     }
 }
 
 impl Eq for Digest {}
+
+impl AsRef<[u8]> for Digest {
+    fn as_ref(&self) -> &[u8] {
+        self.bytes()
+    }
+}
+
+impl fmt::Debug for Digest {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Digest({})", self.hex())
+    }
+}
 
 // This module is pub for internal benchmarks only. Please don't use it.
 #[doc(hidden)]
