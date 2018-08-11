@@ -34,11 +34,19 @@ const IV: [u64; 8] = [
     0x5BE0CD19137E2179,
 ];
 
+type StateWords = [u64; 8];
+type Block = [u8; BLOCKBYTES];
+// Safety note: The compression interface is unsafe in general, because calling the AVX2
+// implementation on a platform that doesn't support AVX2 is undefined behavior. That said, the
+// portable implementation is all safe code.
+type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64);
+
 pub struct State {
-    h: [u64; 8],
-    buf: [u8; BLOCKBYTES],
+    h: StateWords,
+    buf: Block,
     buflen: usize,
     count: u128,
+    compress_fn: CompressFn,
 }
 
 impl State {
@@ -50,6 +58,7 @@ impl State {
         h[0] ^= 0x01010000;
         Self {
             h,
+            compress_fn: default_compress_impl(),
             buf: [0; BLOCKBYTES],
             buflen: 0,
             count: 0,
@@ -64,20 +73,26 @@ impl State {
         *input = &input[take..];
     }
 
+    // array_ref triggers unused_unsafe (https://github.com/droundy/arrayref/pull/14)
+    #[allow(unused_unsafe)]
     pub fn update(&mut self, mut input: &[u8]) {
         // If we have a partial buffer, try to complete it. If we complete it and there's more
         // input waiting (so we know we don't need to finalize), compress it.
         if self.buflen > 0 {
             self.fill_buf(&mut input);
             if !input.is_empty() {
-                compress(&mut self.h, &self.buf, self.count, 0);
+                unsafe {
+                    (self.compress_fn)(&mut self.h, &self.buf, self.count, 0);
+                }
                 self.buflen = 0;
             }
         }
         // If there's more than a block of input left, compress it directly instead of buffering it.
         while input.len() > BLOCKBYTES {
             self.count += BLOCKBYTES as u128;
-            compress(&mut self.h, array_ref!(input, 0, BLOCKBYTES), self.count, 0);
+            unsafe {
+                (self.compress_fn)(&mut self.h, array_ref!(input, 0, BLOCKBYTES), self.count, 0);
+            }
             input = &input[BLOCKBYTES..];
         }
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
@@ -88,21 +103,23 @@ impl State {
         for i in self.buflen..BLOCKBYTES {
             self.buf[i] = 0;
         }
-        compress(&mut self.h, &self.buf, self.count, !0);
+        unsafe {
+            (self.compress_fn)(&mut self.h, &self.buf, self.count, !0);
+        }
         let mut out = [0; OUTBYTES];
         LittleEndian::write_u64_into(&self.h, &mut out);
         out
     }
 }
 
-fn compress(h: &mut [u64; 8], block: &[u8; BLOCKBYTES], count: u128, lastblock: u64) {
+fn default_compress_impl() -> CompressFn {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         if is_x86_feature_detected!("avx2") {
-            return unsafe { avx2::compress(h, block, count, lastblock) };
+            return avx2::compress;
         }
     }
-    portable::compress(h, block, count, lastblock)
+    portable::compress
 }
 
 pub fn blake2b(input: &[u8]) -> Digest {
