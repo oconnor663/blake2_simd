@@ -261,20 +261,22 @@ impl State {
         self.fill_buf(&mut input);
     }
 
-    /// Finish the final hashing step, and return a `Digest`.
+    /// Finish the final hashing step, and return a `Digest`. Calling this multiple times will give
+    /// the same answer. It's also allowed to `update` with more input after calling this.
     pub fn finalize(&mut self) -> Digest {
         for i in self.buflen..BLOCKBYTES {
             self.buf[i] = 0;
         }
         let last_node = if self.last_node { !0 } else { 0 };
+        let mut h_copy = self.h;
         unsafe {
-            (self.compress_fn)(&mut self.h, &self.buf, self.count, !0, last_node);
+            (self.compress_fn)(&mut h_copy, &self.buf, self.count, !0, last_node);
         }
         let mut digest = Digest {
             bytes: [0; OUTBYTES],
             len: self.digest_length,
         };
-        LittleEndian::write_u64_into(&self.h, &mut digest.bytes);
+        LittleEndian::write_u64_into(&h_copy, &mut digest.bytes);
         digest
     }
 }
