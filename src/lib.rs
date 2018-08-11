@@ -45,6 +45,7 @@ type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64
 type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
 
+/// Compute the BLAKE2b hash of a `&[u8]` slice. This is a small wrapper around `State`.
 pub fn blake2b(input: &[u8]) -> Hash {
     let mut state = State::new();
     state.update(input);
@@ -220,6 +221,7 @@ impl fmt::Debug for Params {
     }
 }
 
+/// An incremental hasher for BLAKE2b.
 #[derive(Clone)]
 pub struct State {
     h: StateWords,
@@ -232,10 +234,13 @@ pub struct State {
 }
 
 impl State {
+    /// Construct a new `State` with all default parameters.
     pub fn new() -> Self {
         Self::with_params(&Params::default())
     }
 
+    /// Construct a new `State` with from a given `Params` object. This lets the caller customize
+    /// the length of the final `Hash` and add other associated data.
     pub fn with_params(params: &Params) -> Self {
         let param_words = params.words();
         let mut state = Self {
@@ -262,6 +267,11 @@ impl State {
         state
     }
 
+    /// Set a flag indicating that this is the last node of its level in a tree hash. This is
+    /// associated data like the other features in the `Params` object, except that it can be set
+    /// at any time before calling `finalize`. That allows callers to begin hashing a node without
+    /// knowing ahead of time whether it's the last in its level. For more details about the
+    /// intended use of this flag [the BLAKE2 spec](https://blake2.net/blake2.pdf).
     pub fn set_last_node(&mut self, val: bool) {
         self.last_node = val;
     }
@@ -274,6 +284,7 @@ impl State {
         *input = &input[take..];
     }
 
+    /// Add input to the hash. You can call `update` any number of times.
     // array_ref triggers unused_unsafe (https://github.com/droundy/arrayref/pull/14)
     #[allow(unused_unsafe)]
     pub fn update(&mut self, mut input: &[u8]) {
@@ -301,8 +312,8 @@ impl State {
         self.fill_buf(&mut input);
     }
 
-    /// Finish the final hashing step, and return a `Hash`. Calling this multiple times will give
-    /// the same answer. It's also allowed to `update` with more input after calling this.
+    /// Finalize the state and return a `Hash`. This method is idempotent, and calling it multiple
+    /// times will give the same result. It's also possible to `update` with more input in between.
     pub fn finalize(&mut self) -> Hash {
         for i in self.buflen..BLOCKBYTES {
             self.buf[i] = 0;
@@ -380,7 +391,8 @@ impl Hash {
         &self.bytes[..self.len as usize]
     }
 
-    /// Convert the hash to a lowercase hexadecimal `String`. Requires `std`.
+    /// Convert the hash to a lowercase hexadecimal
+    /// [`ArrayString`](https://docs.rs/arrayvec/0.4/arrayvec/struct.ArrayString.html).
     pub fn hex(&self) -> ArrayString<[u8; 2 * OUTBYTES]> {
         let mut s = ArrayString::new();
         let table = b"0123456789abcdef";
