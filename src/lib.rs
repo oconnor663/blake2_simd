@@ -5,17 +5,12 @@ extern crate byteorder;
 use byteorder::{ByteOrder, LittleEndian};
 use std::cmp;
 
-// These modules are only pub for benchmarks. Their API isn't stable.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[doc(hidden)]
-pub mod avx2;
-#[doc(hidden)]
-pub mod portable;
+mod avx2;
+mod portable;
 
 #[cfg(test)]
 mod test;
-
-type Digest = [u8; OUTBYTES];
 
 pub const BLOCKBYTES: usize = 128;
 pub const OUTBYTES: usize = 64;
@@ -34,12 +29,13 @@ const IV: [u64; 8] = [
     0x5BE0CD19137E2179,
 ];
 
-type StateWords = [u64; 8];
-type Block = [u8; BLOCKBYTES];
 // Safety note: The compression interface is unsafe in general, because calling the AVX2
 // implementation on a platform that doesn't support AVX2 is undefined behavior. That said, the
 // portable implementation is all safe code.
 type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64);
+type Digest = [u8; OUTBYTES];
+type StateWords = [u64; 8];
+type Block = [u8; BLOCKBYTES];
 
 pub struct State {
     h: StateWords,
@@ -126,4 +122,16 @@ pub fn blake2b(input: &[u8]) -> Digest {
     let mut state = State::new();
     state.update(input);
     state.finalize()
+}
+
+// This module is pub for internal benchmarks only. Please don't use it.
+#[doc(hidden)]
+pub mod benchmarks {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub use avx2::compress as compress_avx2;
+    pub use portable::compress as compress_portable;
+
+    pub fn force_portable(state: &mut ::State) {
+        state.compress_fn = compress_portable;
+    }
 }
