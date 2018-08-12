@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 use std::process::exit;
 use structopt::StructOpt;
 
+// Using a large (512 KiB) heap buffer seems to be faster than a small stack buffer.
+const BUF_SIZE: usize = 1 << 19;
+
 #[derive(Debug, StructOpt)]
 #[structopt(author = "")]
 struct Opt {
@@ -52,7 +55,7 @@ fn open_input(path: &Path, mmap: bool) -> io::Result<Input> {
     })
 }
 
-fn hash_one(input: Input, hash_length: usize) -> io::Result<Hash> {
+fn hash_one(input: Input, hash_length: usize, buf: &mut [u8]) -> io::Result<Hash> {
     let mut params = Params::default();
     params.hash_length(hash_length);
     let mut state = State::with_params(&params);
@@ -60,10 +63,10 @@ fn hash_one(input: Input, hash_length: usize) -> io::Result<Hash> {
         Input::Stdin => {
             let stdin = io::stdin();
             let mut stdin = stdin.lock();
-            read_write_all(&mut stdin, &mut state)?;
+            read_write_all(&mut stdin, &mut state, buf)?;
         }
         Input::File(mut file) => {
-            read_write_all(&mut file, &mut state)?;
+            read_write_all(&mut file, &mut state, buf)?;
         }
         Input::Mmap(mmap) => {
             state.update(&mmap);
@@ -72,11 +75,13 @@ fn hash_one(input: Input, hash_length: usize) -> io::Result<Hash> {
     Ok(state.finalize())
 }
 
-// Doing this ourselves with a large buffer is slightly faster than std::io::copy().
-fn read_write_all<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<()> {
-    let mut buf = [0; 65536];
+fn read_write_all<R: Read, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    buf: &mut [u8],
+) -> io::Result<()> {
     loop {
-        let n = reader.read(&mut buf)?;
+        let n = reader.read(buf)?;
         if n == 0 {
             return Ok(());
         }
@@ -94,9 +99,10 @@ fn main() {
     let hash_length = opt.length / 8;
 
     let mut did_error = false;
+    let mut buf = vec![0; BUF_SIZE];
     for path in &opt.input {
         match open_input(path, opt.mmap) {
-            Ok(input) => match hash_one(input, hash_length) {
+            Ok(input) => match hash_one(input, hash_length, &mut buf) {
                 Ok(hash) => println!("{}  {}", hash.hex(), path.to_string_lossy()),
                 Err(e) => {
                     did_error = true;
