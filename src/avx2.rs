@@ -122,17 +122,19 @@ pub unsafe fn compress(
     lastblock: u64,
     lastnode: u64,
 ) {
+    let (h_low, h_high) = mut_array_refs!(h, 4, 4);
+    let (iv_low, iv_high) = array_refs!(&IV, 4, 4);
+    let count_low = count as i64;
+    let count_high = (count >> 64) as i64;
+    let msg_chunks = array_refs!(msg, 16, 16, 16, 16, 16, 16, 16, 16);
+
     unsafe {
-        let mut a = load_256_unaligned(array_ref!(h, 0, 4));
-        let mut b = load_256_unaligned(array_ref!(h, 4, 4));
-        let mut c = load_256_unaligned(array_ref!(IV, 0, 4));
-        let count_low = count as i64;
-        let count_high = (count >> 64) as i64;
-        let mut d = xor(
-            load_256_unaligned(array_ref!(IV, 4, 4)),
-            _mm256_set_epi64x(lastnode as i64, lastblock as i64, count_high, count_low),
-        );
-        let msg_chunks = array_refs!(msg, 16, 16, 16, 16, 16, 16, 16, 16);
+        let mut a = load_256_unaligned(h_low);
+        let mut b = load_256_unaligned(h_high);
+        let mut c = load_256_unaligned(iv_low);
+        let flags = _mm256_set_epi64x(lastnode as i64, lastblock as i64, count_high, count_low);
+        let mut d = xor(load_256_unaligned(iv_high), flags);
+
         let m0 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.0));
         let m1 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.1));
         let m2 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.2));
@@ -141,6 +143,7 @@ pub unsafe fn compress(
         let m5 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.5));
         let m6 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.6));
         let m7 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.7));
+
         let iv0 = a;
         let iv1 = b;
         let mut t0;
@@ -166,6 +169,7 @@ pub unsafe fn compress(
         b0 = _mm256_blend_epi32(t0, t1, 0xF0);
         blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
         blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+
         // round 1
         t0 = _mm256_unpacklo_epi64(m7, m2);
         t1 = _mm256_unpackhi_epi64(m4, m6);
@@ -185,6 +189,7 @@ pub unsafe fn compress(
         b0 = _mm256_blend_epi32(t0, t1, 0xF0);
         blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
         blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+
         // round 2
         t0 = _mm256_alignr_epi8(m6, m5, 8);
         t1 = _mm256_unpackhi_epi64(m2, m7);
@@ -204,6 +209,7 @@ pub unsafe fn compress(
         b0 = _mm256_blend_epi32(t0, t1, 0xF0);
         blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
         blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+
         // round 3
         t0 = _mm256_unpackhi_epi64(m3, m1);
         t1 = _mm256_unpackhi_epi64(m6, m5);
@@ -223,6 +229,7 @@ pub unsafe fn compress(
         b0 = _mm256_blend_epi32(t0, t1, 0xF0);
         blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
         blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+
         // round 4
         t0 = _mm256_unpackhi_epi64(m4, m2);
         t1 = _mm256_unpacklo_epi64(m1, m5);
@@ -242,6 +249,7 @@ pub unsafe fn compress(
         b0 = _mm256_blend_epi32(t0, t1, 0xF0);
         blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
         blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+
         // round 5
         t0 = _mm256_unpacklo_epi64(m1, m3);
         t1 = _mm256_unpacklo_epi64(m0, m4);
@@ -261,6 +269,7 @@ pub unsafe fn compress(
         b0 = _mm256_blend_epi32(t0, t1, 0xF0);
         blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
         blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+
         // round 6
         t0 = _mm256_blend_epi32(m0, m6, 0x33);
         t1 = _mm256_unpacklo_epi64(m7, m2);
@@ -280,6 +289,7 @@ pub unsafe fn compress(
         b0 = _mm256_blend_epi32(t0, t1, 0xF0);
         blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
         blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+
         // round 7
         t0 = _mm256_unpackhi_epi64(m6, m3);
         t1 = _mm256_blend_epi32(m1, m6, 0x33);
@@ -299,6 +309,7 @@ pub unsafe fn compress(
         b0 = _mm256_blend_epi32(t0, t1, 0xF0);
         blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
         blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+
         // round 8
         t0 = _mm256_unpacklo_epi64(m3, m7);
         t1 = _mm256_alignr_epi8(m0, m5, 8);
@@ -318,6 +329,7 @@ pub unsafe fn compress(
         b0 = _mm256_blend_epi32(t0, t1, 0xF0);
         blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
         blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+
         // round 9
         t0 = _mm256_unpacklo_epi64(m5, m4);
         t1 = _mm256_unpackhi_epi64(m3, m0);
@@ -337,6 +349,7 @@ pub unsafe fn compress(
         b0 = _mm256_blend_epi32(t0, t1, 0xF0);
         blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
         blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+
         // round 10
         t0 = _mm256_unpacklo_epi64(m0, m1);
         t1 = _mm256_unpacklo_epi64(m2, m3);
@@ -356,6 +369,7 @@ pub unsafe fn compress(
         b0 = _mm256_blend_epi32(t0, t1, 0xF0);
         blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
         blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+
         // round 11
         t0 = _mm256_unpacklo_epi64(m7, m2);
         t1 = _mm256_unpackhi_epi64(m4, m6);
@@ -381,7 +395,7 @@ pub unsafe fn compress(
         a = xor(a, iv0);
         b = xor(b, iv1);
 
-        store_256_unaligned(array_mut_ref!(h, 0, 4), a);
-        store_256_unaligned(array_mut_ref!(h, 4, 4), b);
+        store_256_unaligned(h_low, a);
+        store_256_unaligned(h_high, b);
     }
 }

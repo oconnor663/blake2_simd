@@ -1,3 +1,5 @@
+//! This is a toy version of the b2sum program from coreutils, mostly for benchmarking.
+
 extern crate blake2b_simd;
 
 use std::io::prelude::*;
