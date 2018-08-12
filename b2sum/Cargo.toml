@@ -1,0 +1,11 @@
+[package]
+name = "b2sum"
+version = "0.1.0"
+authors = ["Jack O'Connor"]
+description = "a clone of the coreutils b2sum utility"
+license = "MIT"
+repository = "https://github.com/oconnor663/blake2b_simd/tree/master/b2sum"
+
+[dependencies]
+blake2b_simd = { path = ".." }
+structopt = "0.2.10"
