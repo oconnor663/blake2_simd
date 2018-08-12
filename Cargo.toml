@@ -1,7 +1,10 @@
 [package]
 name = "blake2b_simd"
 version = "0.1.0"
-authors = ["Jack O'Connor <oconnor663@gmail.com>"]
+authors = ["Jack O'Connor"]
+description = "a pure Rust BLAKE2b implementation with dynamic SIMD"
+license = "MIT"
+repository = "https://github.com/oconnor663/blake2b_simd"
 
 [dependencies]
 arrayref = "0.3.4"
