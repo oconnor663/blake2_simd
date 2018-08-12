@@ -7,6 +7,7 @@ extern crate structopt;
 use blake2b_simd::{Hash, Params, State};
 use std::fs::File;
 use std::io;
+use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use structopt::StructOpt;
@@ -59,16 +60,28 @@ fn hash_one(input: Input, hash_length: usize) -> io::Result<Hash> {
         Input::Stdin => {
             let stdin = io::stdin();
             let mut stdin = stdin.lock();
-            io::copy(&mut stdin, &mut state)?;
+            read_write_all(&mut stdin, &mut state)?;
         }
         Input::File(mut file) => {
-            io::copy(&mut file, &mut state)?;
+            read_write_all(&mut file, &mut state)?;
         }
         Input::Mmap(mmap) => {
             state.update(&mmap);
         }
     }
     Ok(state.finalize())
+}
+
+// Doing this ourselves with a large buffer is slightly faster than std::io::copy().
+fn read_write_all<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<()> {
+    let mut buf = [0; 65536];
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            return Ok(());
+        }
+        writer.write_all(&buf[..n])?;
+    }
 }
 
 fn main() {
