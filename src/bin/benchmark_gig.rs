@@ -2,6 +2,7 @@ extern crate blake2b_simd;
 
 use std::time::{Duration, Instant};
 
+const NS_PER_SEC: u64 = 1_000_000_000;
 const INPUT_LEN: usize = 1_000_000_000;
 const RUNS: usize = 10;
 
@@ -15,8 +16,12 @@ fn hash(input: &[u8], force_portable: bool) -> blake2b_simd::Hash {
     state.finalize()
 }
 
-fn print(d: Duration, name: &str) {
-    println!("{}.{:06}s {}", d.as_secs(), d.subsec_micros(), name);
+fn print(d: Duration, message: &str) {
+    let nanos: u64 = NS_PER_SEC * d.as_secs() + d.subsec_nanos() as u64;
+    let secs: f64 = nanos as f64 / NS_PER_SEC as f64;
+    // (ns / sec) / (ns / GB) = GB / sec
+    let rate: f64 = NS_PER_SEC as f64 / nanos as f64;
+    println!("{:.06}s ({:.06} GB/s) {}", secs, rate, message);
 }
 
 fn run(input: &[u8], force_portable: bool) {
@@ -29,9 +34,9 @@ fn run(input: &[u8], force_portable: bool) {
         let diff = after - before;
         if i == 0 {
             // Skip the first run, because it pays fixed costs like zeroing memory.
-            print(diff, "hash (ignored)");
+            print(diff, "(ignored)");
         } else {
-            print(diff, "hash");
+            print(diff, "");
             total += diff;
             if diff < fastest {
                 fastest = diff;
