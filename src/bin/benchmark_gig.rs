@@ -1,3 +1,13 @@
+//! To squeeze the absolute most out of this benchmark, with optimizations specific to the current
+//! machine, try this:
+//!
+//!     RUSTFLAGS="-C target-cpu=native -C target-feature=-avx2" cargo +nightly run --release --bin benchmark_gig
+//!
+//! Note that we're *disabling* AVX2 with target-feature. I find that when it's enabled, the
+//! portable implementation ends up *much* slower. Our AVX2 compress function will compile with
+//! AVX2 regardless, because of its local annotations. Also the nightly compiler seems to produce
+//! faster code than stable.
+
 extern crate blake2b_simd;
 
 use std::time::{Duration, Instant};
