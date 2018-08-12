@@ -71,11 +71,6 @@ fn hash_one(input: Input, hash_length: usize) -> io::Result<Hash> {
     Ok(state.finalize())
 }
 
-fn exit_path_error(path: &Path, e: io::Error) {
-    eprintln!("b2sum: {}: {}", path.to_string_lossy(), e);
-    exit(1);
-}
-
 fn main() {
     let opt = Opt::from_args();
 
@@ -85,18 +80,23 @@ fn main() {
     }
     let hash_length = opt.length / 8;
 
-    let mut inputs = Vec::new();
+    let mut did_error = false;
     for path in &opt.input {
         match open_input(path, opt.mmap) {
-            Ok(input) => inputs.push((path, input)),
-            Err(e) => exit_path_error(path, e),
+            Ok(input) => match hash_one(input, hash_length) {
+                Ok(hash) => println!("{}  {}", hash.hex(), path.to_string_lossy()),
+                Err(e) => {
+                    did_error = true;
+                    eprintln!("b2sum: {}: {}", path.to_string_lossy(), e);
+                }
+            },
+            Err(e) => {
+                did_error = true;
+                eprintln!("b2sum: {}: {}", path.to_string_lossy(), e);
+            }
         }
     }
-
-    for (path, input) in inputs {
-        match hash_one(input, hash_length) {
-            Ok(hash) => println!("{}  {}", hash.hex(), path.to_string_lossy()),
-            Err(e) => exit_path_error(path, e),
-        }
+    if did_error {
+        exit(1);
     }
 }
