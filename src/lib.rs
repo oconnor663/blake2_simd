@@ -1,3 +1,5 @@
+//! [Repo](https://github.com/oconnor663/blake2b_simd) — [Docs](https://docs.rs/blake2b_simd) — [Crate](https://crates.io/crates/blake2b_simd)
+//!
 //! An implementation of the BLAKE2b hash with:
 //!
 //! - 100% stable Rust.

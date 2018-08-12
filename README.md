@@ -1,4 +1,6 @@
-# blake2b_simd
+# blake2b_simd [![Build Status](https://travis-ci.org/oconnor663/blake2b_simd.svg?branch=master)](https://travis-ci.org/oconnor663/blake2b_simd) [![docs.rs](https://docs.rs/blake2b_simd/badge.svg)](https://docs.rs/blake2b_simd)
+
+[Repo](https://github.com/oconnor663/blake2b_simd) — [Docs](https://docs.rs/blake2b_simd) — [Crate](https://crates.io/crates/blake2b_simd)
 
 An implementation of the BLAKE2b hash with:
 
