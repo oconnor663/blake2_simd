@@ -1,4 +1,5 @@
 extern crate blake2b_simd;
+extern crate memmap;
 extern crate os_pipe;
 #[macro_use]
 extern crate structopt;
@@ -14,26 +15,59 @@ use structopt::StructOpt;
 #[structopt(author = "")]
 struct Opt {
     #[structopt(parse(from_os_str), default_value = "-")]
+    /// Any number of filepaths, or - for standard input.
     input: Vec<PathBuf>,
 
     #[structopt(short = "l", long = "length", default_value = "512")]
     /// The size of the output in bits. Must be a multiple of 8.
     length: usize,
+
+    #[structopt(long = "mmap")]
+    /// Read input with memory mapping.
+    mmap: bool,
 }
 
-fn open_input(path: &Path) -> io::Result<File> {
-    if path == Path::new("-") {
-        os_pipe::dup_stdin().map(From::from)
+enum Input {
+    Stdin,
+    File(File),
+    Mmap(memmap::Mmap),
+}
+
+fn open_input(path: &Path, mmap: bool) -> io::Result<Input> {
+    Ok(if path == Path::new("-") {
+        if mmap {
+            let stdin_file = os_pipe::dup_stdin()?.into();
+            Input::Mmap(unsafe { memmap::Mmap::map(&stdin_file)? })
+        } else {
+            Input::Stdin
+        }
     } else {
-        File::open(path)
-    }
+        let file = File::open(path)?;
+        if mmap {
+            Input::Mmap(unsafe { memmap::Mmap::map(&file)? })
+        } else {
+            Input::File(file)
+        }
+    })
 }
 
-fn hash_file(mut f: File, hash_length: usize) -> io::Result<Hash> {
+fn hash_one(input: Input, hash_length: usize) -> io::Result<Hash> {
     let mut params = Params::default();
     params.hash_length(hash_length);
     let mut state = State::with_params(&params);
-    io::copy(&mut f, &mut state)?;
+    match input {
+        Input::Stdin => {
+            let stdin = io::stdin();
+            let mut stdin = stdin.lock();
+            io::copy(&mut stdin, &mut state)?;
+        }
+        Input::File(mut file) => {
+            io::copy(&mut file, &mut state)?;
+        }
+        Input::Mmap(mmap) => {
+            state.update(&mmap);
+        }
+    }
     Ok(state.finalize())
 }
 
@@ -53,14 +87,14 @@ fn main() {
 
     let mut inputs = Vec::new();
     for path in &opt.input {
-        match open_input(path) {
-            Ok(file) => inputs.push((path, file)),
+        match open_input(path, opt.mmap) {
+            Ok(input) => inputs.push((path, input)),
             Err(e) => exit_path_error(path, e),
         }
     }
 
-    for (path, file) in inputs {
-        match hash_file(file, hash_length) {
+    for (path, input) in inputs {
+        match hash_one(input, hash_length) {
             Ok(hash) => println!("{}  {}", hash.hex(), path.to_string_lossy()),
             Err(e) => exit_path_error(path, e),
         }
