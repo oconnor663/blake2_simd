@@ -95,3 +95,45 @@ fn test_all_parameters() {
     let hash = state.finalize();
     assert_eq!("ec0f59cb65f92e7fcca1280ba859a6925ded", &hash.to_hex());
 }
+
+#[test]
+#[should_panic]
+fn test_short_hash_length_panics() {
+    Params::new().hash_length(0);
+}
+
+#[test]
+#[should_panic]
+fn test_long_hash_length_panics() {
+    Params::new().hash_length(OUTBYTES + 1);
+}
+
+#[test]
+#[should_panic]
+fn test_long_key_panics() {
+    Params::new().key(&vec![0; KEYBYTES + 1]);
+}
+
+#[test]
+#[should_panic]
+fn test_long_salt_panics() {
+    Params::new().salt(&vec![0; SALTBYTES + 1]);
+}
+
+#[test]
+#[should_panic]
+fn test_long_personal_panics() {
+    Params::new().personal(&vec![0; PERSONALBYTES + 1]);
+}
+
+#[test]
+#[should_panic]
+fn test_zero_max_depth_panics() {
+    Params::new().max_depth(0);
+}
+
+#[test]
+#[should_panic]
+fn test_long_inner_hash_length_panics() {
+    Params::new().inner_hash_length(OUTBYTES + 1);
+}
