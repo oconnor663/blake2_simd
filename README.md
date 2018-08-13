@@ -16,7 +16,12 @@ An implementation of the BLAKE2b hash with:
 ## Example
 
 ```rust
-let hash = blake2b_simd::Params::new()
+use blake2b_simd::{blake2b, Params};
+
+assert!(blake2b(b"foo") == blake2b(b"foo"));
+assert!(blake2b(b"foo") != blake2b(b"bar"));
+
+let hash = Params::new()
     .hash_length(16)
     .key(b"The Magic Words are Squeamish Ossifrage")
     .personal(b"L. P. Waterhouse")
@@ -25,7 +30,7 @@ let hash = blake2b_simd::Params::new()
     .update(b"bar")
     .update(b"baz")
     .finalize();
-assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.hex());
+assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.to_hex());
 ```
 
 ## Performance
@@ -55,8 +60,7 @@ using libsodium's implementation of BLAKE2b. Here are the results from my laptop
 
 The `b2sum` sub-crate is a clone of the `b2sum` utility from coreutils. The
 `benches/bench_b2sum.py` script runs it against several coreutils hashes, on a 10 MB file of
-random data. (On Arch Linux, the utilities other than `b2sum` use OpenSSL's implementations.)
-Here are the results from my laptop:
+random data. Here are the results from my laptop:
 
 ```table
 ╭───────────────────────────┬────────────╮

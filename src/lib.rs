@@ -58,8 +58,7 @@
 //!
 //! The `b2sum` sub-crate is a clone of the `b2sum` utility from coreutils. The
 //! `benches/bench_b2sum.py` script runs it against several coreutils hashes, on a 10 MB file of
-//! random data. (On Arch Linux, the utilities other than `b2sum` use OpenSSL's implementations.)
-//! Here are the results from my laptop:
+//! random data. Here are the results from my laptop:
 //!
 //! ```table
 //! ╭───────────────────────────┬────────────╮
