@@ -1,4 +1,5 @@
 extern crate blake2b_simd;
+extern crate crossbeam;
 extern crate memmap;
 extern crate os_pipe;
 #[macro_use]
@@ -10,6 +11,7 @@ use std::io;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::process::exit;
+use std::sync::mpsc::channel;
 use structopt::StructOpt;
 
 #[cfg(test)]
@@ -66,8 +68,7 @@ fn hash_one(input: Input, hash_length: usize) -> io::Result<Hash> {
     let mut state = State::with_params(&params);
     match input {
         Input::Stdin => {
-            let stdin = io::stdin();
-            let mut stdin = stdin.lock();
+            let mut stdin = io::stdin();
             read_write_all(&mut stdin, &mut state)?;
         }
         Input::File(mut file) => {
@@ -80,7 +81,10 @@ fn hash_one(input: Input, hash_length: usize) -> io::Result<Hash> {
     Ok(state.finalize())
 }
 
-fn read_write_all<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<()> {
+fn read_write_all<R: Read + Sync + Send, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+) -> io::Result<()> {
     // Why 32728 (2^15)? Basically, that's just what coreutils uses. When I benchmark lots of
     // different sizes, a 4 MiB heap buffer actually seems to be the best size, possibly 8% faster
     // than this. Though repeatedly hashing a gigabyte of random data might not reflect real world
@@ -88,14 +92,29 @@ fn read_write_all<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Resu
     // --mmap and skip buffering entirely. The main goal of this program is to compare the
     // underlying hash implementations (which is to say OpenSSL, which coreutils links against),
     // and to get an honest comparison we might as well use the same buffer size.
-    let mut buf = [0; 32768];
-    loop {
-        let n = reader.read(&mut buf)?;
-        if n == 0 {
-            return Ok(());
+    let mut buf1 = [0; 32768];
+    let mut buf2 = [0; 32768];
+    let (to_worker, from_main) = channel::<&mut [u8]>();
+    let (to_main, from_worker) = channel::<(&mut [u8], io::Result<usize>)>();
+    to_worker.send(&mut buf1).unwrap();
+    to_worker.send(&mut buf2).unwrap();
+    let res = crossbeam::scope(move |scope| {
+        scope.spawn(move || loop {
+            match from_main.recv() {
+                Ok(buf) => match reader.read(buf) {
+                    Ok(0) => break, // EOF
+                    n_result => to_main.send((buf, n_result)).unwrap(),
+                },
+                _ => break, // Main thread hung up.
+            }
+        });
+        while let Ok((buf, n_result)) = from_worker.recv() {
+            writer.write(&buf[..n_result?])?;
+            let _ = to_worker.send(buf);
         }
-        writer.write_all(&buf[..n])?;
-    }
+        Ok(())
+    });
+    res
 }
 
 fn main() {

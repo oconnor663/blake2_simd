@@ -8,6 +8,7 @@ repository = "https://github.com/oconnor663/blake2b_simd/tree/master/b2sum"
 
 [dependencies]
 blake2b_simd = { path = ".." }
+crossbeam = "0.3.0"
 memmap = "0.6.2"
 os_pipe = "0.7.0"
 structopt = "0.2.10"
