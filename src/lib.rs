@@ -16,8 +16,10 @@
 //! ```
 //! use blake2b_simd::{blake2b, Params};
 //!
-//! assert!(blake2b(b"foo") == blake2b(b"foo"));
-//! assert!(blake2b(b"foo") != blake2b(b"bar"));
+//! let expected = "ca002330e69d3e6b84a46a56a6533fd79d51d97a3bb7cad6c2ff43b354185d6d\
+//!                 c1e723fb3db4ae0737e120378424c714bb982d9dc5bbd7a0ab318240ddd18f8d";
+//! let hash = blake2b(b"foo");
+//! assert_eq!(expected, &hash.to_hex());
 //!
 //! let hash = Params::new()
 //!     .hash_length(16)
@@ -123,6 +125,16 @@ type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
 
 /// Compute the BLAKE2b hash of a slice of bytes, using default parameters.
+///
+/// # Example
+///
+/// ```
+/// # use blake2b_simd::{blake2b, Params};
+/// let expected = "ca002330e69d3e6b84a46a56a6533fd79d51d97a3bb7cad6c2ff43b354185d6d\
+///                 c1e723fb3db4ae0737e120378424c714bb982d9dc5bbd7a0ab318240ddd18f8d";
+/// let hash = blake2b(b"foo");
+/// assert_eq!(&hash.to_hex(), expected);
+/// ```
 pub fn blake2b(input: &[u8]) -> Hash {
     State::new().update(input).finalize()
 }
@@ -139,7 +151,8 @@ pub fn blake2b(input: &[u8]) -> Hash {
 /// # Example
 ///
 /// ```
-/// let state = blake2b_simd::Params::new().hash_length(32).to_state();
+/// # use blake2b_simd::Params;
+/// let mut state = Params::new().hash_length(32).to_state();
 /// ```
 #[derive(Clone)]
 pub struct Params {
@@ -295,12 +308,15 @@ impl fmt::Debug for Params {
 /// # Example
 ///
 /// ```
+/// use blake2b_simd::{State, blake2b};
+///
 /// let mut state = blake2b_simd::State::new();
+///
 /// state.update(b"foo");
-/// let hash1 = state.finalize();
+/// assert_eq!(blake2b(b"foo"), state.finalize());
+///
 /// state.update(b"bar");
-/// let hash2 = state.finalize();
-/// assert!(hash1 != hash2);
+/// assert_eq!(blake2b(b"foobar"), state.finalize());
 /// ```
 #[derive(Clone)]
 pub struct State {
