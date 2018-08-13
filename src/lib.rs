@@ -28,7 +28,7 @@
 //!     .update(b"bar")
 //!     .update(b"baz")
 //!     .finalize();
-//! assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.hex());
+//! assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.to_hex());
 //! ```
 //!
 //! # Performance
@@ -464,7 +464,7 @@ impl Hash {
 
     /// Convert the hash to a lowercase hexadecimal
     /// [`ArrayString`](https://docs.rs/arrayvec/0.4/arrayvec/struct.ArrayString.html).
-    pub fn hex(&self) -> ArrayString<[u8; 2 * OUTBYTES]> {
+    pub fn to_hex(&self) -> ArrayString<[u8; 2 * OUTBYTES]> {
         let mut s = ArrayString::new();
         let table = b"0123456789abcdef";
         for &b in self.as_bytes() {
@@ -499,7 +499,7 @@ impl AsRef<[u8]> for Hash {
 
 impl fmt::Debug for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Hash(0x{})", self.hex())
+        write!(f, "Hash(0x{})", self.to_hex())
     }
 }
 

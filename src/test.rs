@@ -13,20 +13,20 @@ fn test_vectors() {
     ];
     for &(input, output) in io {
         let hash = blake2b(input);
-        assert_eq!(&hash.hex(), output, "hash mismatch");
+        assert_eq!(&hash.to_hex(), output, "hash mismatch");
     }
 }
 
 #[test]
 fn test_multiple_finalizes() {
     let mut state = State::new();
-    assert_eq!(&state.finalize().hex(), EMPTY_HASH, "hash mismatch");
-    assert_eq!(&state.finalize().hex(), EMPTY_HASH, "hash mismatch");
-    assert_eq!(&state.finalize().hex(), EMPTY_HASH, "hash mismatch");
+    assert_eq!(&state.finalize().to_hex(), EMPTY_HASH, "hash mismatch");
+    assert_eq!(&state.finalize().to_hex(), EMPTY_HASH, "hash mismatch");
+    assert_eq!(&state.finalize().to_hex(), EMPTY_HASH, "hash mismatch");
     state.update(b"abc");
-    assert_eq!(&state.finalize().hex(), ABC_HASH, "hash mismatch");
-    assert_eq!(&state.finalize().hex(), ABC_HASH, "hash mismatch");
-    assert_eq!(&state.finalize().hex(), ABC_HASH, "hash mismatch");
+    assert_eq!(&state.finalize().to_hex(), ABC_HASH, "hash mismatch");
+    assert_eq!(&state.finalize().to_hex(), ABC_HASH, "hash mismatch");
+    assert_eq!(&state.finalize().to_hex(), ABC_HASH, "hash mismatch");
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn test_a_thousand_one_by_one() {
         state.update(&[0]);
     }
     let hash = state.finalize();
-    assert_eq!(&hash.hex(), THOUSAND_HASH, "hash mismatch");
+    assert_eq!(&hash.to_hex(), THOUSAND_HASH, "hash mismatch");
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn test_two_times_five_hundred() {
     state.update(&[0; 500]);
     state.update(&[0; 500]);
     let hash = state.finalize();
-    assert_eq!(&hash.hex(), THOUSAND_HASH, "hash mismatch");
+    assert_eq!(&hash.to_hex(), THOUSAND_HASH, "hash mismatch");
 }
 
 #[cfg(feature = "std")]
@@ -56,7 +56,7 @@ fn test_write() {
     let mut state = State::new();
     state.write_all(&[0; 1000]).unwrap();
     let hash = state.finalize();
-    assert_eq!(&hash.hex(), THOUSAND_HASH, "hash mismatch");
+    assert_eq!(&hash.to_hex(), THOUSAND_HASH, "hash mismatch");
 }
 
 // You can check this case against the equivalent Python:
@@ -93,5 +93,5 @@ fn test_all_parameters() {
     state.set_last_node(true);
     state.update(b"foo");
     let hash = state.finalize();
-    assert_eq!("0dea28da297ebeb1abb7fdd4c573887349", &hash.hex());
+    assert_eq!("0dea28da297ebeb1abb7fdd4c573887349", &hash.to_hex());
 }

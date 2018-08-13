@@ -109,7 +109,7 @@ fn main() {
     for path in &opt.input {
         match open_input(path, opt.mmap) {
             Ok(input) => match hash_one(input, hash_length) {
-                Ok(hash) => println!("{}  {}", hash.hex(), path.to_string_lossy()),
+                Ok(hash) => println!("{}  {}", hash.to_hex(), path.to_string_lossy()),
                 Err(e) => {
                     did_error = true;
                     eprintln!("b2sum: {}: {}", path.to_string_lossy(), e);
