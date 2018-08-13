@@ -11,3 +11,5 @@ script:
   - cargo test -vv
   # Without std.
   - cargo test -vv --no-default-features
+  # Test the b2sum sub-crate.
+  - (cd b2sum && cargo test -vv)
