@@ -111,19 +111,19 @@ fn test_long_hash_length_panics() {
 #[test]
 #[should_panic]
 fn test_long_key_panics() {
-    Params::new().key(&vec![0; KEYBYTES + 1]);
+    Params::new().key(&[0; KEYBYTES + 1]);
 }
 
 #[test]
 #[should_panic]
 fn test_long_salt_panics() {
-    Params::new().salt(&vec![0; SALTBYTES + 1]);
+    Params::new().salt(&[0; SALTBYTES + 1]);
 }
 
 #[test]
 #[should_panic]
 fn test_long_personal_panics() {
-    Params::new().personal(&vec![0; PERSONALBYTES + 1]);
+    Params::new().personal(&[0; PERSONALBYTES + 1]);
 }
 
 #[test]
