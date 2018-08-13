@@ -11,6 +11,21 @@
 //! - All the features from the [the BLAKE2 spec](https://blake2.net/blake2.pdf), like adjustable
 //!   length, keying, and associated data for tree hashing.
 //!
+//! # Example
+//!
+//! ```
+//! let hash = blake2b_simd::Params::new()
+//!     .hash_length(16)
+//!     .key(b"The Magic Words are Squeamish Ossifrage")
+//!     .personal(b"L. P. Waterhouse")
+//!     .to_state()
+//!     .update(b"foo")
+//!     .update(b"bar")
+//!     .update(b"baz")
+//!     .finalize();
+//! assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.hex());
+//! ```
+//!
 //! # Performance
 //!
 //! The AVX2 implementation in this crate is ported from the C implementation in libsodium. That
@@ -50,21 +65,6 @@
 //! │ coreutils md5sum          │ 0.476 GB/s │
 //! │ coreutils sha512sum       │ 0.464 GB/s │
 //! ╰───────────────────────────┴────────────╯
-//! ```
-//!
-//! # Example
-//!
-//! ```
-//! let hash = blake2b_simd::Params::new()
-//!     .hash_length(16)
-//!     .key(b"The Magic Words are Squeamish Ossifrage")
-//!     .personal(b"L. P. Waterhouse")
-//!     .to_state()
-//!     .update(b"foo")
-//!     .update(b"bar")
-//!     .update(b"baz")
-//!     .finalize();
-//! assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.hex());
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -158,6 +158,7 @@ impl Params {
         Self::default()
     }
 
+    /// Construct a `State` object based on these parameters.
     pub fn to_state(&self) -> State {
         State::with_params(self)
     }

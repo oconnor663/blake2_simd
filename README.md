@@ -13,6 +13,21 @@ An implementation of the BLAKE2b hash with:
 - All the features from the [the BLAKE2 spec](https://blake2.net/blake2.pdf), like adjustable
   length, keying, and associated data for tree hashing.
 
+## Example
+
+```rust
+let hash = blake2b_simd::Params::new()
+    .hash_length(16)
+    .key(b"The Magic Words are Squeamish Ossifrage")
+    .personal(b"L. P. Waterhouse")
+    .to_state()
+    .update(b"foo")
+    .update(b"bar")
+    .update(b"baz")
+    .finalize();
+assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.hex());
+```
+
 ## Performance
 
 The AVX2 implementation in this crate is ported from the C implementation in libsodium. That
@@ -52,19 +67,4 @@ Here are the results from my laptop:
 │ coreutils md5sum          │ 0.476 GB/s │
 │ coreutils sha512sum       │ 0.464 GB/s │
 ╰───────────────────────────┴────────────╯
-```
-
-## Example
-
-```rust
-let mut params = blake2b_simd::Params::default();
-params.hash_length(16);
-params.key(b"The Magic Words are Squeamish Ossifrage");
-params.personal(b"L. P. Waterhouse");
-let mut state = blake2b_simd::State::with_params(&params);
-state.update(b"foo");
-state.update(b"bar");
-state.update(b"baz");
-let hash = state.finalize();
-assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.hex());
 ```
