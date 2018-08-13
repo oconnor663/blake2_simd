@@ -12,9 +12,6 @@ use std::path::{Path, PathBuf};
 use std::process::exit;
 use structopt::StructOpt;
 
-// Using a large (512 KiB) heap buffer seems to be faster than a small stack buffer.
-const BUF_SIZE: usize = 1 << 19;
-
 #[derive(Debug, StructOpt)]
 #[structopt(author = "")]
 struct Opt {
@@ -29,6 +26,10 @@ struct Opt {
     #[structopt(long = "mmap")]
     /// Read input with memory mapping.
     mmap: bool,
+
+    #[structopt(long = "bufsize", default_value = "19")]
+    /// Read input with memory mapping.
+    bufsize: usize,
 }
 
 enum Input {
@@ -99,7 +100,7 @@ fn main() {
     let hash_length = opt.length / 8;
 
     let mut did_error = false;
-    let mut buf = vec![0; BUF_SIZE];
+    let mut buf = vec![0; 1 << opt.bufsize];
     for path in &opt.input {
         match open_input(path, opt.mmap) {
             Ok(input) => match hash_one(input, hash_length, &mut buf) {
