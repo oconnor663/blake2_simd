@@ -36,6 +36,21 @@
 //! ╰──────────────┴────────────┴────────────╯
 //! ```
 //!
+//! The `b2sum` sub-crate is a clone of the `b2sum` utility from coreutils. The
+//! `benches/bench_b2sum.py` script runs it against several coreutils hashes, on a 10 MB file of
+//! random data. (On Arch Linux, the utilities other than `b2sum` use OpenSSL's implementations.)
+//! Here are the results from my laptop:
+//!
+//! ```table
+//! ╭───────────────────────────┬────────────╮
+//! │ blake2b_simd b2sum --mmap │ 0.676 GB/s │
+//! │ blake2b_simd b2sum        │ 0.649 GB/s │
+//! │ coreutils sha1sum         │ 0.628 GB/s │
+//! │ coreutils b2sum           │ 0.536 GB/s │
+//! │ coreutils md5sum          │ 0.476 GB/s │
+//! │ coreutils sha512sum       │ 0.464 GB/s │
+//! ╰───────────────────────────┴────────────╯
+//! ```
 //!
 //! # Example
 //!
