@@ -5,6 +5,7 @@ authors = ["Jack O'Connor"]
 description = "a pure Rust BLAKE2b implementation with dynamic SIMD"
 license = "MIT"
 repository = "https://github.com/oconnor663/blake2b_simd"
+documentation = "https://docs.rs/blake2b_simd"
 readme = "README.md"
 
 [dependencies]
