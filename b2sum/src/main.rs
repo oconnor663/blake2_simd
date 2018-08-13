@@ -26,10 +26,6 @@ struct Opt {
     #[structopt(long = "mmap")]
     /// Read input with memory mapping.
     mmap: bool,
-
-    #[structopt(long = "bufsize", default_value = "19")]
-    /// Read input with memory mapping.
-    bufsize: usize,
 }
 
 enum Input {
@@ -56,7 +52,7 @@ fn open_input(path: &Path, mmap: bool) -> io::Result<Input> {
     })
 }
 
-fn hash_one(input: Input, hash_length: usize, buf: &mut [u8]) -> io::Result<Hash> {
+fn hash_one(input: Input, hash_length: usize) -> io::Result<Hash> {
     let mut params = Params::default();
     params.hash_length(hash_length);
     let mut state = State::with_params(&params);
@@ -64,10 +60,10 @@ fn hash_one(input: Input, hash_length: usize, buf: &mut [u8]) -> io::Result<Hash
         Input::Stdin => {
             let stdin = io::stdin();
             let mut stdin = stdin.lock();
-            read_write_all(&mut stdin, &mut state, buf)?;
+            read_write_all(&mut stdin, &mut state)?;
         }
         Input::File(mut file) => {
-            read_write_all(&mut file, &mut state, buf)?;
+            read_write_all(&mut file, &mut state)?;
         }
         Input::Mmap(mmap) => {
             state.update(&mmap);
@@ -76,13 +72,17 @@ fn hash_one(input: Input, hash_length: usize, buf: &mut [u8]) -> io::Result<Hash
     Ok(state.finalize())
 }
 
-fn read_write_all<R: Read, W: Write>(
-    reader: &mut R,
-    writer: &mut W,
-    buf: &mut [u8],
-) -> io::Result<()> {
+fn read_write_all<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<()> {
+    // Why 32728 (2^15)? Basically, that's just what coreutils uses. When I benchmark lots of
+    // different sizes, a 4 MiB heap buffer actually seems to be the best size, possibly 8% faster
+    // than this. Though repeatedly hashing a gigabyte of random data might not reflect real world
+    // usage, who knows. At the end of the day, when we really care about speed, we're going to use
+    // --mmap and skip buffering entirely. The main goal of this program is to compare the
+    // underlying hash implementations (which is to say OpenSSL, which coreutils links against),
+    // and to get an honest comparison we might as well use the same buffer size.
+    let mut buf = [0; 32768];
     loop {
-        let n = reader.read(buf)?;
+        let n = reader.read(&mut buf)?;
         if n == 0 {
             return Ok(());
         }
@@ -100,10 +100,9 @@ fn main() {
     let hash_length = opt.length / 8;
 
     let mut did_error = false;
-    let mut buf = vec![0; 1 << opt.bufsize];
     for path in &opt.input {
         match open_input(path, opt.mmap) {
-            Ok(input) => match hash_one(input, hash_length, &mut buf) {
+            Ok(input) => match hash_one(input, hash_length) {
                 Ok(hash) => println!("{}  {}", hash.hex(), path.to_string_lossy()),
                 Err(e) => {
                     did_error = true;
