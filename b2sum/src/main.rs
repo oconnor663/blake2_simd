@@ -12,6 +12,14 @@ use std::path::{Path, PathBuf};
 use std::process::exit;
 use structopt::StructOpt;
 
+#[cfg(test)]
+mod test;
+#[cfg(test)]
+#[macro_use]
+extern crate duct;
+#[cfg(test)]
+extern crate tempfile;
+
 #[derive(Debug, StructOpt)]
 #[structopt(author = "")]
 struct Opt {

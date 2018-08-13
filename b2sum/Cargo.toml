@@ -11,3 +11,7 @@ blake2b_simd = { path = ".." }
 memmap = "0.6.2"
 os_pipe = "0.7.0"
 structopt = "0.2.10"
+
+[dev-dependencies]
+duct = "0.11.0"
+tempfile = "3.0.3"
