@@ -55,15 +55,15 @@
 //! # Example
 //!
 //! ```
-//! let mut params = blake2b_simd::Params::default();
-//! params.hash_length(16);
-//! params.key(b"The Magic Words are Squeamish Ossifrage");
-//! params.personal(b"L. P. Waterhouse");
-//! let mut state = blake2b_simd::State::with_params(&params);
-//! state.update(b"foo");
-//! state.update(b"bar");
-//! state.update(b"baz");
-//! let hash = state.finalize();
+//! let hash = blake2b_simd::Params::new()
+//!     .hash_length(16)
+//!     .key(b"The Magic Words are Squeamish Ossifrage")
+//!     .personal(b"L. P. Waterhouse")
+//!     .to_state()
+//!     .update(b"foo")
+//!     .update(b"bar")
+//!     .update(b"baz")
+//!     .finalize();
 //! assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.hex());
 //! ```
 
@@ -120,9 +120,7 @@ type Block = [u8; BLOCKBYTES];
 
 /// Compute the BLAKE2b hash of a slice of bytes, using default parameters.
 pub fn blake2b(input: &[u8]) -> Hash {
-    let mut state = State::new();
-    state.update(input);
-    state.finalize()
+    State::new().update(input).finalize()
 }
 
 /// A parameter builder for `State` that exposes all the various BLAKE2 features.
@@ -137,9 +135,7 @@ pub fn blake2b(input: &[u8]) -> Hash {
 /// # Example
 ///
 /// ```
-/// let mut params = blake2b_simd::Params::default();
-/// params.hash_length(32);
-/// let mut state = blake2b_simd::State::with_params(&params);
+/// let state = blake2b_simd::Params::new().hash_length(32).to_state();
 /// ```
 #[derive(Clone)]
 pub struct Params {
@@ -157,55 +153,49 @@ pub struct Params {
 }
 
 impl Params {
-    fn words(&self) -> StateWords {
-        let mut words = [0; 8];
-        words[0] ^= self.hash_length as u64;
-        words[0] ^= (self.key_length as u64) << 8;
-        words[0] ^= (self.fanout as u64) << 16;
-        words[0] ^= (self.max_depth as u64) << 24;
-        words[0] ^= (self.max_leaf_length as u64) << 32;
-        words[1] ^= self.node_offset;
-        words[2] ^= self.node_depth as u64;
-        words[2] ^= (self.inner_hash_length as u64) << 8;
-        // The last half of word 2 and all of word 3 are reserved.
-        words[4] ^= LittleEndian::read_u64(&self.salt[..8]);
-        words[5] ^= LittleEndian::read_u64(&self.salt[8..]);
-        words[6] ^= LittleEndian::read_u64(&self.personal[..8]);
-        words[7] ^= LittleEndian::read_u64(&self.personal[8..]);
-        words
+    /// Equivalent to `Params::default()`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn to_state(&self) -> State {
+        State::with_params(self)
     }
 
     /// Set the length of the final hash, from 1 to `OUTBYTES` (64). Apart from controlling the
     /// length of the final `Hash`, this is also associated data, and changing it will result in a
     /// totally different hash.
-    pub fn hash_length(&mut self, length: usize) {
+    pub fn hash_length(&mut self, length: usize) -> &mut Self {
         assert!(
             1 <= length && length <= OUTBYTES,
             "Bad hash length: {}",
             length
         );
         self.hash_length = length as u8;
+        self
     }
 
     /// Use a secret key, so that BLAKE2b acts as a MAC. The maximum key length is `KEYBYTES` (64).
     /// An empty key is equivalent to having no key at all.
-    pub fn key(&mut self, key: &[u8]) {
+    pub fn key(&mut self, key: &[u8]) -> &mut Self {
         assert!(key.len() <= KEYBYTES, "Bad key length: {}", key.len());
         self.key_length = key.len() as u8;
         self.key[..key.len()].copy_from_slice(key);
+        self
     }
 
     /// At most `SALTBYTES` (16). Shorter salts are padded with null bytes. An empty salt is
     /// equivalent to having no salt at all.
-    pub fn salt(&mut self, salt: &[u8]) {
+    pub fn salt(&mut self, salt: &[u8]) -> &mut Self {
         assert!(salt.len() <= SALTBYTES, "Bad salt length: {}", salt.len());
         self.salt = [0; SALTBYTES];
         self.salt[..salt.len()].copy_from_slice(salt);
+        self
     }
 
     /// At most `PERSONALBYTES` (16). Shorter personalizations are padded with null bytes. An empty
     /// personalization is equivalent to having no personalization at all.
-    pub fn personal(&mut self, personalization: &[u8]) {
+    pub fn personal(&mut self, personalization: &[u8]) -> &mut Self {
         assert!(
             personalization.len() <= PERSONALBYTES,
             "Bad personalization length: {}",
@@ -213,38 +203,45 @@ impl Params {
         );
         self.personal = [0; PERSONALBYTES];
         self.personal[..personalization.len()].copy_from_slice(personalization);
+        self
     }
 
     /// From 0 (meaning unlimited) to 255. The default is 1 (meaning sequential).
-    pub fn fanout(&mut self, fanout: u8) {
+    pub fn fanout(&mut self, fanout: u8) -> &mut Self {
         self.fanout = fanout;
+        self
     }
 
     /// From 1 (the default, meaning sequential) to 255 (meaning unlimited).
-    pub fn max_depth(&mut self, depth: u8) {
+    pub fn max_depth(&mut self, depth: u8) -> &mut Self {
         assert!(depth != 0, "Bad max depth: {}", depth);
         self.max_depth = depth;
+        self
     }
 
     /// From 0 (the default, meaning unlimited or sequential) to `2^32 - 1`.
-    pub fn max_leaf_length(&mut self, length: u32) {
+    pub fn max_leaf_length(&mut self, length: u32) -> &mut Self {
         self.max_leaf_length = length;
+        self
     }
 
     /// From 0 (the default, meaning first, leftmost, leaf, or sequential) to `2^64 - 1`.
-    pub fn node_offset(&mut self, offset: u64) {
+    pub fn node_offset(&mut self, offset: u64) -> &mut Self {
         self.node_offset = offset;
+        self
     }
 
     /// From 0 (the default, meaning leaf or sequential) to 255.
-    pub fn node_depth(&mut self, depth: u8) {
+    pub fn node_depth(&mut self, depth: u8) -> &mut Self {
         self.node_depth = depth;
+        self
     }
 
     /// From 0 (the default, meaning sequential) to `OUTBYTES` (64).
-    pub fn inner_hash_length(&mut self, length: usize) {
+    pub fn inner_hash_length(&mut self, length: usize) -> &mut Self {
         assert!(length <= OUTBYTES, "Bad inner hash length: {}", length);
         self.inner_hash_length = length as u8;
+        self
     }
 }
 
@@ -312,25 +309,27 @@ pub struct State {
 }
 
 impl State {
-    /// Construct a new `State` with default parameters.
+    /// Equivalent to `State::default()` or `Params::default().to_state()`.
     pub fn new() -> Self {
         Self::with_params(&Params::default())
     }
 
-    /// Construct a new `State` with from a given `Params` object. This lets the caller customize
-    /// the length of the final `Hash` and add other associated data.
-    pub fn with_params(params: &Params) -> Self {
-        let param_words = params.words();
+    fn with_params(params: &Params) -> Self {
         let mut state = Self {
             h: [
-                IV[0] ^ param_words[0],
-                IV[1] ^ param_words[1],
-                IV[2] ^ param_words[2],
-                IV[3] ^ param_words[3],
-                IV[4] ^ param_words[4],
-                IV[5] ^ param_words[5],
-                IV[6] ^ param_words[6],
-                IV[7] ^ param_words[7],
+                IV[0]
+                    ^ params.hash_length as u64
+                    ^ (params.key_length as u64) << 8
+                    ^ (params.fanout as u64) << 16
+                    ^ (params.max_depth as u64) << 24
+                    ^ (params.max_leaf_length as u64) << 32,
+                IV[1] ^ params.node_offset,
+                IV[2] ^ params.node_depth as u64 ^ (params.inner_hash_length as u64) << 8,
+                IV[3],
+                IV[4] ^ LittleEndian::read_u64(&params.salt[..8]),
+                IV[5] ^ LittleEndian::read_u64(&params.salt[8..]),
+                IV[6] ^ LittleEndian::read_u64(&params.personal[..8]),
+                IV[7] ^ LittleEndian::read_u64(&params.personal[8..]),
             ],
             compress_fn: default_compress_impl(),
             buf: [0; BLOCKBYTES],
@@ -350,7 +349,7 @@ impl State {
     /// Add input to the hash. You can call `update` any number of times.
     // array_ref triggers unused_unsafe (https://github.com/droundy/arrayref/pull/14)
     #[allow(unused_unsafe)]
-    pub fn update(&mut self, mut input: &[u8]) {
+    pub fn update(&mut self, mut input: &[u8]) -> &mut Self {
         // If we have a partial buffer, try to complete it. If we complete it and there's more
         // input waiting (so we know we don't need to finalize), compress it.
         if self.buflen > 0 {
@@ -373,6 +372,7 @@ impl State {
         }
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
         self.fill_buf(&mut input);
+        self
     }
 
     /// Finalize the state and return a `Hash`. This method is idempotent, and calling it multiple
@@ -399,8 +399,9 @@ impl State {
     /// at any time before calling `finalize`. That allows callers to begin hashing a node without
     /// knowing ahead of time whether it's the last in its level. For more details about the
     /// intended use of this flag [the BLAKE2 spec](https://blake2.net/blake2.pdf).
-    pub fn set_last_node(&mut self, val: bool) {
+    pub fn set_last_node(&mut self, val: bool) -> &mut Self {
         self.last_node = val;
+        self
     }
 
     fn fill_buf(&mut self, input: &mut &[u8]) {
@@ -432,6 +433,12 @@ impl fmt::Debug for State {
             "State {{ count: {}, hash_length: {}, last_node: {} }}",
             self.count, self.hash_length, self.last_node,
         )
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::with_params(&Params::default())
     }
 }
 

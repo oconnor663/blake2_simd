@@ -4,7 +4,7 @@ extern crate os_pipe;
 #[macro_use]
 extern crate structopt;
 
-use blake2b_simd::{Hash, Params, State};
+use blake2b_simd::{Hash, Params};
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -61,9 +61,7 @@ fn open_input(path: &Path, mmap: bool) -> io::Result<Input> {
 }
 
 fn hash_one(input: Input, hash_length: usize) -> io::Result<Hash> {
-    let mut params = Params::default();
-    params.hash_length(hash_length);
-    let mut state = State::with_params(&params);
+    let mut state = Params::new().hash_length(hash_length).to_state();
     match input {
         Input::Stdin => {
             let stdin = io::stdin();
