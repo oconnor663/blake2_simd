@@ -14,7 +14,12 @@
 //! # Example
 //!
 //! ```
-//! let hash = blake2b_simd::Params::new()
+//! use blake2b_simd::{blake2b, Params};
+//!
+//! assert!(blake2b(b"foo") == blake2b(b"foo"));
+//! assert!(blake2b(b"foo") != blake2b(b"bar"));
+//!
+//! let hash = Params::new()
 //!     .hash_length(16)
 //!     .key(b"The Magic Words are Squeamish Ossifrage")
 //!     .personal(b"L. P. Waterhouse")
@@ -451,9 +456,9 @@ pub struct Hash {
 }
 
 impl Hash {
-    /// Get the hash as a slice of bytes. Note that slices don't provide constant-time equality
-    /// checks, so avoid this method if you're using BLAKE2b as a MAC.
-    pub fn bytes(&self) -> &[u8] {
+    /// Convert the hash to a byte slice. Note that if you're using BLAKE2b as a MAC, you need
+    /// constant time equality, which `&[u8]` doesn't provide.
+    pub fn as_bytes(&self) -> &[u8] {
         &self.bytes[..self.len as usize]
     }
 
@@ -462,7 +467,7 @@ impl Hash {
     pub fn hex(&self) -> ArrayString<[u8; 2 * OUTBYTES]> {
         let mut s = ArrayString::new();
         let table = b"0123456789abcdef";
-        for &b in self.bytes() {
+        for &b in self.as_bytes() {
             s.push(table[(b >> 4) as usize] as char);
             s.push(table[(b & 0xf) as usize] as char);
         }
@@ -473,14 +478,14 @@ impl Hash {
 /// This implementation is constant time, if the two hashes are the same length.
 impl PartialEq for Hash {
     fn eq(&self, other: &Hash) -> bool {
-        constant_time_eq::constant_time_eq(&self.bytes(), &other.bytes())
+        constant_time_eq::constant_time_eq(&self.as_bytes(), &other.as_bytes())
     }
 }
 
 /// This implementation is constant time, if the slice is the same length as the hash.
 impl PartialEq<[u8]> for Hash {
     fn eq(&self, other: &[u8]) -> bool {
-        constant_time_eq::constant_time_eq(&self.bytes(), other)
+        constant_time_eq::constant_time_eq(&self.as_bytes(), other)
     }
 }
 
@@ -488,7 +493,7 @@ impl Eq for Hash {}
 
 impl AsRef<[u8]> for Hash {
     fn as_ref(&self) -> &[u8] {
-        self.bytes()
+        self.as_bytes()
     }
 }
 
