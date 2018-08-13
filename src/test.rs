@@ -64,10 +64,10 @@ fn test_write() {
 // import hashlib
 // hashlib.blake2b(
 //     b'foo',
-//     digest_size=17,
+//     digest_size=18,
 //     key=b"bar",
-//     salt=b"baz",
-//     person=b"bing",
+//     salt=b"bazbazbazbazbazb",
+//     person=b"bing bing bing b",
 //     fanout=2,
 //     depth=3,
 //     leaf_size=0x04050607,
@@ -79,10 +79,10 @@ fn test_write() {
 #[test]
 fn test_all_parameters() {
     let mut params = Params::default();
-    params.hash_length(17);
+    params.hash_length(18);
     params.key(b"bar");
-    params.salt(b"baz");
-    params.personal(b"bing");
+    params.salt(b"bazbazbazbazbazb");
+    params.personal(b"bing bing bing b");
     params.fanout(2);
     params.max_depth(3);
     params.max_leaf_length(0x04050607);
@@ -93,5 +93,5 @@ fn test_all_parameters() {
     state.set_last_node(true);
     state.update(b"foo");
     let hash = state.finalize();
-    assert_eq!("0dea28da297ebeb1abb7fdd4c573887349", &hash.to_hex());
+    assert_eq!("ec0f59cb65f92e7fcca1280ba859a6925ded", &hash.to_hex());
 }
