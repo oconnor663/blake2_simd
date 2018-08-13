@@ -1,12 +1,16 @@
 #! /usr/bin/env python3
 
 from pathlib import Path
-from subprocess import run, DEVNULL
+import subprocess
 import os
-import sys
 import statistics
+import tempfile
 import time
 
+# On my i5-8250U laptop, at 1MB of input or below, the results of the benchmark
+# are pretty random. Above 10MB, all of the implementations keep getting
+# faster, but their relative performance is consistent.
+INPUT_SIZE = 10_000_000
 NUM_RUNS = 10
 
 b2sum_root = Path(__file__).parent.parent / "b2sum"
@@ -34,15 +38,23 @@ def print_diff(diff, gigs, message, stdev=None, stdev_rate=None):
                                                 gbps_stdev, message))
 
 
+def random_temp_file(size):
+    f = tempfile.TemporaryFile()
+    # Write random data 1 MiB at a time.
+    while size > 2**20:
+        f.write(os.urandom(2**20))
+        size -= 2**20
+    f.write(os.urandom(size))
+    f.seek(0)
+    return f
+
+
 def main():
-    if len(sys.argv) < 2:
-        print("need an input filename")
-        sys.exit(1)
-    infile_path = sys.argv[1]
-    infile_gigs = os.stat(infile_path).st_size / 1_000_000_000
+    input_file = random_temp_file(INPUT_SIZE)
+    input_gigs = INPUT_SIZE / 1_000_000_000
     build_command = ["cargo", "+nightly", "build", "--release"]
     print(" ".join(build_command))
-    run(build_command, cwd=b2sum_root)
+    subprocess.run(build_command, cwd=b2sum_root)
 
     averages = {}
     bests = {}
@@ -54,16 +66,19 @@ def main():
         rates = []
         best = float('inf')
         for i in range(NUM_RUNS):
-            infile = open(infile_path)
+            input_file.seek(0)
+
+            # Do a run!
             start = time.perf_counter()
-            run(target, stdin=infile, stdout=DEVNULL)
+            subprocess.run(target, stdin=input_file, stdout=subprocess.DEVNULL)
             diff = time.perf_counter() - start
+
             if i == 0:
-                print_diff(diff, infile_gigs, target_name + " (ignored)")
+                print_diff(diff, input_gigs, target_name + " (ignored)")
             else:
-                print_diff(diff, infile_gigs, target_name)
+                print_diff(diff, input_gigs, target_name)
                 runs.append(diff)
-                rates.append(infile_gigs / diff)
+                rates.append(input_gigs / diff)
         averages[target_name] = sum(runs) / len(runs)
         bests[target_name] = min(runs)
         stdevs[target_name] = statistics.stdev(runs)
@@ -73,7 +88,7 @@ def main():
     best_list = list(bests.items())
     best_list.sort(key=lambda pair: pair[1])
     for target_name, best in best_list:
-        print_diff(best, infile_gigs, target_name)
+        print_diff(best, input_gigs, target_name)
 
     print("--- average ---")
     average_list = list(averages.items())
@@ -81,7 +96,7 @@ def main():
     for target_name, average in average_list:
         print_diff(
             average,
-            infile_gigs,
+            input_gigs,
             target_name,
             stdev=stdevs[target_name],
             stdev_rate=stdevs_rate[target_name])
