@@ -19,14 +19,12 @@ fn test_vectors() {
     ];
     // Test each input all at once.
     for &(input, output) in io {
-        println!("all at once {}", input.len());
         let hash = blake2b(input);
         assert_eq!(&hash.to_hex(), output, "hash mismatch");
     }
     // Now in two chunks. This is especially important for the ONE_BLOCK case, because it would be
     // a mistake for update() to call compress, even though the buffer is full.
     for &(input, output) in io {
-        println!("two chunks {}", input.len());
         let mut state = State::new();
         let split = input.len() / 2;
         state.update(&input[..split]);
@@ -36,7 +34,6 @@ fn test_vectors() {
     }
     // Now one byte at a time.
     for &(input, output) in io {
-        println!("byte at a time {}", input.len());
         let mut state = State::new();
         for &b in input {
             state.update(&[b]);
