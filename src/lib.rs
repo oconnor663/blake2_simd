@@ -390,6 +390,12 @@ impl State {
             input = &input[BLOCKBYTES..];
         }
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
+        // Note that this represents some copying overhead, which in theory we could avoid in
+        // all-at-once setting. A function hardcoded for exactly BLOCKSIZE input bytes is about 10%
+        // faster than using this implementation for the same input. But non-multiple sizes still
+        // require copying, and the savings disappears into the noise for any larger multiple. Any
+        // caller so concerned with performance that they're shaping their hash inputs down to the
+        // single byte, should just call the compression function directly.
         self.fill_buf(&mut input);
         self
     }
