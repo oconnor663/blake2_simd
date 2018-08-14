@@ -368,8 +368,6 @@ impl State {
     }
 
     /// Add input to the hash. You can call `update` any number of times.
-    // array_ref triggers unused_unsafe (https://github.com/droundy/arrayref/pull/14)
-    #[allow(unused_unsafe)]
     pub fn update(&mut self, mut input: &[u8]) -> &mut Self {
         // If we have a partial buffer, try to complete it. If we complete it and there's more
         // input waiting (so we know we don't need to finalize), compress it.
