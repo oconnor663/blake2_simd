@@ -29,8 +29,8 @@ fn hash(input: &[u8], force_portable: bool) -> blake2b_simd::Hash {
 fn print(d: Duration, message: &str) {
     let nanos: u64 = NS_PER_SEC * d.as_secs() + d.subsec_nanos() as u64;
     let secs: f64 = nanos as f64 / NS_PER_SEC as f64;
-    // (ns / sec) / (ns / GB) = GB / sec
-    let rate: f64 = NS_PER_SEC as f64 / nanos as f64;
+    // (bits / ns) = (GB / sec)
+    let rate: f64 = INPUT_LEN as f64 / nanos as f64;
     println!("{:.06}s ({:.06} GB/s) {}", secs, rate, message);
 }
 

@@ -23,8 +23,8 @@ uint64_t nanosecond_diff(struct timespec tstart, struct timespec tend) {
 
 void print_nanos(uint64_t nanos, char *message) {
   double secs = (double)nanos / (double)NS_PER_SEC;
-  // (nanoseconds / second) / (nanoseconds / GB) = GB / second
-  double rate = (double)NS_PER_SEC / (double)nanos;
+  // bits/ns = GB/sec
+  double rate = INPUT_LEN / (double)nanos;
   printf("%.6fs (%.6f GB/s) %s\n", secs, rate, message);
 }
 
