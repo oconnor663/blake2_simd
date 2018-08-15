@@ -4,7 +4,7 @@ extern crate os_pipe;
 #[macro_use]
 extern crate structopt;
 
-use blake2b_simd::{Hash, Params};
+use blake2b_simd::{Hash, Params, State};
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -29,7 +29,7 @@ struct Opt {
 
     #[structopt(short = "l", long = "length", default_value = "512")]
     /// The size of the output in bits. Must be a multiple of 8.
-    length: usize,
+    length_bits: usize,
 
     #[structopt(long = "mmap")]
     /// Read input with memory mapping.
@@ -78,7 +78,7 @@ fn hash_one(input: Input, hash_length: usize) -> io::Result<Hash> {
     Ok(state.finalize())
 }
 
-fn read_write_all<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<()> {
+fn read_write_all<R: Read>(reader: &mut R, writer: &mut State) -> io::Result<()> {
     // Why 32728 (2^15)? Basically, that's just what coreutils uses. When I benchmark lots of
     // different sizes, a 4 MiB heap buffer actually seems to be the best size, possibly 8% faster
     // than this. Though repeatedly hashing a gigabyte of random data might not reflect real world
@@ -96,28 +96,28 @@ fn read_write_all<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Resu
     }
 }
 
+fn do_path(path: &Path, opt: &Opt) -> io::Result<Hash> {
+    let input = open_input(path, opt.mmap)?;
+    let hash_length = opt.length_bits / 8;
+    hash_one(input, hash_length)
+}
+
 fn main() {
     let opt = Opt::from_args();
 
-    if opt.length == 0 || opt.length > 512 || opt.length % 8 != 0 {
+    if opt.length_bits == 0 || opt.length_bits > 512 || opt.length_bits % 8 != 0 {
         eprintln!("Invalid length.");
         exit(1);
     }
-    let hash_length = opt.length / 8;
 
     let mut did_error = false;
     for path in &opt.input {
-        match open_input(path, opt.mmap) {
-            Ok(input) => match hash_one(input, hash_length) {
-                Ok(hash) => println!("{}  {}", hash.to_hex(), path.to_string_lossy()),
-                Err(e) => {
-                    did_error = true;
-                    eprintln!("b2sum: {}: {}", path.to_string_lossy(), e);
-                }
-            },
+        let path_str = path.to_string_lossy();
+        match do_path(path, &opt) {
+            Ok(hash) => println!("{}  {}", hash.to_hex(), path_str),
             Err(e) => {
                 did_error = true;
-                eprintln!("b2sum: {}: {}", path.to_string_lossy(), e);
+                eprintln!("b2sum: {}: {}", path_str, e);
             }
         }
     }
