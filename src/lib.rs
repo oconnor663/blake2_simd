@@ -96,7 +96,6 @@ mod portable;
 #[cfg(test)]
 mod test;
 
-const BLOCKBYTES: usize = 128;
 /// The max hash length.
 pub const OUTBYTES: usize = 64;
 /// The max key length.
@@ -105,6 +104,9 @@ pub const KEYBYTES: usize = 64;
 pub const SALTBYTES: usize = 16;
 /// The max personalization length.
 pub const PERSONALBYTES: usize = 16;
+/// The number input bytes passed to each call to the compression function. Small benchmarks need
+/// to use an even multiple of `BLOCKBYTES`, or else their apparent throughput will be low.
+pub const BLOCKBYTES: usize = 128;
 
 const IV: [u64; 8] = [
     0x6A09E667F3BCC908,

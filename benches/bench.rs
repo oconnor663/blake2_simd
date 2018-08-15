@@ -3,22 +3,21 @@
 extern crate blake2b_simd;
 extern crate test;
 
+use blake2b_simd::*;
 use test::Bencher;
-
-const BLOCKBYTES: usize = 128;
 
 #[bench]
 fn blake2b_avx2_one_block(b: &mut Bencher) {
     let input = &[0; BLOCKBYTES];
     b.bytes = input.len() as u64;
-    b.iter(|| blake2b_simd::blake2b(input));
+    b.iter(|| blake2b(input));
 }
 
 #[bench]
 fn blake2b_avx2_one_megabyte(b: &mut Bencher) {
     let input = &[0; 1_000_000];
     b.bytes = input.len() as u64;
-    b.iter(|| blake2b_simd::blake2b(input));
+    b.iter(|| blake2b(input));
 }
 
 #[bench]
@@ -30,7 +29,7 @@ fn blake2b_avx2_compress(b: &mut Bencher) {
     let input = &[0; BLOCKBYTES];
     b.bytes = input.len() as u64;
     let mut h = [0; 8];
-    b.iter(|| unsafe { blake2b_simd::benchmarks::compress_avx2(&mut h, input, 0, 0, 0) });
+    b.iter(|| unsafe { benchmarks::compress_avx2(&mut h, input, 0, 0, 0) });
 }
 
 #[bench]
@@ -38,8 +37,8 @@ fn blake2b_portable_one_block(b: &mut Bencher) {
     let input = &[0; BLOCKBYTES];
     b.bytes = input.len() as u64;
     b.iter(|| {
-        let mut state = blake2b_simd::State::new();
-        blake2b_simd::benchmarks::force_portable(&mut state);
+        let mut state = State::new();
+        benchmarks::force_portable(&mut state);
         state.update(input);
         state.finalize()
     });
@@ -50,8 +49,8 @@ fn blake2b_portable_one_megabyte(b: &mut Bencher) {
     let input = &[0; 1_000_000];
     b.bytes = input.len() as u64;
     b.iter(|| {
-        let mut state = blake2b_simd::State::new();
-        blake2b_simd::benchmarks::force_portable(&mut state);
+        let mut state = State::new();
+        benchmarks::force_portable(&mut state);
         state.update(input);
         state.finalize()
     });
@@ -62,5 +61,5 @@ fn blake2b_portable_compress(b: &mut Bencher) {
     let input = &[0; BLOCKBYTES];
     b.bytes = input.len() as u64;
     let mut h = [0; 8];
-    b.iter(|| blake2b_simd::benchmarks::compress_portable(&mut h, input, 0, 0, 0));
+    b.iter(|| benchmarks::compress_portable(&mut h, input, 0, 0, 0));
 }
