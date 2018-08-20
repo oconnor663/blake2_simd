@@ -65,7 +65,7 @@ fn read_write_all<R: Read>(reader: &mut R, writer: &mut State) -> io::Result<()>
     // Why not just use std::io::copy? Because it uses an 8192 byte buffer, and using a larger
     // buffer is measurably faster.
     //
-    // How did we pick 32728 (2^15) specifically? It's just what coreutils uses. When I benchmark
+    // How did we pick 32768 (2^15) specifically? It's just what coreutils uses. When I benchmark
     // lots of different sizes, a 4 MiB heap buffer actually seems to be the best size, possibly 8%
     // faster than this. Though repeatedly hashing a gigabyte of random data might not reflect real
     // world usage, who knows. At the end of the day, when we really care about speed, we're going
