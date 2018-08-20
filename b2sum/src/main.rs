@@ -36,54 +36,40 @@ struct Opt {
     mmap: bool,
 }
 
-enum Input {
-    Stdin,
-    File(File),
-    Mmap(memmap::Mmap),
-}
-
-fn open_input(path: &Path, mmap: bool) -> io::Result<Input> {
-    Ok(if path == Path::new("-") {
-        if mmap {
-            let stdin_file = os_pipe::dup_stdin()?.into();
-            Input::Mmap(unsafe { memmap::Mmap::map(&stdin_file)? })
-        } else {
-            Input::Stdin
-        }
-    } else {
-        let file = File::open(path)?;
-        if mmap {
-            Input::Mmap(unsafe { memmap::Mmap::map(&file)? })
-        } else {
-            Input::File(file)
-        }
-    })
-}
-
-fn hash_one(input: Input, hash_length: usize) -> io::Result<Hash> {
+fn hash_one(path: &Path, opt: &Opt) -> io::Result<Hash> {
+    let hash_length = opt.length_bits / 8;
     let mut state = Params::new().hash_length(hash_length).to_state();
-    match input {
-        Input::Stdin => {
+    if path == Path::new("-") {
+        if opt.mmap {
+            let stdin_file = os_pipe::dup_stdin()?.into();
+            let map = unsafe { memmap::Mmap::map(&stdin_file)? };
+            state.update(&map);
+        } else {
             let stdin = io::stdin();
             let mut stdin = stdin.lock();
             read_write_all(&mut stdin, &mut state)?;
         }
-        Input::File(mut file) => {
+    } else {
+        let mut file = File::open(path)?;
+        if opt.mmap {
+            let map = unsafe { memmap::Mmap::map(&file)? };
+            state.update(&map);
+        } else {
             read_write_all(&mut file, &mut state)?;
-        }
-        Input::Mmap(mmap) => {
-            state.update(&mmap);
         }
     }
     Ok(state.finalize())
 }
 
 fn read_write_all<R: Read>(reader: &mut R, writer: &mut State) -> io::Result<()> {
-    // Why 32728 (2^15)? Basically, that's just what coreutils uses. When I benchmark lots of
-    // different sizes, a 4 MiB heap buffer actually seems to be the best size, possibly 8% faster
-    // than this. Though repeatedly hashing a gigabyte of random data might not reflect real world
-    // usage, who knows. At the end of the day, when we really care about speed, we're going to use
-    // --mmap and skip buffering entirely. The main goal of this program is to compare the
+    // Why not just use std::io::copy? Because it uses an 8192 byte buffer, and using a larger
+    // buffer is measurably faster.
+    //
+    // How did we pick 32728 (2^15) specifically? It's just what coreutils uses. When I benchmark
+    // lots of different sizes, a 4 MiB heap buffer actually seems to be the best size, possibly 8%
+    // faster than this. Though repeatedly hashing a gigabyte of random data might not reflect real
+    // world usage, who knows. At the end of the day, when we really care about speed, we're going
+    // to use --mmap and skip buffering entirely. The main goal of this program is to compare the
     // underlying hash implementations (which is to say OpenSSL, which coreutils links against),
     // and to get an honest comparison we might as well use the same buffer size.
     let mut buf = [0; 32768];
@@ -94,12 +80,6 @@ fn read_write_all<R: Read>(reader: &mut R, writer: &mut State) -> io::Result<()>
         }
         writer.write_all(&buf[..n])?;
     }
-}
-
-fn do_path(path: &Path, opt: &Opt) -> io::Result<Hash> {
-    let input = open_input(path, opt.mmap)?;
-    let hash_length = opt.length_bits / 8;
-    hash_one(input, hash_length)
 }
 
 fn main() {
@@ -113,7 +93,7 @@ fn main() {
     let mut did_error = false;
     for path in &opt.input {
         let path_str = path.to_string_lossy();
-        match do_path(path, &opt) {
+        match hash_one(path, &opt) {
             Ok(hash) => println!("{}  {}", hash.to_hex(), path_str),
             Err(e) => {
                 did_error = true;
