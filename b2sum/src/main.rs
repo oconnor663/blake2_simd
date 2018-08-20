@@ -74,11 +74,13 @@ fn read_write_all<R: Read>(reader: &mut R, writer: &mut State) -> io::Result<()>
     // and to get an honest comparison we might as well use the same buffer size.
     let mut buf = [0; 32768];
     loop {
-        let n = reader.read(&mut buf)?;
-        if n == 0 {
-            return Ok(());
+        match reader.read(&mut buf) {
+            Ok(0) => return Ok(()),
+            Ok(n) => writer.write_all(&buf[..n])?,
+            Err(e) => if e.kind() != io::ErrorKind::Interrupted {
+                return Err(e);
+            },
         }
-        writer.write_all(&buf[..n])?;
     }
 }
 
