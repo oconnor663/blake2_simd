@@ -35,6 +35,16 @@ let hash = Params::new()
 assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.to_hex());
 ```
 
+An example using the included `b2sum` command line utility:
+
+```bash
+$ cd b2sum
+$ cargo build --release
+    Finished release [optimized] target(s) in 0.04s
+$ echo hi | ./target/release/b2sum --length 256
+de9543b2ae1b2b87434a730727db17f5ac8b8c020b84a5cb8c5fbcc1423443ba  -
+```
+
 ## Performance
 
 The AVX2 implementation in this crate is ported from the C implementation in libsodium. That
