@@ -412,6 +412,14 @@ impl State {
         self
     }
 
+    fn fill_buf(&mut self, input: &mut &[u8]) {
+        let take = cmp::min(BLOCKBYTES - self.buflen, input.len());
+        self.buf[self.buflen..self.buflen + take].copy_from_slice(&input[..take]);
+        self.buflen += take;
+        self.count += take as u128;
+        *input = &input[take..];
+    }
+
     /// Finalize the state and return a `Hash`. This method is idempotent, and calling it multiple
     /// times will give the same result. It's also possible to `update` with more input in between.
     pub fn finalize(&mut self) -> Hash {
@@ -441,12 +449,9 @@ impl State {
         self
     }
 
-    fn fill_buf(&mut self, input: &mut &[u8]) {
-        let take = cmp::min(BLOCKBYTES - self.buflen, input.len());
-        self.buf[self.buflen..self.buflen + take].copy_from_slice(&input[..take]);
-        self.buflen += take;
-        self.count += take as u128;
-        *input = &input[take..];
+    /// Return the total number of bytes input so far.
+    pub fn count(&self) -> u128 {
+        self.count
     }
 }
 

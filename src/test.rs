@@ -28,15 +28,20 @@ fn test_vectors() {
         let mut state = State::new();
         let split = input.len() / 2;
         state.update(&input[..split]);
+        assert_eq!(split as u128, state.count());
         state.update(&input[split..]);
+        assert_eq!(input.len() as u128, state.count());
         let hash = state.finalize();
         assert_eq!(&hash.to_hex(), output, "hash mismatch");
     }
     // Now one byte at a time.
     for &(input, output) in io {
         let mut state = State::new();
+        let mut count = 0;
         for &b in input {
             state.update(&[b]);
+            count += 1;
+            assert_eq!(count, state.count());
         }
         let hash = state.finalize();
         assert_eq!(&hash.to_hex(), output, "hash mismatch");
