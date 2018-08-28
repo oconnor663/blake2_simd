@@ -1,6 +1,7 @@
 extern crate blake2b_simd;
 extern crate memmap;
 extern crate os_pipe;
+extern crate rayon;
 #[macro_use]
 extern crate structopt;
 
@@ -102,6 +103,12 @@ fn main() {
         eprintln!("Invalid length.");
         exit(1);
     }
+
+    // BLAKE2bp requires exactly 4 threads.
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build_global()
+        .unwrap();
 
     let mut did_error = false;
     for path in &opt.input {

@@ -3,6 +3,9 @@
 extern crate blake2b_simd;
 extern crate test;
 
+#[cfg(feature = "blake2bp")]
+extern crate rayon;
+
 use blake2b_simd::*;
 use test::Bencher;
 
@@ -67,6 +70,12 @@ fn bench_blake2b_portable_compress(b: &mut Bencher) {
 #[cfg(feature = "blake2bp")]
 #[bench]
 fn bench_blake2bp_ten_megabytes(b: &mut Bencher) {
+    // BLAKE2bp requires exactly 4 threads, and this benchmark performs best
+    // when we set that number explicitly. The b2sum binary also sets it.
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build_global()
+        .unwrap();
     let input = vec![0; 10_000_000];
     b.bytes = input.len() as u64;
     b.iter(|| blake2bp(&input, OUTBYTES));

@@ -10,6 +10,7 @@ repository = "https://github.com/oconnor663/blake2b_simd/tree/master/b2sum"
 blake2b_simd = { path = "..", features = ["blake2bp"] }
 memmap = "0.6.2"
 os_pipe = "0.7.0"
+rayon = "1.0.2"
 structopt = "0.2.10"
 
 [dev-dependencies]
