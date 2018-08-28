@@ -1,12 +1,10 @@
 extern crate blake2b_simd;
-extern crate crossbeam_utils;
 extern crate memmap;
 extern crate os_pipe;
 #[macro_use]
 extern crate structopt;
 
-use blake2b_simd::{Hash, Params, State, BLOCKBYTES};
-use std::cmp;
+use blake2b_simd::{blake2bp, Hash, Params, State};
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -95,46 +93,6 @@ fn read_write_all<R: Read>(reader: &mut R, writer: &mut State) -> io::Result<()>
             },
         }
     }
-}
-
-fn blake2bp(input: &[u8], hash_length: usize) -> Hash {
-    const FANOUT: usize = 4;
-    crossbeam_utils::thread::scope(|scope| {
-        let mut handles = Vec::new();
-        for i in 0..FANOUT {
-            let handle = scope.spawn(move || {
-                let mut state = Params::new()
-                    .hash_length(hash_length)
-                    .fanout(FANOUT as u8)
-                    .max_depth(2)
-                    .node_offset(i as u64)
-                    .inner_hash_length(hash_length)
-                    .to_state();
-                state.set_last_node(i == FANOUT - 1);
-                let mut start = i * BLOCKBYTES;
-                while start < input.len() {
-                    let blocklen = cmp::min(input.len() - start, BLOCKBYTES);
-                    state.update(&input[start..][..blocklen]);
-                    start += FANOUT * BLOCKBYTES;
-                }
-                state.finalize()
-            });
-            handles.push(handle);
-        }
-        let mut root_state = Params::new()
-            .hash_length(hash_length)
-            .fanout(FANOUT as u8)
-            .max_depth(2)
-            .node_depth(1)
-            .inner_hash_length(hash_length)
-            .to_state();
-        root_state.set_last_node(true);
-        for handle in handles {
-            let hash = handle.join().expect("worker thread failed");
-            root_state.update(hash.as_bytes());
-        }
-        root_state.finalize()
-    })
 }
 
 fn main() {

@@ -7,8 +7,8 @@ rust:
   - beta
   - nightly
 script:
-  # With std.
-  - cargo test -vv
+  # With std and blake2bp.
+  - cargo test -vv --all-features
   # Without std.
   - cargo test -vv --no-default-features
   # Test the b2sum sub-crate.

@@ -7,8 +7,7 @@ license = "MIT"
 repository = "https://github.com/oconnor663/blake2b_simd/tree/master/b2sum"
 
 [dependencies]
-blake2b_simd = { path = ".." }
-crossbeam-utils = "0.5.0"
+blake2b_simd = { path = "..", features = ["blake2bp"] }
 memmap = "0.6.2"
 os_pipe = "0.7.0"
 structopt = "0.2.10"

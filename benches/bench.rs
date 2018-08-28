@@ -7,14 +7,14 @@ use blake2b_simd::*;
 use test::Bencher;
 
 #[bench]
-fn blake2b_avx2_one_block(b: &mut Bencher) {
+fn bench_blake2b_avx2_one_block(b: &mut Bencher) {
     let input = &[0; BLOCKBYTES];
     b.bytes = input.len() as u64;
     b.iter(|| blake2b(input));
 }
 
 #[bench]
-fn blake2b_avx2_one_megabyte(b: &mut Bencher) {
+fn bench_blake2b_avx2_one_megabyte(b: &mut Bencher) {
     let input = &[0; 1_000_000];
     b.bytes = input.len() as u64;
     b.iter(|| blake2b(input));
@@ -22,7 +22,7 @@ fn blake2b_avx2_one_megabyte(b: &mut Bencher) {
 
 #[bench]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-fn blake2b_avx2_compress(b: &mut Bencher) {
+fn bench_blake2b_avx2_compress(b: &mut Bencher) {
     if !is_x86_feature_detected!("avx2") {
         return;
     }
@@ -33,7 +33,7 @@ fn blake2b_avx2_compress(b: &mut Bencher) {
 }
 
 #[bench]
-fn blake2b_portable_one_block(b: &mut Bencher) {
+fn bench_blake2b_portable_one_block(b: &mut Bencher) {
     let input = &[0; BLOCKBYTES];
     b.bytes = input.len() as u64;
     b.iter(|| {
@@ -45,7 +45,7 @@ fn blake2b_portable_one_block(b: &mut Bencher) {
 }
 
 #[bench]
-fn blake2b_portable_one_megabyte(b: &mut Bencher) {
+fn bench_blake2b_portable_one_megabyte(b: &mut Bencher) {
     let input = &[0; 1_000_000];
     b.bytes = input.len() as u64;
     b.iter(|| {
@@ -57,9 +57,17 @@ fn blake2b_portable_one_megabyte(b: &mut Bencher) {
 }
 
 #[bench]
-fn blake2b_portable_compress(b: &mut Bencher) {
+fn bench_blake2b_portable_compress(b: &mut Bencher) {
     let input = &[0; BLOCKBYTES];
     b.bytes = input.len() as u64;
     let mut h = [0; 8];
     b.iter(|| benchmarks::compress_portable(&mut h, input, 0, 0, 0));
+}
+
+#[cfg(feature = "blake2bp")]
+#[bench]
+fn bench_blake2bp_ten_megabytes(b: &mut Bencher) {
+    let input = vec![0; 10_000_000];
+    b.bytes = input.len() as u64;
+    b.iter(|| blake2bp(&input, OUTBYTES));
 }
