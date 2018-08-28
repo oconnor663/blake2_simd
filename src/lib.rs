@@ -103,6 +103,11 @@ use core::fmt;
 mod avx2;
 mod portable;
 
+#[cfg(feature = "blake2bp")]
+mod blake2bp;
+#[cfg(feature = "blake2bp")]
+pub use blake2bp::blake2bp;
+
 #[cfg(test)]
 mod test;
 
@@ -561,48 +566,6 @@ fn default_compress_impl() -> CompressFn {
     }
     // On other platforms (non-x86 or pre-AVX2) use the portable implementation.
     portable::compress
-}
-
-#[cfg(feature = "blake2bp")]
-pub fn blake2bp(input: &[u8], hash_length: usize) -> Hash {
-    extern crate rayon;
-
-    let worker = |index| {
-        let mut state = Params::new()
-            .hash_length(hash_length)
-            .fanout(4)
-            .max_depth(2)
-            .node_offset(index as u64)
-            .inner_hash_length(hash_length)
-            .to_state();
-        state.set_last_node(index == 3);
-        let mut start = index * BLOCKBYTES;
-        while start < input.len() {
-            let blocklen = cmp::min(input.len() - start, BLOCKBYTES);
-            state.update(&input[start..][..blocklen]);
-            start += 4 * BLOCKBYTES;
-        }
-        state.finalize()
-    };
-
-    let ((leaf0, leaf1), (leaf2, leaf3)) = rayon::join(
-        || rayon::join(|| worker(0), || worker(1)),
-        || rayon::join(|| worker(2), || worker(3)),
-    );
-
-    let mut root_state = Params::new()
-        .hash_length(hash_length)
-        .fanout(4)
-        .max_depth(2)
-        .node_depth(1)
-        .inner_hash_length(hash_length)
-        .to_state();
-    root_state.set_last_node(true);
-    root_state.update(leaf0.as_bytes());
-    root_state.update(leaf1.as_bytes());
-    root_state.update(leaf2.as_bytes());
-    root_state.update(leaf3.as_bytes());
-    root_state.finalize()
 }
 
 // This module is pub for internal benchmarks only. Please don't use it.
