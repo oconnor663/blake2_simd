@@ -24,6 +24,9 @@ pub fn blake2bp(input: &[u8], hash_length: usize) -> Hash {
         state.finalize()
     };
 
+    // Performance note: This works best when we configure Rayon to use exactly 4 threads. The
+    // b2sum binary does this, and our benchmarks do also. But it would be inappropriate for the
+    // library code itself to interfere with the global config.
     let ((leaf0, leaf1), (leaf2, leaf3)) = rayon::join(
         || rayon::join(|| worker(0), || worker(1)),
         || rayon::join(|| worker(2), || worker(3)),
