@@ -115,8 +115,6 @@ unsafe fn blake2b_undiag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, 
     *b = _mm256_permute4x64_epi64(*b, _MM_SHUFFLE!(2, 1, 0, 3));
 }
 
-// array_ref triggers unused_unsafe (https://github.com/droundy/arrayref/pull/14)
-#[allow(unused_unsafe)]
 #[target_feature(enable = "avx2")]
 pub unsafe fn compress(
     h: &mut StateWords,
