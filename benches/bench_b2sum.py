@@ -13,7 +13,7 @@ import time
 INPUT_SIZE = 10_000_000
 NUM_RUNS = 10
 
-b2sum_root = Path(__file__).parent.parent / "b2sum"
+b2sum_root = Path(__file__).parent / "../b2sum"
 b2sum_path = str(b2sum_root / "target/release/b2sum")
 
 targets = [
