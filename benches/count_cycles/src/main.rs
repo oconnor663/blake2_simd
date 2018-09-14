@@ -1,8 +1,6 @@
-#![feature(test)]
-
 extern crate amd64_timer;
 extern crate blake2b_simd;
-extern crate test;
+extern crate ring;
 
 const TOTAL_BYTES_PER_TYPE: usize = 1 << 30; // 1 gigabyte
 
@@ -67,6 +65,32 @@ fn hash_one_mb_in_chunks() -> (u64, usize) {
     (total_ticks, iterations * SIZE)
 }
 
+fn hash_one_mb_sha1() -> (u64, usize) {
+    const SIZE: usize = 1_000_000;
+    let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
+    let mut total_ticks = 0;
+    for _ in 0..iterations {
+        let start = amd64_timer::ticks_modern();
+        ring::digest::digest(&ring::digest::SHA1, &[0; SIZE]);
+        let end = amd64_timer::ticks_modern();
+        total_ticks += end - start;
+    }
+    (total_ticks, iterations * SIZE)
+}
+
+fn hash_one_mb_sha512() -> (u64, usize) {
+    const SIZE: usize = 1_000_000;
+    let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
+    let mut total_ticks = 0;
+    for _ in 0..iterations {
+        let start = amd64_timer::ticks_modern();
+        ring::digest::digest(&ring::digest::SHA512, &[0; SIZE]);
+        let end = amd64_timer::ticks_modern();
+        total_ticks += end - start;
+    }
+    (total_ticks, iterations * SIZE)
+}
+
 fn main() {
     assert!(is_x86_feature_detected!("avx2"));
     let cases: &[(&str, fn() -> (u64, usize))] = &[
@@ -74,6 +98,8 @@ fn main() {
         ("one block", hash_one_block),
         ("one mb", hash_one_mb),
         ("one mb chunks", hash_one_mb_in_chunks),
+        ("one mb sha1", hash_one_mb_sha1),
+        ("one mb sha512", hash_one_mb_sha512),
     ];
 
     for &(name, f) in cases.iter() {

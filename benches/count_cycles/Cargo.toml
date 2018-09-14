@@ -6,3 +6,4 @@ authors = ["Jack O'Connor <oconnor663@gmail.com>"]
 [dependencies]
 amd64_timer = "1.2.0"
 blake2b_simd = { path = "../.." }
+ring = "0.13.2"
