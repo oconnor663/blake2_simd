@@ -1,0 +1,8 @@
+[package]
+name = "count_cycles"
+version = "0.1.0"
+authors = ["Jack O'Connor <oconnor663@gmail.com>"]
+
+[dependencies]
+amd64_timer = "1.2.0"
+blake2b_simd = { path = "../.." }
