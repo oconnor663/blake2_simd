@@ -82,6 +82,9 @@
 //! │ coreutils sha512sum       │ 0.464 GB/s │
 //! ╰───────────────────────────┴────────────╯
 //! ```
+//!
+//! The `benches/count_cycles` benchmark (`cargo +nightly run --release` from that directory)
+//! measures a peak throughput of 1.8 cycles per byte.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 

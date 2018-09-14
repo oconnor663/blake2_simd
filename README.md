@@ -84,3 +84,6 @@ random data. Here are the results from my laptop:
 │ coreutils sha512sum       │ 0.464 GB/s │
 ╰───────────────────────────┴────────────╯
 ```
+
+The `benches/count_cycles` benchmark (`cargo +nightly run --release` from that directory)
+measures a peak throughput of 1.8 cycles per byte.
