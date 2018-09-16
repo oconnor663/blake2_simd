@@ -2,7 +2,7 @@
 
 extern crate amd64_timer;
 extern crate blake2b_simd;
-extern crate ring;
+extern crate openssl;
 extern crate test;
 
 const TOTAL_BYTES_PER_TYPE: usize = 1 << 30; // 1 gigabyte
@@ -75,7 +75,10 @@ fn hash_one_mb_sha1() -> (u64, usize) {
     let mut total_ticks = 0;
     for _ in 0..iterations {
         let start = amd64_timer::ticks_modern();
-        test::black_box(&ring::digest::digest(&ring::digest::SHA1, &[0; SIZE]));
+        test::black_box(&openssl::hash::hash(
+            openssl::hash::MessageDigest::sha1(),
+            &[0; SIZE],
+        ));
         let end = amd64_timer::ticks_modern();
         total_ticks += end - start;
     }
@@ -88,7 +91,10 @@ fn hash_one_mb_sha512() -> (u64, usize) {
     let mut total_ticks = 0;
     for _ in 0..iterations {
         let start = amd64_timer::ticks_modern();
-        test::black_box(&ring::digest::digest(&ring::digest::SHA512, &[0; SIZE]));
+        test::black_box(&openssl::hash::hash(
+            openssl::hash::MessageDigest::sha512(),
+            &[0; SIZE],
+        ));
         let end = amd64_timer::ticks_modern();
         total_ticks += end - start;
     }

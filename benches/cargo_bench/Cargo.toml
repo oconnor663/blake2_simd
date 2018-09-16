@@ -1,0 +1,13 @@
+[package]
+name = "bench"
+version = "0.1.0"
+authors = ["Jack O'Connor <oconnor663@gmail.com>"]
+
+[dependencies]
+blake2b_simd = { path = "../..", features = ["blake2bp"] }
+libsodium-ffi = { version = "0.1.12", optional = true }
+openssl = { version = "0.10.12", optional = true }
+rayon = "1.0.2"
+
+[features]
+default = ["libsodium-ffi", "openssl"]
