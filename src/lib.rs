@@ -218,6 +218,7 @@ impl Params {
     pub fn key(&mut self, key: &[u8]) -> &mut Self {
         assert!(key.len() <= KEYBYTES, "Bad key length: {}", key.len());
         self.key_length = key.len() as u8;
+        self.key = [0; KEYBYTES];
         self.key[..key.len()].copy_from_slice(key);
         self
     }

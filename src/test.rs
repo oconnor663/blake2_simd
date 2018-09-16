@@ -92,6 +92,8 @@ fn test_write() {
 fn test_all_parameters() {
     let mut params = Params::default();
     params.hash_length(18);
+    // Make sure a shorter key properly overwrites a longer one.
+    params.key(b"not the real key");
     params.key(b"bar");
     params.salt(b"bazbazbazbazbazb");
     params.personal(b"bing bing bing b");
