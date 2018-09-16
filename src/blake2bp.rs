@@ -5,6 +5,10 @@ use Hash;
 use Params;
 use BLOCKBYTES;
 
+/// Compute the parallel BLAKE2bp hash of a slice of bytes.
+///
+/// Although BLAKE2bp is based on BLAKE2b, it's a different function, and it produces a different
+/// hash. It's uses four worker threads in parallel, for higher performance on multi-core machines.
 pub fn blake2bp(input: &[u8], hash_length: usize) -> Hash {
     let worker = |index| {
         let mut state = Params::new()
