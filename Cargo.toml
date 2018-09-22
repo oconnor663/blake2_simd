@@ -8,6 +8,15 @@ repository = "https://github.com/oconnor663/blake2b_simd"
 documentation = "https://docs.rs/blake2b_simd"
 readme = "README.md"
 
+[workspace]
+members = [
+    "b2sum",
+    "benches/cargo_bench",
+    "benches/count_cycles",
+    "benches/benchmark_gig",
+]
+default-members = [".", "b2sum"]
+
 [dependencies]
 arrayref = "0.3.5"
 arrayvec = { version = "0.4.7", default-features = false, features = ["use_union"] }

@@ -13,7 +13,8 @@ pub fn b2sum_exe() -> PathBuf {
             .expect("build failed");
     });
 
-    Path::new("target")
+    Path::new("..")
+        .join("target")
         .join("debug")
         .join("b2sum")
         .with_extension(EXE_EXTENSION)
