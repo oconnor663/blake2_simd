@@ -90,23 +90,23 @@ fn test_write() {
 // ).hexdigest()
 #[test]
 fn test_all_parameters() {
-    let mut params = Params::default();
-    params.hash_length(18);
-    // Make sure a shorter key properly overwrites a longer one.
-    params.key(b"not the real key");
-    params.key(b"bar");
-    params.salt(b"bazbazbazbazbazb");
-    params.personal(b"bing bing bing b");
-    params.fanout(2);
-    params.max_depth(3);
-    params.max_leaf_length(0x04050607);
-    params.node_offset(0x08090a0b0c0d0e0f);
-    params.node_depth(16);
-    params.inner_hash_length(17);
-    let mut state = State::with_params(&params);
-    state.set_last_node(true);
-    state.update(b"foo");
-    let hash = state.finalize();
+    let hash = Params::new()
+        .hash_length(18)
+        // Make sure a shorter key properly overwrites a longer one.
+        .key(b"not the real key")
+        .key(b"bar")
+        .salt(b"bazbazbazbazbazb")
+        .personal(b"bing bing bing b")
+        .fanout(2)
+        .max_depth(3)
+        .max_leaf_length(0x04050607)
+        .node_offset(0x08090a0b0c0d0e0f)
+        .node_depth(16)
+        .inner_hash_length(17)
+        .to_state()
+        .set_last_node(true)
+        .update(b"foo")
+        .finalize();
     assert_eq!("ec0f59cb65f92e7fcca1280ba859a6925ded", &hash.to_hex());
 }
 
