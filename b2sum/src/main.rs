@@ -9,6 +9,7 @@ use blake2b_simd::{blake2bp, Hash, Params, State};
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
+use std::isize;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use structopt::StructOpt;
@@ -47,11 +48,11 @@ fn hash_one(path: &Path, opt: &Opt) -> io::Result<Hash> {
     if path == Path::new("-") {
         if opt.blake2bp {
             let stdin_file = os_pipe::dup_stdin()?.into();
-            let map = unsafe { memmap::Mmap::map(&stdin_file)? };
+            let map = mmap_file(&stdin_file)?;
             return Ok(blake2bp(&map[..], hash_length));
         } else if opt.mmap {
             let stdin_file = os_pipe::dup_stdin()?.into();
-            let map = unsafe { memmap::Mmap::map(&stdin_file)? };
+            let map = mmap_file(&stdin_file)?;
             state.update(&map);
         } else {
             let stdin = io::stdin();
@@ -61,16 +62,29 @@ fn hash_one(path: &Path, opt: &Opt) -> io::Result<Hash> {
     } else {
         let mut file = File::open(path)?;
         if opt.blake2bp {
-            let map = unsafe { memmap::Mmap::map(&file)? };
+            let map = mmap_file(&file)?;
             return Ok(blake2bp(&map[..], hash_length));
         } else if opt.mmap {
-            let map = unsafe { memmap::Mmap::map(&file)? };
+            let map = mmap_file(&file)?;
             state.update(&map);
         } else {
             read_write_all(&mut file, &mut state)?;
         }
     }
     Ok(state.finalize())
+}
+
+fn mmap_file(file: &File) -> io::Result<memmap::Mmap> {
+    let metadata = file.metadata()?;
+    let len = metadata.len();
+    // See https://github.com/danburkert/memmap-rs/issues/69.
+    if len > isize::MAX as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "mmap length would overflow isize",
+        ));
+    }
+    unsafe { memmap::MmapOptions::new().len(len as usize).map(file) }
 }
 
 fn read_write_all<R: Read>(reader: &mut R, writer: &mut State) -> io::Result<()> {
