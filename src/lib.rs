@@ -102,6 +102,7 @@
 //! throughput of 1.8 cycles per byte.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![feature(int_to_from_bytes)]
 
 #[cfg(feature = "std")]
 extern crate core;
@@ -109,11 +110,9 @@ extern crate core;
 #[macro_use]
 extern crate arrayref;
 extern crate arrayvec;
-extern crate byteorder;
 extern crate constant_time_eq;
 
 use arrayvec::ArrayString;
-use byteorder::{ByteOrder, LittleEndian};
 use core::cmp;
 use core::fmt;
 
@@ -372,6 +371,8 @@ impl State {
     }
 
     fn with_params(params: &Params) -> Self {
+        let salt_refs = array_refs!(&params.salt, 8, 8);
+        let personal_refs = array_refs!(&params.personal, 8, 8);
         let mut state = Self {
             h: [
                 IV[0]
@@ -383,10 +384,10 @@ impl State {
                 IV[1] ^ params.node_offset,
                 IV[2] ^ params.node_depth as u64 ^ (params.inner_hash_length as u64) << 8,
                 IV[3],
-                IV[4] ^ LittleEndian::read_u64(&params.salt[..8]),
-                IV[5] ^ LittleEndian::read_u64(&params.salt[8..]),
-                IV[6] ^ LittleEndian::read_u64(&params.personal[..8]),
-                IV[7] ^ LittleEndian::read_u64(&params.personal[8..]),
+                IV[4] ^ u64::from_le_bytes(*salt_refs.0),
+                IV[5] ^ u64::from_le_bytes(*salt_refs.1),
+                IV[6] ^ u64::from_le_bytes(*personal_refs.0),
+                IV[7] ^ u64::from_le_bytes(*personal_refs.1),
             ],
             compress_fn: default_compress_impl(),
             buf: [0; BLOCKBYTES],
@@ -459,7 +460,17 @@ impl State {
             bytes: [0; OUTBYTES],
             len: self.hash_length,
         };
-        LittleEndian::write_u64_into(&h_copy, &mut hash.bytes);
+        {
+            let bytes_refs = mut_array_refs!(&mut hash.bytes, 8, 8, 8, 8, 8, 8, 8, 8);
+            *bytes_refs.0 = h_copy[0].to_le_bytes();
+            *bytes_refs.1 = h_copy[1].to_le_bytes();
+            *bytes_refs.2 = h_copy[2].to_le_bytes();
+            *bytes_refs.3 = h_copy[3].to_le_bytes();
+            *bytes_refs.4 = h_copy[4].to_le_bytes();
+            *bytes_refs.5 = h_copy[5].to_le_bytes();
+            *bytes_refs.6 = h_copy[6].to_le_bytes();
+            *bytes_refs.7 = h_copy[7].to_le_bytes();
+        }
         hash
     }
 
