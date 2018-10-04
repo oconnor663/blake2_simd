@@ -40,11 +40,16 @@ struct Opt {
     #[structopt(long = "blake2bp")]
     /// Use the BLAKE2bp parallel hash function. Implies --mmap.
     blake2bp: bool,
+
+    #[structopt(long = "last-node")]
+    /// Set BLAKE2's last node flag, which changes the resulting hash.
+    last_node: bool,
 }
 
 fn hash_one(path: &Path, opt: &Opt) -> io::Result<Hash> {
     let hash_length = opt.length_bits / 8;
     let mut state = Params::new().hash_length(hash_length).to_state();
+    state.set_last_node(opt.last_node);
     if path == Path::new("-") {
         if opt.blake2bp || opt.mmap {
             return Err(io::Error::new(
@@ -59,6 +64,12 @@ fn hash_one(path: &Path, opt: &Opt) -> io::Result<Hash> {
     } else {
         let mut file = File::open(path)?;
         if opt.blake2bp {
+            if opt.last_node {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "BLAKE2bp doesn't support the last node flag",
+                ));
+            }
             let map = mmap_file(&file)?;
             return Ok(blake2bp(&map[..], hash_length));
         } else if opt.mmap {
