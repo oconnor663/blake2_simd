@@ -46,14 +46,11 @@ fn hash_one(path: &Path, opt: &Opt) -> io::Result<Hash> {
     let hash_length = opt.length_bits / 8;
     let mut state = Params::new().hash_length(hash_length).to_state();
     if path == Path::new("-") {
-        if opt.blake2bp {
-            let stdin_file = os_pipe::dup_stdin()?.into();
-            let map = mmap_file(&stdin_file)?;
-            return Ok(blake2bp(&map[..], hash_length));
-        } else if opt.mmap {
-            let stdin_file = os_pipe::dup_stdin()?.into();
-            let map = mmap_file(&stdin_file)?;
-            state.update(&map);
+        if opt.blake2bp || opt.mmap {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "memory mapping requires a filepath",
+            ));
         } else {
             let stdin = io::stdin();
             let mut stdin = stdin.lock();
