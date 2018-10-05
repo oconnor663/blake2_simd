@@ -46,16 +46,16 @@ struct Opt {
     last_node: bool,
 }
 
+const CANT_MMAP_ERROR: &str = "memory mapping requires a filepath";
+const BLAKE2BP_LAST_NODE_ERROR: &str = "BLAKE2bp doesn't support the last node flag";
+
 fn hash_one(path: &Path, opt: &Opt) -> io::Result<Hash> {
     let hash_length = opt.length_bits / 8;
     let mut state = Params::new().hash_length(hash_length).to_state();
     state.set_last_node(opt.last_node);
     if path == Path::new("-") {
         if opt.blake2bp || opt.mmap {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "memory mapping requires a filepath",
-            ));
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, CANT_MMAP_ERROR));
         } else {
             let stdin = io::stdin();
             let mut stdin = stdin.lock();
@@ -67,7 +67,7 @@ fn hash_one(path: &Path, opt: &Opt) -> io::Result<Hash> {
             if opt.last_node {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    "BLAKE2bp doesn't support the last node flag",
+                    BLAKE2BP_LAST_NODE_ERROR,
                 ));
             }
             let map = mmap_file(&file)?;

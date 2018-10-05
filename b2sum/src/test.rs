@@ -1,6 +1,7 @@
 use std::env::consts::EXE_EXTENSION;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
+use std::str::from_utf8;
 use std::sync::{Once, ONCE_INIT};
 use tempfile::NamedTempFile;
 
@@ -101,4 +102,31 @@ fn test_blake2bp() {
         let expected_output = format!("{}  {}", expected, file.path().to_string_lossy());
         assert_eq!(expected_output, output);
     }
+}
+
+#[test]
+fn test_last_node_flag() {
+    let output = cmd!(b2sum_exe(), "-l128", "--last-node")
+        .input("abcdef")
+        .read()
+        .expect("b2sum failed");
+    assert_eq!("d788eeea837a3d10b1f8c097059f815a  -", output);
+}
+
+#[test]
+fn test_last_node_flag_with_blake2bp_fails() {
+    let mut file = NamedTempFile::new().unwrap();
+    file.write_all("abcdef".as_bytes()).unwrap();
+    file.flush().unwrap();
+    let output = cmd!(b2sum_exe(), "--blake2bp", "--last-node", file.path())
+        .stderr_capture()
+        .unchecked()
+        .run()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        from_utf8(&output.stderr)
+            .unwrap()
+            .contains(super::BLAKE2BP_LAST_NODE_ERROR)
+    );
 }
