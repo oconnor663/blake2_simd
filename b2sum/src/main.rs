@@ -1,6 +1,5 @@
 extern crate blake2b_simd;
 extern crate memmap;
-extern crate os_pipe;
 extern crate rayon;
 #[macro_use]
 extern crate structopt;
