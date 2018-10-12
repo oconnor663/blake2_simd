@@ -358,7 +358,7 @@ impl fmt::Debug for Params {
 pub struct State {
     h: StateWords,
     buf: Block,
-    buflen: usize,
+    buflen: u8,
     count: u128,
     compress_fn: CompressFn,
     last_node: bool,
@@ -437,9 +437,9 @@ impl State {
     }
 
     fn fill_buf(&mut self, input: &mut &[u8]) {
-        let take = cmp::min(BLOCKBYTES - self.buflen, input.len());
-        self.buf[self.buflen..self.buflen + take].copy_from_slice(&input[..take]);
-        self.buflen += take;
+        let take = cmp::min(BLOCKBYTES - self.buflen as usize, input.len());
+        self.buf[self.buflen as usize..self.buflen as usize + take].copy_from_slice(&input[..take]);
+        self.buflen += take as u8;
         self.count += take as u128;
         *input = &input[take..];
     }
@@ -447,7 +447,7 @@ impl State {
     /// Finalize the state and return a `Hash`. This method is idempotent, and calling it multiple
     /// times will give the same result. It's also possible to `update` with more input in between.
     pub fn finalize(&mut self) -> Hash {
-        for i in self.buflen..BLOCKBYTES {
+        for i in self.buflen as usize..BLOCKBYTES {
             self.buf[i] = 0;
         }
         let last_node = if self.last_node { !0 } else { 0 };
