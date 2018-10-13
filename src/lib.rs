@@ -13,7 +13,8 @@
 //!   and call it if the processor supports it at runtime.
 //! - All the features from the [the BLAKE2 spec](https://blake2.net/blake2.pdf), like adjustable
 //!   length, keying, and associated data for tree hashing.
-//! - A clone of the Coreutils `b2sum` command line utility, provided as a sub-crate.
+//! - A clone of the Coreutils `b2sum` command line utility, provided as a sub-crate. `b2sum`
+//!   includes command line flags for all the BLAKE2 associated data features.
 //! - `no_std` support. The `std` Cargo feature is on by default, for CPU feature detection and
 //!   for implementing `std::io::Write`.
 //! - An implementation of the multithreaded BLAKE2bp variant. Enable it with `blake2bp` Cargo
