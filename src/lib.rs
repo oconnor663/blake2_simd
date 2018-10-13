@@ -202,6 +202,7 @@ pub struct Params {
     node_offset: u64,
     node_depth: u8,
     inner_hash_length: u8,
+    last_node: bool,
 }
 
 impl Params {
@@ -297,6 +298,15 @@ impl Params {
         self.inner_hash_length = length as u8;
         self
     }
+
+    /// Indicates the rightmost node in a row. This can also be changed on the `State` object
+    /// itself, potentially after hashing has begun. See [`State::set_last_node`].
+    ///
+    /// [`State::set_last_node`]: struct.State.html#method.set_last_node
+    pub fn last_node(&mut self, last_node: bool) -> &mut Self {
+        self.last_node = last_node;
+        self
+    }
 }
 
 impl Default for Params {
@@ -314,6 +324,7 @@ impl Default for Params {
             node_offset: 0,
             node_depth: 0,
             inner_hash_length: 0,
+            last_node: false,
         }
     }
 }
@@ -392,7 +403,7 @@ impl State {
             buf: [0; BLOCKBYTES],
             buflen: 0,
             count: 0,
-            last_node: false,
+            last_node: params.last_node,
             hash_length: params.hash_length,
         };
         if params.key_length > 0 {
@@ -468,8 +479,8 @@ impl State {
     /// at any time before calling `finalize`. That allows callers to begin hashing a node without
     /// knowing ahead of time whether it's the last in its level. For more details about the
     /// intended use of this flag [the BLAKE2 spec](https://blake2.net/blake2.pdf).
-    pub fn set_last_node(&mut self, val: bool) -> &mut Self {
-        self.last_node = val;
+    pub fn set_last_node(&mut self, last_node: bool) -> &mut Self {
+        self.last_node = last_node;
         self
     }
 
