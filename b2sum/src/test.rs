@@ -1,3 +1,4 @@
+use duct::cmd;
 use std::env::consts::EXE_EXTENSION;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
@@ -129,4 +130,27 @@ fn test_last_node_flag_with_blake2bp_fails() {
             .unwrap()
             .contains(super::BLAKE2BP_LAST_NODE_ERROR)
     );
+}
+
+// This is the exact same result as test_all_parameters in the library tests.
+#[test]
+fn test_all_parameters() {
+    let flags = [
+        "--length=144",
+        "--key=626172",
+        "--salt=62617a62617a62617a62617a62617a62",
+        "--personal=62696e672062696e672062696e672062",
+        "--fanout=2",
+        "--max-depth=3",
+        "--max-leaf-length=67438087",
+        "--node-offset=579005069656919567",
+        "--node-depth=16",
+        "--inner-hash-length=17",
+        "--last-node",
+    ];
+    let output = cmd(b2sum_exe(), flags.iter())
+        .input("foo")
+        .read()
+        .expect("b2sum failed");
+    assert_eq!("ec0f59cb65f92e7fcca1280ba859a6925ded  -", output);
 }

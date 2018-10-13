@@ -1,10 +1,12 @@
 extern crate blake2b_simd;
+extern crate hex;
 extern crate memmap;
 extern crate rayon;
 #[macro_use]
 extern crate structopt;
 
 use blake2b_simd::{blake2bp, Hash, Params, State};
+use std::error::Error;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -21,16 +23,15 @@ extern crate duct;
 #[cfg(test)]
 extern crate tempfile;
 
+const CANT_MMAP_ERROR: &str = "memory mapping requires a filepath";
+const BLAKE2BP_LAST_NODE_ERROR: &str = "BLAKE2bp doesn't support the last node flag";
+
 #[derive(Debug, StructOpt)]
 #[structopt(author = "")]
 struct Opt {
     #[structopt(parse(from_os_str), default_value = "-")]
     /// Any number of filepaths, or - for standard input.
     input: Vec<PathBuf>,
-
-    #[structopt(short = "l", long = "length", default_value = "512")]
-    /// The size of the output in bits. Must be a multiple of 8.
-    length_bits: usize,
 
     #[structopt(long = "mmap")]
     /// Read input with memory mapping.
@@ -40,18 +41,53 @@ struct Opt {
     /// Use the BLAKE2bp parallel hash function. Implies --mmap.
     blake2bp: bool,
 
+    #[structopt(short = "l", long = "length")]
+    /// The size of the output in bits. Must be a multiple of 8.
+    length_bits: Option<usize>,
+
+    #[structopt(long = "key")]
+    /// Set the BLAKE2 key parameter with a hex string.
+    key: Option<String>,
+
+    #[structopt(long = "salt")]
+    /// Set the BLAKE2 salt parameter with a hex string.
+    salt: Option<String>,
+
+    #[structopt(long = "personal")]
+    /// Set the BLAKE2 personalization parameter with a hex string.
+    personal: Option<String>,
+
+    #[structopt(long = "fanout")]
+    /// Set the BLAKE2 fanout parameter, 1 byte.
+    fanout: Option<u8>,
+
+    #[structopt(long = "max-depth")]
+    /// Set the BLAKE2 max depth parameter, 1 bytes.
+    max_depth: Option<u8>,
+
+    #[structopt(long = "max-leaf-length")]
+    /// Set the BLAKE2 max leaf length parameter, 4 bytes.
+    max_leaf_length: Option<u32>,
+
+    #[structopt(long = "node-offset")]
+    /// Set the BLAKE2 node offset parameter, 8 bytes.
+    node_offset: Option<u64>,
+
+    #[structopt(long = "node-depth")]
+    /// Set the BLAKE2 node depth parameter, 1 byte.
+    node_depth: Option<u8>,
+
+    #[structopt(long = "inner-hash-length")]
+    /// Set the BLAKE2 inner hash length parameter, 1 byte.
+    inner_hash_length: Option<u8>,
+
     #[structopt(long = "last-node")]
-    /// Set BLAKE2's last node flag, which changes the resulting hash.
+    /// Set the BLAKE2 last node flag.
     last_node: bool,
 }
 
-const CANT_MMAP_ERROR: &str = "memory mapping requires a filepath";
-const BLAKE2BP_LAST_NODE_ERROR: &str = "BLAKE2bp doesn't support the last node flag";
-
-fn hash_one(path: &Path, opt: &Opt) -> io::Result<Hash> {
-    let hash_length = opt.length_bits / 8;
-    let mut state = Params::new().hash_length(hash_length).to_state();
-    state.set_last_node(opt.last_node);
+fn hash_one(path: &Path, opt: &Opt, params: &Params) -> io::Result<Hash> {
+    let mut state = params.to_state();
     if path == Path::new("-") {
         if opt.blake2bp || opt.mmap {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, CANT_MMAP_ERROR));
@@ -70,7 +106,8 @@ fn hash_one(path: &Path, opt: &Opt) -> io::Result<Hash> {
                 ));
             }
             let map = mmap_file(&file)?;
-            return Ok(blake2bp(&map[..], hash_length));
+            let length = opt.length_bits.unwrap_or(512) / 8;
+            return Ok(blake2bp(&map[..], length));
         } else if opt.mmap {
             let map = mmap_file(&file)?;
             state.update(&map);
@@ -120,13 +157,55 @@ fn read_write_all<R: Read>(reader: &mut R, writer: &mut State) -> io::Result<()>
     }
 }
 
+fn make_params(opt: &Opt) -> Result<Params, Box<Error>> {
+    let mut params = Params::new();
+    if let Some(length_bits) = opt.length_bits {
+        if length_bits == 0 || length_bits > 512 || length_bits % 8 != 0 {
+            return Err("Invalid length.".into());
+        }
+        params.hash_length(length_bits / 8);
+    }
+    if let Some(ref key) = opt.key {
+        params.key(&hex::decode(key)?);
+    }
+    if let Some(ref salt) = opt.salt {
+        params.salt(&hex::decode(salt)?);
+    }
+    if let Some(ref personal) = opt.personal {
+        params.personal(&hex::decode(personal)?);
+    }
+    if let Some(fanout) = opt.fanout {
+        params.fanout(fanout);
+    }
+    if let Some(max_depth) = opt.max_depth {
+        params.max_depth(max_depth);
+    }
+    if let Some(max_leaf_length) = opt.max_leaf_length {
+        params.max_leaf_length(max_leaf_length);
+    }
+    if let Some(node_offset) = opt.node_offset {
+        params.node_offset(node_offset);
+    }
+    if let Some(node_depth) = opt.node_depth {
+        params.node_depth(node_depth);
+    }
+    if let Some(inner_hash_length) = opt.inner_hash_length {
+        params.inner_hash_length(inner_hash_length as usize);
+    }
+    params.last_node(opt.last_node);
+    Ok(params)
+}
+
 fn main() {
     let opt = Opt::from_args();
 
-    if opt.length_bits == 0 || opt.length_bits > 512 || opt.length_bits % 8 != 0 {
-        eprintln!("Invalid length.");
-        exit(1);
-    }
+    let params = match make_params(&opt) {
+        Ok(params) => params,
+        Err(e) => {
+            eprintln!("{}", e);
+            exit(1);
+        }
+    };
 
     // BLAKE2bp requires exactly 4 threads.
     rayon::ThreadPoolBuilder::new()
@@ -137,7 +216,7 @@ fn main() {
     let mut did_error = false;
     for path in &opt.input {
         let path_str = path.to_string_lossy();
-        match hash_one(path, &opt) {
+        match hash_one(path, &opt, &params) {
             Ok(hash) => println!("{}  {}", hash.to_hex(), path_str),
             Err(e) => {
                 did_error = true;
