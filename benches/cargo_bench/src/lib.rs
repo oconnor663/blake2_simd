@@ -75,7 +75,7 @@ fn bench_blake2bp_one_mb(b: &mut Bencher) {
         .build_global()
         .unwrap();
     b.bytes = MB.len() as u64;
-    b.iter(|| blake2bp(MB, OUTBYTES));
+    b.iter(|| blake2bp(MB, &blake2b_simd::Params::default()));
 }
 
 #[cfg(feature = "libsodium-ffi")]
