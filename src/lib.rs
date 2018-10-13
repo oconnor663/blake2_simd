@@ -16,7 +16,7 @@
 //! - A clone of the Coreutils `b2sum` command line utility, provided as a sub-crate.
 //! - `no_std` support. The `std` Cargo feature is on by default, for CPU feature detection and
 //!   for implementing `std::io::Write`.
-//! - An implementation of the multithreaded `blake2bp` variant, provided as an optional Cargo
+//! - An implementation of the multithreaded BLAKE2bp variant. Enable it with `blake2bp` Cargo
 //!   feature.
 //!
 //! # Example
@@ -191,7 +191,7 @@ pub fn blake2b(input: &[u8]) -> Hash {
 /// ```
 #[derive(Clone)]
 pub struct Params {
-    hash_length: u8,
+    pub(crate) hash_length: u8, // visible to blake2bp
     key_length: u8,
     key: [u8; KEYBYTES],
     salt: [u8; SALTBYTES],

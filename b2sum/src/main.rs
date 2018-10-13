@@ -24,7 +24,6 @@ extern crate duct;
 extern crate tempfile;
 
 const CANT_MMAP_ERROR: &str = "memory mapping requires a filepath";
-const BLAKE2BP_LAST_NODE_ERROR: &str = "BLAKE2bp doesn't support the last node flag";
 
 #[derive(Debug, StructOpt)]
 #[structopt(author = "")]
@@ -99,15 +98,8 @@ fn hash_one(path: &Path, opt: &Opt, params: &Params) -> io::Result<Hash> {
     } else {
         let mut file = File::open(path)?;
         if opt.blake2bp {
-            if opt.last_node {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    BLAKE2BP_LAST_NODE_ERROR,
-                ));
-            }
             let map = mmap_file(&file)?;
-            let length = opt.length_bits.unwrap_or(512) / 8;
-            return Ok(blake2bp(&map[..], length));
+            return Ok(blake2bp(&map[..], params));
         } else if opt.mmap {
             let map = mmap_file(&file)?;
             state.update(&map);

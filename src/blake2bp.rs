@@ -9,16 +9,23 @@ use BLOCKBYTES;
 ///
 /// Although BLAKE2bp is based on BLAKE2b, it's a different function, and it produces a different
 /// hash. It's uses four worker threads in parallel, for higher performance on multi-core machines.
-pub fn blake2bp(input: &[u8], hash_length: usize) -> Hash {
+///
+/// Note that BLAKE2bp sets its own values for all of the tree hashing parameters (fanout, max
+/// depth, max leaf length, node offset, node depth, inner hash length, and last node). Only the
+/// general parameters (hash length, key, salt, and personalization) from the `params` argument are
+/// respected.
+pub fn blake2bp(input: &[u8], params: &Params) -> Hash {
     let worker = |index| {
-        let mut state = Params::new()
-            .hash_length(hash_length)
+        let mut state = params
+            .clone()
             .fanout(4)
             .max_depth(2)
+            .max_leaf_length(0)
             .node_offset(index as u64)
-            .inner_hash_length(hash_length)
+            .node_depth(0)
+            .inner_hash_length(params.hash_length as usize)
+            .last_node(index == 3)
             .to_state();
-        state.set_last_node(index == 3);
         let mut start = index * BLOCKBYTES;
         while start < input.len() {
             let blocklen = cmp::min(input.len() - start, BLOCKBYTES);
@@ -36,12 +43,15 @@ pub fn blake2bp(input: &[u8], hash_length: usize) -> Hash {
         || rayon::join(|| worker(2), || worker(3)),
     );
 
-    let mut root_state = Params::new()
-        .hash_length(hash_length)
+    let mut root_state = params
+        .clone()
         .fanout(4)
         .max_depth(2)
+        .max_leaf_length(0)
+        .node_offset(0)
         .node_depth(1)
-        .inner_hash_length(hash_length)
+        .inner_hash_length(params.hash_length as usize)
+        .last_node(false)
         .to_state();
     root_state.set_last_node(true);
     root_state.update(leaf0.as_bytes());
@@ -88,7 +98,7 @@ mod test {
         ];
 
         for &(input, expected) in vectors {
-            let found = blake2bp(input, 64);
+            let found = blake2bp(input, &Params::new().hash_length(64));
             assert_eq!(&*expected, &*found.to_hex());
         }
     }
