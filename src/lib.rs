@@ -476,10 +476,13 @@ impl State {
     }
 
     /// Set a flag indicating that this is the last node of its level in a tree hash. This is
-    /// associated data like the other features in the `Params` object, except that it can be set
-    /// at any time before calling `finalize`. That allows callers to begin hashing a node without
-    /// knowing ahead of time whether it's the last in its level. For more details about the
-    /// intended use of this flag [the BLAKE2 spec](https://blake2.net/blake2.pdf).
+    /// equivalent to [`Params::last_node`], except that it can be set at any time before calling
+    /// `finalize`. That allows callers to begin hashing a node without knowing ahead of time
+    /// whether it's the last in its level. For more details about the intended use of this flag
+    /// [the BLAKE2 spec].
+    ///
+    /// [`Params::last_node`]: struct.Params.html#method.last_node
+    /// [the BLAKE2 spec]: https://blake2.net/blake2.pdf
     pub fn set_last_node(&mut self, last_node: bool) -> &mut Self {
         self.last_node = last_node;
         self
