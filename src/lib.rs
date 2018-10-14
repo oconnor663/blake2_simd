@@ -384,6 +384,8 @@ impl State {
     }
 
     fn with_params(params: &Params) -> Self {
+        let (salt_left, salt_right) = array_refs!(&params.salt, 8, 8);
+        let (personal_left, personal_right) = array_refs!(&params.personal, 8, 8);
         let mut state = Self {
             h: [
                 IV[0]
@@ -395,10 +397,10 @@ impl State {
                 IV[1] ^ params.node_offset,
                 IV[2] ^ params.node_depth as u64 ^ (params.inner_hash_length as u64) << 8,
                 IV[3],
-                IV[4] ^ LittleEndian::read_u64(&params.salt[..8]),
-                IV[5] ^ LittleEndian::read_u64(&params.salt[8..]),
-                IV[6] ^ LittleEndian::read_u64(&params.personal[..8]),
-                IV[7] ^ LittleEndian::read_u64(&params.personal[8..]),
+                IV[4] ^ LittleEndian::read_u64(salt_left),
+                IV[5] ^ LittleEndian::read_u64(salt_right),
+                IV[6] ^ LittleEndian::read_u64(personal_left),
+                IV[7] ^ LittleEndian::read_u64(personal_right),
             ],
             compress_fn: default_compress_impl(),
             buf: [0; BLOCKBYTES],
@@ -471,7 +473,17 @@ impl State {
             bytes: [0; OUTBYTES],
             len: self.hash_length,
         };
-        LittleEndian::write_u64_into(&h_copy, &mut hash.bytes);
+        {
+            let bytes_refs = mut_array_refs!(&mut hash.bytes, 8, 8, 8, 8, 8, 8, 8, 8);
+            LittleEndian::write_u64(bytes_refs.0, h_copy[0]);
+            LittleEndian::write_u64(bytes_refs.1, h_copy[1]);
+            LittleEndian::write_u64(bytes_refs.2, h_copy[2]);
+            LittleEndian::write_u64(bytes_refs.3, h_copy[3]);
+            LittleEndian::write_u64(bytes_refs.4, h_copy[4]);
+            LittleEndian::write_u64(bytes_refs.5, h_copy[5]);
+            LittleEndian::write_u64(bytes_refs.6, h_copy[6]);
+            LittleEndian::write_u64(bytes_refs.7, h_copy[7]);
+        }
         hash
     }
 

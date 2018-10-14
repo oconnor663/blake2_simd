@@ -81,8 +81,25 @@ pub fn compress(h: &mut StateWords, msg: &Block, count: u128, lastblock: u64, la
     ];
 
     // Parse the message bytes as ints in little endian order.
-    let mut m = [0; 16];
-    LittleEndian::read_u64_into(msg, &mut m);
+    let msg_refs = array_refs!(msg, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8);
+    let m = [
+        LittleEndian::read_u64(msg_refs.0),
+        LittleEndian::read_u64(msg_refs.1),
+        LittleEndian::read_u64(msg_refs.2),
+        LittleEndian::read_u64(msg_refs.3),
+        LittleEndian::read_u64(msg_refs.4),
+        LittleEndian::read_u64(msg_refs.5),
+        LittleEndian::read_u64(msg_refs.6),
+        LittleEndian::read_u64(msg_refs.7),
+        LittleEndian::read_u64(msg_refs.8),
+        LittleEndian::read_u64(msg_refs.9),
+        LittleEndian::read_u64(msg_refs.10),
+        LittleEndian::read_u64(msg_refs.11),
+        LittleEndian::read_u64(msg_refs.12),
+        LittleEndian::read_u64(msg_refs.13),
+        LittleEndian::read_u64(msg_refs.14),
+        LittleEndian::read_u64(msg_refs.15),
+    ];
 
     round(0, &m, &mut v);
     round(1, &m, &mut v);
