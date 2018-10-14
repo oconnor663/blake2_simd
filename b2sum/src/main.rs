@@ -40,6 +40,10 @@ struct Opt {
     /// Use the BLAKE2bp parallel hash function. Implies --mmap.
     blake2bp: bool,
 
+    #[structopt(long = "portable")]
+    /// Always use the portable (non-AVX2) BLAKE2b implementation.
+    portable: bool,
+
     #[structopt(short = "l", long = "length")]
     /// The size of the output in bits. Must be a multiple of 8.
     length_bits: Option<usize>,
@@ -87,6 +91,9 @@ struct Opt {
 
 fn hash_one(path: &Path, opt: &Opt, params: &Params) -> io::Result<Hash> {
     let mut state = params.to_state();
+    if opt.portable {
+        blake2b_simd::benchmarks::force_portable(&mut state);
+    }
     if path == Path::new("-") {
         if opt.blake2bp || opt.mmap {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, CANT_MMAP_ERROR));
