@@ -417,6 +417,14 @@ impl State {
         state
     }
 
+    fn fill_buf(&mut self, input: &mut &[u8]) {
+        let take = cmp::min(BLOCKBYTES - self.buflen as usize, input.len());
+        self.buf[self.buflen as usize..self.buflen as usize + take].copy_from_slice(&input[..take]);
+        self.buflen += take as u8;
+        self.count += take as u128;
+        *input = &input[take..];
+    }
+
     /// Add input to the hash. You can call `update` any number of times.
     pub fn update(&mut self, mut input: &[u8]) -> &mut Self {
         // If we have a partial buffer, try to complete it. If we complete it and there's more
@@ -450,14 +458,6 @@ impl State {
         self
     }
 
-    fn fill_buf(&mut self, input: &mut &[u8]) {
-        let take = cmp::min(BLOCKBYTES - self.buflen as usize, input.len());
-        self.buf[self.buflen as usize..self.buflen as usize + take].copy_from_slice(&input[..take]);
-        self.buflen += take as u8;
-        self.count += take as u128;
-        *input = &input[take..];
-    }
-
     /// Finalize the state and return a `Hash`. This method is idempotent, and calling it multiple
     /// times will give the same result. It's also possible to `update` with more input in between.
     pub fn finalize(&mut self) -> Hash {
@@ -469,22 +469,10 @@ impl State {
         unsafe {
             (self.compress_fn)(&mut h_copy, &self.buf, self.count, !0, last_node);
         }
-        let mut hash = Hash {
-            bytes: [0; OUTBYTES],
+        Hash {
+            bytes: state_words_to_bytes(&h_copy),
             len: self.hash_length,
-        };
-        {
-            let bytes_refs = mut_array_refs!(&mut hash.bytes, 8, 8, 8, 8, 8, 8, 8, 8);
-            LittleEndian::write_u64(bytes_refs.0, h_copy[0]);
-            LittleEndian::write_u64(bytes_refs.1, h_copy[1]);
-            LittleEndian::write_u64(bytes_refs.2, h_copy[2]);
-            LittleEndian::write_u64(bytes_refs.3, h_copy[3]);
-            LittleEndian::write_u64(bytes_refs.4, h_copy[4]);
-            LittleEndian::write_u64(bytes_refs.5, h_copy[5]);
-            LittleEndian::write_u64(bytes_refs.6, h_copy[6]);
-            LittleEndian::write_u64(bytes_refs.7, h_copy[7]);
         }
-        hash
     }
 
     /// Set a flag indicating that this is the last node of its level in a tree hash. This is
@@ -504,6 +492,22 @@ impl State {
     pub fn count(&self) -> u128 {
         self.count
     }
+}
+
+fn state_words_to_bytes(state_words: &StateWords) -> [u8; OUTBYTES] {
+    let mut bytes = [0; OUTBYTES];
+    {
+        let refs = mut_array_refs!(&mut bytes, 8, 8, 8, 8, 8, 8, 8, 8);
+        LittleEndian::write_u64(refs.0, state_words[0]);
+        LittleEndian::write_u64(refs.1, state_words[1]);
+        LittleEndian::write_u64(refs.2, state_words[2]);
+        LittleEndian::write_u64(refs.3, state_words[3]);
+        LittleEndian::write_u64(refs.4, state_words[4]);
+        LittleEndian::write_u64(refs.5, state_words[5]);
+        LittleEndian::write_u64(refs.6, state_words[6]);
+        LittleEndian::write_u64(refs.7, state_words[7]);
+    }
+    bytes
 }
 
 #[cfg(feature = "std")]
@@ -552,14 +556,18 @@ impl Hash {
     /// Convert the hash to a lowercase hexadecimal
     /// [`ArrayString`](https://docs.rs/arrayvec/0.4/arrayvec/struct.ArrayString.html).
     pub fn to_hex(&self) -> ArrayString<[u8; 2 * OUTBYTES]> {
-        let mut s = ArrayString::new();
-        let table = b"0123456789abcdef";
-        for &b in self.as_bytes() {
-            s.push(table[(b >> 4) as usize] as char);
-            s.push(table[(b & 0xf) as usize] as char);
-        }
-        s
+        bytes_to_hex(self.as_bytes())
     }
+}
+
+fn bytes_to_hex(bytes: &[u8]) -> ArrayString<[u8; 2 * OUTBYTES]> {
+    let mut s = ArrayString::new();
+    let table = b"0123456789abcdef";
+    for &b in bytes {
+        s.push(table[(b >> 4) as usize] as char);
+        s.push(table[(b & 0xf) as usize] as char);
+    }
+    s
 }
 
 /// This implementation is constant time, if the two hashes are the same length.

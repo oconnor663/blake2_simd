@@ -10,6 +10,32 @@ const THOUSAND_HASH: &str = "1ee4e51ecab5210a518f26150e882627ec839967f19d763e150
                              58f6a1c9d1f969bc224dc9440f5a6955277e755b9c513f9ba4421c5e50c8d787";
 
 #[test]
+fn test_all_compression_impls() {
+    // portable
+    let mut state = State::new();
+    portable::compress(&mut state.h, &[0; BLOCKBYTES], 0, !0, 0);
+    assert_eq!(
+        EMPTY_HASH,
+        bytes_to_hex(&state_words_to_bytes(&state.h)).as_str(),
+    );
+
+    // avx2
+    #[cfg(feature = "std")]
+    {
+        if is_x86_feature_detected!("avx2") {
+            let mut state = State::new();
+            unsafe {
+                avx2::compress(&mut state.h, &[0; BLOCKBYTES], 0, !0, 0);
+            }
+            assert_eq!(
+                EMPTY_HASH,
+                bytes_to_hex(&state_words_to_bytes(&state.h)).as_str(),
+            );
+        }
+    }
+}
+
+#[test]
 fn test_vectors() {
     let io = &[
         (&b""[..], EMPTY_HASH),
