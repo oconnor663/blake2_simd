@@ -352,7 +352,8 @@ impl fmt::Debug for Params {
         write!(
             f,
             "Params {{ hash_length: {}, key_length: {}, salt: {:?}, personal: {:?}, fanout: {}, \
-             max_depth: {}, max_leaf_length: {}, node_offset: {}, node_depth: {}, inner_hash_length: {} }}",
+             max_depth: {}, max_leaf_length: {}, node_offset: {}, node_depth: {}, \
+             inner_hash_length: {}, last_node: {} }}",
             self.hash_length,
             // NB: Don't print the key itself. Debug shouldn't leak secrets.
             self.key_length,
@@ -364,6 +365,7 @@ impl fmt::Debug for Params {
             self.node_offset,
             self.node_depth,
             self.inner_hash_length,
+            self.last_node,
         )
     }
 }
