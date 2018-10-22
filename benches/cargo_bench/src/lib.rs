@@ -26,6 +26,24 @@ fn bench_blake2b_avx2_compress(b: &mut Bencher) {
 }
 
 #[bench]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn bench_blake2b_avx2_compress_4x(b: &mut Bencher) {
+    if !is_x86_feature_detected!("avx2") {
+        return;
+    }
+    b.bytes = BLOCK.len() as u64 * 4;
+    let mut h1 = [0; 8];
+    let mut h2 = [0; 8];
+    let mut h3 = [0; 8];
+    let mut h4 = [0; 8];
+    b.iter(|| unsafe {
+        let h_refs = [&mut h1, &mut h2, &mut h3, &mut h4];
+        let m_refs = [BLOCK, BLOCK, BLOCK, BLOCK];
+        benchmarks::compress_4x_avx2(h_refs, m_refs, 0, 0, 0);
+    });
+}
+
+#[bench]
 fn bench_blake2b_avx2_one_block(b: &mut Bencher) {
     b.bytes = BLOCK.len() as u64;
     b.iter(|| blake2b(BLOCK));
@@ -42,6 +60,20 @@ fn bench_blake2b_portable_compress(b: &mut Bencher) {
     b.bytes = BLOCK.len() as u64;
     let mut h = [0; 8];
     b.iter(|| benchmarks::compress_portable(&mut h, BLOCK, 0, 0, 0));
+}
+
+#[bench]
+fn bench_blake2b_portable_compress_4x(b: &mut Bencher) {
+    b.bytes = BLOCK.len() as u64 * 4;
+    let mut h1 = [0; 8];
+    let mut h2 = [0; 8];
+    let mut h3 = [0; 8];
+    let mut h4 = [0; 8];
+    b.iter(|| {
+        let h_refs = [&mut h1, &mut h2, &mut h3, &mut h4];
+        let m_refs = [BLOCK, BLOCK, BLOCK, BLOCK];
+        benchmarks::compress_4x_portable(h_refs, m_refs, 0, 0, 0);
+    });
 }
 
 #[bench]
