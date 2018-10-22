@@ -425,6 +425,7 @@ unsafe fn load_msg4_words(msg4: [&Block; 4], i: usize) -> __m256i {
     )
 }
 
+#[inline(always)]
 unsafe fn blake2b_round_4x(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
     v[0] = add(v[0], m[SIGMA[r][0] as usize]);
     v[1] = add(v[1], m[SIGMA[r][2] as usize]);
@@ -598,9 +599,18 @@ pub unsafe fn compress_4x(
         load_msg4_words(msg4, 15),
     ];
 
-    for r in 0..12 {
-        blake2b_round_4x(&mut v, &m, r);
-    }
+    blake2b_round_4x(&mut v, &m, 0);
+    blake2b_round_4x(&mut v, &m, 1);
+    blake2b_round_4x(&mut v, &m, 2);
+    blake2b_round_4x(&mut v, &m, 3);
+    blake2b_round_4x(&mut v, &m, 4);
+    blake2b_round_4x(&mut v, &m, 5);
+    blake2b_round_4x(&mut v, &m, 6);
+    blake2b_round_4x(&mut v, &m, 7);
+    blake2b_round_4x(&mut v, &m, 8);
+    blake2b_round_4x(&mut v, &m, 9);
+    blake2b_round_4x(&mut v, &m, 10);
+    blake2b_round_4x(&mut v, &m, 11);
 
     let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[0], v[0]), v[8]));
     h4[0][0] = parts[0];
