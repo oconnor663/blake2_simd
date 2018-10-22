@@ -111,8 +111,8 @@ pub fn compress(h: &mut StateWords, msg: &Block, count: u128, lastblock: u64, la
 }
 
 pub fn compress_4x(
-    h: [&mut StateWords; 4],
-    msg: [&Block; 4],
+    h: &mut [&mut StateWords; 4],
+    msg: &[&Block; 4],
     count: u128,
     lastblock: u64,
     lastnode: u64,

@@ -260,14 +260,14 @@ impl State {
         let (left_leaves, right_leaves) = leaves.split_at_mut(2);
         let (leaf0, leaf1) = left_leaves.split_at_mut(1);
         let (leaf2, leaf3) = right_leaves.split_at_mut(1);
-        let h_array = [
+        let mut h_array = [
             &mut leaf0[0].h,
             &mut leaf1[0].h,
             &mut leaf2[0].h,
             &mut leaf3[0].h,
         ];
         unsafe {
-            (compress_4x_fn)(h_array, msg_array, count, 0, 0);
+            (compress_4x_fn)(&mut h_array, &msg_array, count, 0, 0);
         }
     }
 

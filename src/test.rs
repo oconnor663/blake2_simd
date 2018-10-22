@@ -37,8 +37,8 @@ fn compress_four(compress_fn: Compress4xFn) -> [HexString; 4] {
     // platforms, but this is test code so no biggie.
     unsafe {
         compress_fn(
-            [&mut state1.h, &mut state2.h, &mut state3.h, &mut state4.h],
-            [
+            &mut [&mut state1.h, &mut state2.h, &mut state3.h, &mut state4.h],
+            &[
                 &[1; BLOCKBYTES],
                 &[2; BLOCKBYTES],
                 &[3; BLOCKBYTES],

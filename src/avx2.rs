@@ -416,7 +416,7 @@ unsafe fn load_256_from_4xu64(x1: u64, x2: u64, x3: u64, x4: u64) -> __m256i {
 }
 
 #[inline(always)]
-unsafe fn load_msg4_words(msg4: [&Block; 4], i: usize) -> __m256i {
+unsafe fn load_msg4_words(msg4: &[&Block; 4], i: usize) -> __m256i {
     load_256_from_4xu64(
         LittleEndian::read_u64(&msg4[0][8 * i..]),
         LittleEndian::read_u64(&msg4[1][8 * i..]),
@@ -559,8 +559,8 @@ unsafe fn export_state_words_4x(
 
 #[target_feature(enable = "avx2")]
 pub unsafe fn compress_4x(
-    mut h4: [&mut StateWords; 4],
-    msg4: [&Block; 4],
+    h4: &mut [&mut StateWords; 4],
+    msg4: &[&Block; 4],
     count: u128,
     lastblock: u64,
     lastnode: u64,
@@ -627,12 +627,12 @@ pub unsafe fn compress_4x(
     blake2b_round_4x(&mut v, &m, 10);
     blake2b_round_4x(&mut v, &m, 11);
 
-    export_state_words_4x(h_vecs[0], v[0], v[8], &mut h4, 0);
-    export_state_words_4x(h_vecs[1], v[1], v[9], &mut h4, 1);
-    export_state_words_4x(h_vecs[2], v[2], v[10], &mut h4, 2);
-    export_state_words_4x(h_vecs[3], v[3], v[11], &mut h4, 3);
-    export_state_words_4x(h_vecs[4], v[4], v[12], &mut h4, 4);
-    export_state_words_4x(h_vecs[5], v[5], v[13], &mut h4, 5);
-    export_state_words_4x(h_vecs[6], v[6], v[14], &mut h4, 6);
-    export_state_words_4x(h_vecs[7], v[7], v[15], &mut h4, 7);
+    export_state_words_4x(h_vecs[0], v[0], v[8], h4, 0);
+    export_state_words_4x(h_vecs[1], v[1], v[9], h4, 1);
+    export_state_words_4x(h_vecs[2], v[2], v[10], h4, 2);
+    export_state_words_4x(h_vecs[3], v[3], v[11], h4, 3);
+    export_state_words_4x(h_vecs[4], v[4], v[12], h4, 4);
+    export_state_words_4x(h_vecs[5], v[5], v[13], h4, 5);
+    export_state_words_4x(h_vecs[6], v[6], v[14], h4, 6);
+    export_state_words_4x(h_vecs[7], v[7], v[15], h4, 7);
 }

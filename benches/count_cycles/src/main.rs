@@ -11,14 +11,30 @@ fn compression_fn() -> (u64, usize) {
     const SIZE: usize = 128;
     let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
     let mut total_ticks = 0;
+    let input = &[0; 128];
+    let mut h = [0; 8];
     for _ in 0..iterations {
         let start = amd64_timer::ticks_modern();
-        let input = &[0; 128];
-        let mut h = [0; 8];
         unsafe {
             blake2b_simd::benchmarks::compress_avx2(&mut h, input, 0, 0, 0);
         }
-        test::black_box(&h);
+        let end = amd64_timer::ticks_modern();
+        total_ticks += end - start;
+    }
+    (total_ticks, iterations * SIZE)
+}
+
+fn compression_fn_4x() -> (u64, usize) {
+    const SIZE: usize = 4 * 128;
+    let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
+    let mut total_ticks = 0;
+    let msg4 = [&[0; 128], &[0; 128], &[0; 128], &[0; 128]];
+    let mut h4 = [&mut [0; 8], &mut [0; 8], &mut [0; 8], &mut [0; 8]];
+    for _ in 0..iterations {
+        let start = amd64_timer::ticks_modern();
+        unsafe {
+            blake2b_simd::benchmarks::compress_4x_avx2(&mut h4, &msg4, 0, 0, 0);
+        }
         let end = amd64_timer::ticks_modern();
         total_ticks += end - start;
     }
@@ -118,6 +134,7 @@ fn main() {
     assert!(is_x86_feature_detected!("avx2"));
     let cases: &[(&str, fn() -> (u64, usize))] = &[
         ("compress", compression_fn),
+        ("compress4x", compression_fn_4x),
         ("one block", hash_one_block),
         ("one mb", hash_one_mb),
         ("one mb chunks", hash_one_mb_in_chunks),

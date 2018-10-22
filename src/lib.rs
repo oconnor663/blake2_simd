@@ -169,7 +169,7 @@ const SIGMA: [[u8; 16]; 12] = [
 // support AVX2 is undefined behavior.
 type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64, lastnode: u64);
 type Compress4xFn =
-    unsafe fn([&mut StateWords; 4], [&Block; 4], count: u128, lastblock: u64, lastnode: u64);
+    unsafe fn(&mut [&mut StateWords; 4], &[&Block; 4], count: u128, lastblock: u64, lastnode: u64);
 type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
 type HexString = arrayvec::ArrayString<[u8; 2 * OUTBYTES]>;
