@@ -1,7 +1,6 @@
 extern crate blake2b_simd;
 extern crate hex;
 extern crate memmap;
-extern crate rayon;
 #[macro_use]
 extern crate structopt;
 
@@ -89,13 +88,54 @@ struct Opt {
     last_node: bool,
 }
 
-fn hash_one(path: &Path, opt: &Opt, params: &Params) -> io::Result<Hash> {
-    let mut state = params.to_state();
-    if opt.portable {
-        blake2b_simd::benchmarks::force_portable(&mut state);
+#[derive(Clone, Debug)]
+enum EitherState {
+    Blake2b(State),
+    Blake2bp(blake2bp::State),
+}
+
+impl EitherState {
+    fn finalize(&mut self) -> Hash {
+        match *self {
+            EitherState::Blake2b(ref mut state) => state.finalize(),
+            EitherState::Blake2bp(ref mut state) => state.finalize(),
+        }
     }
+
+    fn force_portable(&mut self) {
+        match *self {
+            EitherState::Blake2b(ref mut state) => {
+                blake2b_simd::benchmarks::force_portable(state);
+            }
+            EitherState::Blake2bp(ref mut state) => {
+                blake2b_simd::benchmarks::force_portable_blake2bp(state);
+            }
+        }
+    }
+}
+
+impl Write for EitherState {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match *self {
+            EitherState::Blake2b(ref mut state) => {
+                state.update(&buf);
+            }
+            EitherState::Blake2bp(ref mut state) => {
+                state.update(&buf);
+            }
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn hash_one(path: &Path, opt: &Opt, state: &EitherState) -> io::Result<Hash> {
+    let mut state = state.clone();
     if path == Path::new("-") {
-        if opt.blake2bp || opt.mmap {
+        if opt.mmap {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, CANT_MMAP_ERROR));
         } else {
             let stdin = io::stdin();
@@ -104,12 +144,9 @@ fn hash_one(path: &Path, opt: &Opt, params: &Params) -> io::Result<Hash> {
         }
     } else {
         let mut file = File::open(path)?;
-        if opt.blake2bp {
+        if opt.mmap {
             let map = mmap_file(&file)?;
-            return Ok(blake2bp(&map[..], params));
-        } else if opt.mmap {
-            let map = mmap_file(&file)?;
-            state.update(&map);
+            state.write_all(&map).unwrap();
         } else {
             read_write_all(&mut file, &mut state)?;
         }
@@ -133,7 +170,7 @@ fn mmap_file(file: &File) -> io::Result<memmap::Mmap> {
     unsafe { memmap::MmapOptions::new().len(len as usize).map(file) }
 }
 
-fn read_write_all<R: Read>(reader: &mut R, writer: &mut State) -> io::Result<()> {
+fn read_write_all<R: Read>(reader: &mut R, writer: &mut EitherState) -> io::Result<()> {
     // Why not just use std::io::copy? Because it uses an 8192 byte buffer, and using a larger
     // buffer is measurably faster.
     //
@@ -156,49 +193,89 @@ fn read_write_all<R: Read>(reader: &mut R, writer: &mut State) -> io::Result<()>
     }
 }
 
-fn make_params(opt: &Opt) -> Result<Params, Box<Error>> {
+fn make_state(opt: &Opt) -> Result<EitherState, Box<Error>> {
     let mut params = Params::new();
+    let mut blake2bp_params = blake2bp::Params::new();
     if let Some(length_bits) = opt.length_bits {
         if length_bits == 0 || length_bits > 512 || length_bits % 8 != 0 {
             return Err("Invalid length.".into());
         }
-        params.hash_length(length_bits / 8);
+        let length = length_bits / 8;
+        params.hash_length(length);
+        blake2bp_params.hash_length(length);
     }
     if let Some(ref key) = opt.key {
-        params.key(&hex::decode(key)?);
+        let key_bytes = hex::decode(key)?;
+        params.key(&key_bytes);
+        blake2bp_params.key(&key_bytes);
     }
     if let Some(ref salt) = opt.salt {
-        params.salt(&hex::decode(salt)?);
+        let salt_bytes = hex::decode(salt)?;
+        params.salt(&salt_bytes);
+        blake2bp_params.salt(&salt_bytes);
     }
     if let Some(ref personal) = opt.personal {
-        params.personal(&hex::decode(personal)?);
+        let personal_bytes = hex::decode(personal)?;
+        params.personal(&personal_bytes);
+        blake2bp_params.personal(&personal_bytes);
     }
     if let Some(fanout) = opt.fanout {
         params.fanout(fanout);
+        if opt.blake2bp {
+            return Err("BLAKE2bp doesn't support --fanout.".into());
+        }
     }
     if let Some(max_depth) = opt.max_depth {
         params.max_depth(max_depth);
+        if opt.blake2bp {
+            return Err("BLAKE2bp doesn't support --max-depth.".into());
+        }
     }
     if let Some(max_leaf_length) = opt.max_leaf_length {
         params.max_leaf_length(max_leaf_length);
+        if opt.blake2bp {
+            return Err("BLAKE2bp doesn't support --max-leaf-length.".into());
+        }
     }
     if let Some(node_offset) = opt.node_offset {
         params.node_offset(node_offset);
+        if opt.blake2bp {
+            return Err("BLAKE2bp doesn't support --node-offset.".into());
+        }
     }
     if let Some(node_depth) = opt.node_depth {
         params.node_depth(node_depth);
+        if opt.blake2bp {
+            return Err("BLAKE2bp doesn't support --node-depth.".into());
+        }
     }
     if let Some(inner_hash_length) = opt.inner_hash_length {
         params.inner_hash_length(inner_hash_length as usize);
+        if opt.blake2bp {
+            return Err("BLAKE2bp doesn't support --inner-hash-length.".into());
+        }
     }
-    params.last_node(opt.last_node);
-    Ok(params)
+    if opt.last_node {
+        params.last_node(true);
+        if opt.blake2bp {
+            return Err("BLAKE2bp doesn't support --last-node.".into());
+        }
+    }
+    let mut ret = if opt.blake2bp {
+        EitherState::Blake2bp(blake2bp_params.to_state())
+    } else {
+        EitherState::Blake2b(params.to_state())
+    };
+    if opt.portable {
+        ret.force_portable();
+    }
+    Ok(ret)
 }
 
 fn main() {
     let opt = Opt::from_args();
 
-    let params = match make_params(&opt) {
+    let state = match make_state(&opt) {
         Ok(params) => params,
         Err(e) => {
             eprintln!("{}", e);
@@ -206,16 +283,10 @@ fn main() {
         }
     };
 
-    // BLAKE2bp requires exactly 4 threads.
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build_global()
-        .unwrap();
-
     let mut did_error = false;
     for path in &opt.input {
         let path_str = path.to_string_lossy();
-        match hash_one(path, &opt, &params) {
+        match hash_one(path, &opt, &state) {
             Ok(hash) => println!("{}  {}", hash.to_hex(), path_str),
             Err(e) => {
                 did_error = true;

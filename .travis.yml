@@ -8,7 +8,7 @@ rust:
   - beta
   - nightly
 script:
-  # With std and blake2bp.
+  # With std.
   - cargo test -vv --all-features
   # Without std.
   - cargo test -vv --no-default-features

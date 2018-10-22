@@ -655,4 +655,7 @@ pub mod benchmarks {
     pub fn force_portable(state: &mut ::State) {
         state.compress_fn = compress_portable;
     }
+    pub fn force_portable_blake2bp(state: &mut ::blake2bp::State) {
+        state.compress_4x_fn = compress_4x_portable;
+    }
 }

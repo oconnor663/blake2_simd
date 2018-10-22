@@ -7,10 +7,9 @@ license = "MIT"
 repository = "https://github.com/oconnor663/blake2b_simd/tree/master/b2sum"
 
 [dependencies]
-blake2b_simd = { path = "..", features = ["blake2bp"] }
+blake2b_simd = { path = ".." }
 hex = "0.3.2"
 memmap = "0.7.0"
-rayon = "1.0.2"
 structopt = "0.2.10"
 
 [dev-dependencies]

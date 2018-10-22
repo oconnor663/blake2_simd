@@ -25,7 +25,6 @@
 use core::cmp;
 use core::fmt;
 use Compress4xFn;
-use CompressFn;
 use Hash;
 use State as Blake2bState;
 use BLOCKBYTES;
@@ -184,8 +183,7 @@ pub struct State {
     buflen: u16,
     // This count isn't used for hashing, only for self.count().
     count: u128,
-    compress_fn: CompressFn,
-    compress_4x_fn: Compress4xFn,
+    pub(crate) compress_4x_fn: Compress4xFn,
 }
 
 impl State {
@@ -219,15 +217,13 @@ impl State {
             .node_depth(1)
             .last_node(true)
             .to_state();
-        let (compress_fn, compress_4x_fn) = ::default_compress_impl();
         Self {
             leaves: [leaf_state(0), leaf_state(1), leaf_state(2), leaf_state(3)],
             root: root_state,
             buf: [0; 8 * BLOCKBYTES],
             buflen: 0,
             count: 0,
-            compress_fn,
-            compress_4x_fn,
+            compress_4x_fn: ::default_compress_impl().1,
         }
     }
 
