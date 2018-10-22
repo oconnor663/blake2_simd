@@ -410,7 +410,9 @@ unsafe fn load_256_from_u64(x: u64) -> __m256i {
 
 #[inline(always)]
 unsafe fn load_256_from_4xu64(x1: u64, x2: u64, x3: u64, x4: u64) -> __m256i {
-    _mm256_set_epi64x(x1 as i64, x2 as i64, x3 as i64, x4 as i64)
+    // NOTE: This order of arguments for _mm256_set_epi64x is the reverse of how the ints come out
+    // when you transmute them back into an array of u64's.
+    _mm256_set_epi64x(x4 as i64, x3 as i64, x2 as i64, x1 as i64)
 }
 
 #[inline(always)]
