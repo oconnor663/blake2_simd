@@ -69,6 +69,19 @@ fn hash_one_mb_in_chunks() -> (u64, usize) {
     (total_ticks, iterations * SIZE)
 }
 
+fn hash_one_mb_blake2bp() -> (u64, usize) {
+    const SIZE: usize = 1_000_000;
+    let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
+    let mut total_ticks = 0;
+    for _ in 0..iterations {
+        let start = amd64_timer::ticks_modern();
+        test::black_box(&blake2b_simd::blake2bp::blake2bp(&[0; SIZE]));
+        let end = amd64_timer::ticks_modern();
+        total_ticks += end - start;
+    }
+    (total_ticks, iterations * SIZE)
+}
+
 fn hash_one_mb_sha1() -> (u64, usize) {
     const SIZE: usize = 1_000_000;
     let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
@@ -108,6 +121,7 @@ fn main() {
         ("one block", hash_one_block),
         ("one mb", hash_one_mb),
         ("one mb chunks", hash_one_mb_in_chunks),
+        ("one mb blake2bp", hash_one_mb_blake2bp),
         ("one mb sha1", hash_one_mb_sha1),
         ("one mb sha512", hash_one_mb_sha512),
     ];
@@ -118,7 +132,7 @@ fn main() {
         // Loop for real.
         let (total_cycles, total_bytes) = f();
         println!(
-            "{:13} {:.3}",
+            "{:15} {:.3}",
             name,
             total_cycles as f64 / total_bytes as f64
         );
