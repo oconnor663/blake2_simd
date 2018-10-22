@@ -113,7 +113,6 @@ extern crate arrayvec;
 extern crate byteorder;
 extern crate constant_time_eq;
 
-use arrayvec::ArrayString;
 use byteorder::{ByteOrder, LittleEndian};
 use core::cmp;
 use core::fmt;
@@ -172,8 +171,11 @@ const SIGMA: [[u8; 16]; 12] = [
 // implementation is safe, because calling the AVX2 implementation on a platform that doesn't
 // support AVX2 is undefined behavior.
 type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64, lastnode: u64);
+type Compress4xFn =
+    unsafe fn([&mut StateWords; 4], [&Block; 4], count: u128, lastblock: u64, lastnode: u64);
 type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
+type HexString = arrayvec::ArrayString<[u8; 2 * OUTBYTES]>;
 
 /// Compute the BLAKE2b hash of a slice of bytes, using default parameters.
 ///
@@ -570,13 +572,13 @@ impl Hash {
 
     /// Convert the hash to a lowercase hexadecimal
     /// [`ArrayString`](https://docs.rs/arrayvec/0.4/arrayvec/struct.ArrayString.html).
-    pub fn to_hex(&self) -> ArrayString<[u8; 2 * OUTBYTES]> {
+    pub fn to_hex(&self) -> HexString {
         bytes_to_hex(self.as_bytes())
     }
 }
 
-fn bytes_to_hex(bytes: &[u8]) -> ArrayString<[u8; 2 * OUTBYTES]> {
-    let mut s = ArrayString::new();
+fn bytes_to_hex(bytes: &[u8]) -> HexString {
+    let mut s = arrayvec::ArrayString::new();
     let table = b"0123456789abcdef";
     for &b in bytes {
         s.push(table[(b >> 4) as usize] as char);
