@@ -5,7 +5,6 @@ extern crate blake2b_simd;
 extern crate libsodium_ffi;
 #[cfg(feature = "openssl")]
 extern crate openssl;
-extern crate rayon;
 extern crate test;
 
 use blake2b_simd::*;
@@ -100,14 +99,8 @@ fn bench_blake2b_portable_one_mb(b: &mut Bencher) {
 
 #[bench]
 fn bench_blake2bp_one_mb(b: &mut Bencher) {
-    // BLAKE2bp requires exactly 4 threads, and this benchmark performs best
-    // when we set that number explicitly. The b2sum binary also sets it.
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(4)
-        .build_global()
-        .unwrap();
     b.bytes = MB.len() as u64;
-    b.iter(|| blake2bp(MB, &blake2b_simd::Params::default()));
+    b.iter(|| blake2bp::blake2bp(MB));
 }
 
 #[cfg(feature = "libsodium-ffi")]
