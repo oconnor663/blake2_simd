@@ -17,8 +17,8 @@
 //!   includes command line flags for all the BLAKE2 associated data features.
 //! - `no_std` support. The `std` Cargo feature is on by default, for CPU feature detection and
 //!   for implementing `std::io::Write`.
-//! - An implementation of the multithreaded BLAKE2bp variant. Enable it with `blake2bp` Cargo
-//!   feature.
+//! - An implementation of the parallel BLAKE2bp variant. This implementation is single-threaded,
+//!   but it's still twice as fast as BLAKE2b, because it uses AVX2 more efficiently.
 //!
 //! # Example
 //!
@@ -121,10 +121,7 @@ use core::fmt;
 mod avx2;
 mod portable;
 
-#[cfg(feature = "blake2bp")]
-mod blake2bp;
-#[cfg(feature = "blake2bp")]
-pub use blake2bp::blake2bp;
+pub mod blake2bp;
 
 #[cfg(test)]
 mod test;
@@ -209,7 +206,7 @@ pub fn blake2b(input: &[u8]) -> Hash {
 /// ```
 #[derive(Clone)]
 pub struct Params {
-    pub(crate) hash_length: u8, // visible to blake2bp
+    hash_length: u8,
     key_length: u8,
     key: [u8; KEYBYTES],
     salt: [u8; SALTBYTES],
@@ -421,7 +418,7 @@ impl State {
                 IV[6] ^ LittleEndian::read_u64(personal_left),
                 IV[7] ^ LittleEndian::read_u64(personal_right),
             ],
-            compress_fn: default_compress_impl(),
+            compress_fn: default_compress_impl().0,
             buf: [0; BLOCKBYTES],
             buflen: 0,
             count: 0,
@@ -620,7 +617,7 @@ impl fmt::Debug for Hash {
 // Safety: The unsafe blocks above rely on this function to never return avx2::compress except on
 // platforms where it's safe to call.
 #[allow(unreachable_code)]
-fn default_compress_impl() -> CompressFn {
+fn default_compress_impl() -> (CompressFn, Compress4xFn) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         // If AVX2 is enabled at the top level for the whole build (using something like
@@ -629,7 +626,7 @@ fn default_compress_impl() -> CompressFn {
         // least until more features get stabilized in the future.
         #[cfg(target_feature = "avx2")]
         {
-            return avx2::compress;
+            return (avx2::compress, avx2::compress_4x);
         }
         // Do dynamic feature detection at runtime, and use AVX2 if the current CPU supports it.
         // This is what the default build does. Note that no_std doesn't currently support dynamic
@@ -637,12 +634,12 @@ fn default_compress_impl() -> CompressFn {
         #[cfg(feature = "std")]
         {
             if is_x86_feature_detected!("avx2") {
-                return avx2::compress;
+                return (avx2::compress, avx2::compress_4x);
             }
         }
     }
     // On other platforms (non-x86 or pre-AVX2) use the portable implementation.
-    portable::compress
+    (portable::compress, portable::compress_4x)
 }
 
 // This module is pub for internal benchmarks only. Please don't use it.
