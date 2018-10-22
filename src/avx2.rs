@@ -3,9 +3,13 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
+use byteorder::{ByteOrder, LittleEndian};
+use core::mem;
+
 use Block;
 use StateWords;
 use IV;
+use SIGMA;
 
 #[inline(always)]
 unsafe fn load_256_unaligned(mem_addr: &[u64; 4]) -> __m256i {
@@ -397,4 +401,243 @@ pub unsafe fn compress(
 
     store_256_unaligned(h_low, a);
     store_256_unaligned(h_high, b);
+}
+
+#[inline(always)]
+unsafe fn load_256_from_u64(x: u64) -> __m256i {
+    _mm256_set1_epi64x(x as i64)
+}
+
+#[inline(always)]
+unsafe fn load_256_from_4xu64(x1: u64, x2: u64, x3: u64, x4: u64) -> __m256i {
+    _mm256_set_epi64x(x1 as i64, x2 as i64, x3 as i64, x4 as i64)
+}
+
+#[inline(always)]
+unsafe fn load_msg4_words(msg4: [&Block; 4], i: usize) -> __m256i {
+    load_256_from_4xu64(
+        LittleEndian::read_u64(&msg4[0][8 * i..]),
+        LittleEndian::read_u64(&msg4[1][8 * i..]),
+        LittleEndian::read_u64(&msg4[2][8 * i..]),
+        LittleEndian::read_u64(&msg4[3][8 * i..]),
+    )
+}
+
+unsafe fn blake2b_round_4x(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
+    v[0] = add(v[0], m[SIGMA[r][0] as usize]);
+    v[1] = add(v[1], m[SIGMA[r][2] as usize]);
+    v[2] = add(v[2], m[SIGMA[r][4] as usize]);
+    v[3] = add(v[3], m[SIGMA[r][6] as usize]);
+    v[0] = add(v[0], v[4]);
+    v[1] = add(v[1], v[5]);
+    v[2] = add(v[2], v[6]);
+    v[3] = add(v[3], v[7]);
+    v[12] = xor(v[12], v[0]);
+    v[13] = xor(v[13], v[1]);
+    v[14] = xor(v[14], v[2]);
+    v[15] = xor(v[15], v[3]);
+    v[12] = rot32(v[12]);
+    v[13] = rot32(v[13]);
+    v[14] = rot32(v[14]);
+    v[15] = rot32(v[15]);
+    v[8] = add(v[8], v[12]);
+    v[9] = add(v[9], v[13]);
+    v[10] = add(v[10], v[14]);
+    v[11] = add(v[11], v[15]);
+    v[4] = xor(v[4], v[8]);
+    v[5] = xor(v[5], v[9]);
+    v[6] = xor(v[6], v[10]);
+    v[7] = xor(v[7], v[11]);
+    v[4] = rot24(v[4]);
+    v[5] = rot24(v[5]);
+    v[6] = rot24(v[6]);
+    v[7] = rot24(v[7]);
+    v[0] = add(v[0], m[SIGMA[r][1] as usize]);
+    v[1] = add(v[1], m[SIGMA[r][3] as usize]);
+    v[2] = add(v[2], m[SIGMA[r][5] as usize]);
+    v[3] = add(v[3], m[SIGMA[r][7] as usize]);
+    v[0] = add(v[0], v[4]);
+    v[1] = add(v[1], v[5]);
+    v[2] = add(v[2], v[6]);
+    v[3] = add(v[3], v[7]);
+    v[12] = xor(v[12], v[0]);
+    v[13] = xor(v[13], v[1]);
+    v[14] = xor(v[14], v[2]);
+    v[15] = xor(v[15], v[3]);
+    v[12] = rot16(v[12]);
+    v[13] = rot16(v[13]);
+    v[14] = rot16(v[14]);
+    v[15] = rot16(v[15]);
+    v[8] = add(v[8], v[12]);
+    v[9] = add(v[9], v[13]);
+    v[10] = add(v[10], v[14]);
+    v[11] = add(v[11], v[15]);
+    v[4] = xor(v[4], v[8]);
+    v[5] = xor(v[5], v[9]);
+    v[6] = xor(v[6], v[10]);
+    v[7] = xor(v[7], v[11]);
+    v[4] = rot63(v[4]);
+    v[5] = rot63(v[5]);
+    v[6] = rot63(v[6]);
+    v[7] = rot63(v[7]);
+
+    v[0] = add(v[0], m[SIGMA[r][8] as usize]);
+    v[1] = add(v[1], m[SIGMA[r][10] as usize]);
+    v[2] = add(v[2], m[SIGMA[r][12] as usize]);
+    v[3] = add(v[3], m[SIGMA[r][14] as usize]);
+    v[0] = add(v[0], v[5]);
+    v[1] = add(v[1], v[6]);
+    v[2] = add(v[2], v[7]);
+    v[3] = add(v[3], v[4]);
+    v[15] = xor(v[15], v[0]);
+    v[12] = xor(v[12], v[1]);
+    v[13] = xor(v[13], v[2]);
+    v[14] = xor(v[14], v[3]);
+    v[15] = rot32(v[15]);
+    v[12] = rot32(v[12]);
+    v[13] = rot32(v[13]);
+    v[14] = rot32(v[14]);
+    v[10] = add(v[10], v[15]);
+    v[11] = add(v[11], v[12]);
+    v[8] = add(v[8], v[13]);
+    v[9] = add(v[9], v[14]);
+    v[5] = xor(v[5], v[10]);
+    v[6] = xor(v[6], v[11]);
+    v[7] = xor(v[7], v[8]);
+    v[4] = xor(v[4], v[9]);
+    v[5] = rot24(v[5]);
+    v[6] = rot24(v[6]);
+    v[7] = rot24(v[7]);
+    v[4] = rot24(v[4]);
+    v[0] = add(v[0], m[SIGMA[r][9] as usize]);
+    v[1] = add(v[1], m[SIGMA[r][11] as usize]);
+    v[2] = add(v[2], m[SIGMA[r][13] as usize]);
+    v[3] = add(v[3], m[SIGMA[r][15] as usize]);
+    v[0] = add(v[0], v[5]);
+    v[1] = add(v[1], v[6]);
+    v[2] = add(v[2], v[7]);
+    v[3] = add(v[3], v[4]);
+    v[15] = xor(v[15], v[0]);
+    v[12] = xor(v[12], v[1]);
+    v[13] = xor(v[13], v[2]);
+    v[14] = xor(v[14], v[3]);
+    v[15] = rot16(v[15]);
+    v[12] = rot16(v[12]);
+    v[13] = rot16(v[13]);
+    v[14] = rot16(v[14]);
+    v[10] = add(v[10], v[15]);
+    v[11] = add(v[11], v[12]);
+    v[8] = add(v[8], v[13]);
+    v[9] = add(v[9], v[14]);
+    v[5] = xor(v[5], v[10]);
+    v[6] = xor(v[6], v[11]);
+    v[7] = xor(v[7], v[8]);
+    v[4] = xor(v[4], v[9]);
+    v[5] = rot63(v[5]);
+    v[6] = rot63(v[6]);
+    v[7] = rot63(v[7]);
+    v[4] = rot63(v[4]);
+}
+
+#[target_feature(enable = "avx2")]
+pub unsafe fn compress_4x(
+    h4: [&mut StateWords; 4],
+    msg4: [&Block; 4],
+    count: u128,
+    lastblock: u64,
+    lastnode: u64,
+) {
+    let h_vecs = [
+        load_256_from_4xu64(h4[0][0], h4[1][0], h4[2][0], h4[3][0]),
+        load_256_from_4xu64(h4[0][1], h4[1][1], h4[2][1], h4[3][1]),
+        load_256_from_4xu64(h4[0][2], h4[1][2], h4[2][2], h4[3][2]),
+        load_256_from_4xu64(h4[0][3], h4[1][3], h4[2][3], h4[3][3]),
+        load_256_from_4xu64(h4[0][4], h4[1][4], h4[2][4], h4[3][4]),
+        load_256_from_4xu64(h4[0][5], h4[1][5], h4[2][5], h4[3][5]),
+        load_256_from_4xu64(h4[0][6], h4[1][6], h4[2][6], h4[3][6]),
+        load_256_from_4xu64(h4[0][7], h4[1][7], h4[2][7], h4[3][7]),
+    ];
+    let count_low = count as u64;
+    let count_high = (count >> 64) as u64;
+    let mut v = [
+        h_vecs[0],
+        h_vecs[1],
+        h_vecs[2],
+        h_vecs[3],
+        h_vecs[4],
+        h_vecs[5],
+        h_vecs[6],
+        h_vecs[7],
+        load_256_from_u64(IV[0]),
+        load_256_from_u64(IV[1]),
+        load_256_from_u64(IV[2]),
+        load_256_from_u64(IV[3]),
+        xor(load_256_from_u64(IV[4]), load_256_from_u64(count_low)),
+        xor(load_256_from_u64(IV[5]), load_256_from_u64(count_high)),
+        xor(load_256_from_u64(IV[6]), load_256_from_u64(lastblock)),
+        xor(load_256_from_u64(IV[7]), load_256_from_u64(lastnode)),
+    ];
+    let m = [
+        load_msg4_words(msg4, 0),
+        load_msg4_words(msg4, 1),
+        load_msg4_words(msg4, 2),
+        load_msg4_words(msg4, 3),
+        load_msg4_words(msg4, 4),
+        load_msg4_words(msg4, 5),
+        load_msg4_words(msg4, 6),
+        load_msg4_words(msg4, 7),
+        load_msg4_words(msg4, 8),
+        load_msg4_words(msg4, 9),
+        load_msg4_words(msg4, 10),
+        load_msg4_words(msg4, 11),
+        load_msg4_words(msg4, 12),
+        load_msg4_words(msg4, 13),
+        load_msg4_words(msg4, 14),
+        load_msg4_words(msg4, 15),
+    ];
+
+    for r in 0..12 {
+        blake2b_round_4x(&mut v, &m, r);
+    }
+
+    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[0], v[0]), v[8]));
+    h4[0][0] = parts[0];
+    h4[1][0] = parts[1];
+    h4[2][0] = parts[2];
+    h4[3][0] = parts[3];
+    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[1], v[1]), v[9]));
+    h4[0][1] = parts[0];
+    h4[1][1] = parts[1];
+    h4[2][1] = parts[2];
+    h4[3][1] = parts[3];
+    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[2], v[2]), v[10]));
+    h4[0][2] = parts[0];
+    h4[1][2] = parts[1];
+    h4[2][2] = parts[2];
+    h4[3][2] = parts[3];
+    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[3], v[3]), v[11]));
+    h4[0][3] = parts[0];
+    h4[1][3] = parts[1];
+    h4[2][3] = parts[2];
+    h4[3][3] = parts[3];
+    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[4], v[4]), v[12]));
+    h4[0][4] = parts[0];
+    h4[1][4] = parts[1];
+    h4[2][4] = parts[2];
+    h4[3][4] = parts[3];
+    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[5], v[5]), v[13]));
+    h4[0][5] = parts[0];
+    h4[1][5] = parts[1];
+    h4[2][5] = parts[2];
+    h4[3][5] = parts[3];
+    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[6], v[6]), v[14]));
+    h4[0][6] = parts[0];
+    h4[1][6] = parts[1];
+    h4[2][6] = parts[2];
+    h4[3][6] = parts[3];
+    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[7], v[7]), v[15]));
+    h4[0][7] = parts[0];
+    h4[1][7] = parts[1];
+    h4[2][7] = parts[2];
+    h4[3][7] = parts[3];
 }
