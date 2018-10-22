@@ -542,9 +542,24 @@ unsafe fn blake2b_round_4x(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
     v[4] = rot63(v[4]);
 }
 
+#[inline(always)]
+unsafe fn export_state_words_4x(
+    orig_vec: __m256i,
+    low_state: __m256i,
+    high_state: __m256i,
+    h4: &mut [&mut StateWords; 4],
+    i: usize,
+) {
+    let parts: [u64; 4] = mem::transmute(xor(xor(orig_vec, low_state), high_state));
+    h4[0][i] = parts[0];
+    h4[1][i] = parts[1];
+    h4[2][i] = parts[2];
+    h4[3][i] = parts[3];
+}
+
 #[target_feature(enable = "avx2")]
 pub unsafe fn compress_4x(
-    h4: [&mut StateWords; 4],
+    mut h4: [&mut StateWords; 4],
     msg4: [&Block; 4],
     count: u128,
     lastblock: u64,
@@ -612,44 +627,12 @@ pub unsafe fn compress_4x(
     blake2b_round_4x(&mut v, &m, 10);
     blake2b_round_4x(&mut v, &m, 11);
 
-    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[0], v[0]), v[8]));
-    h4[0][0] = parts[0];
-    h4[1][0] = parts[1];
-    h4[2][0] = parts[2];
-    h4[3][0] = parts[3];
-    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[1], v[1]), v[9]));
-    h4[0][1] = parts[0];
-    h4[1][1] = parts[1];
-    h4[2][1] = parts[2];
-    h4[3][1] = parts[3];
-    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[2], v[2]), v[10]));
-    h4[0][2] = parts[0];
-    h4[1][2] = parts[1];
-    h4[2][2] = parts[2];
-    h4[3][2] = parts[3];
-    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[3], v[3]), v[11]));
-    h4[0][3] = parts[0];
-    h4[1][3] = parts[1];
-    h4[2][3] = parts[2];
-    h4[3][3] = parts[3];
-    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[4], v[4]), v[12]));
-    h4[0][4] = parts[0];
-    h4[1][4] = parts[1];
-    h4[2][4] = parts[2];
-    h4[3][4] = parts[3];
-    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[5], v[5]), v[13]));
-    h4[0][5] = parts[0];
-    h4[1][5] = parts[1];
-    h4[2][5] = parts[2];
-    h4[3][5] = parts[3];
-    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[6], v[6]), v[14]));
-    h4[0][6] = parts[0];
-    h4[1][6] = parts[1];
-    h4[2][6] = parts[2];
-    h4[3][6] = parts[3];
-    let parts: [u64; 4] = mem::transmute(xor(xor(h_vecs[7], v[7]), v[15]));
-    h4[0][7] = parts[0];
-    h4[1][7] = parts[1];
-    h4[2][7] = parts[2];
-    h4[3][7] = parts[3];
+    export_state_words_4x(h_vecs[0], v[0], v[8], &mut h4, 0);
+    export_state_words_4x(h_vecs[1], v[1], v[9], &mut h4, 1);
+    export_state_words_4x(h_vecs[2], v[2], v[10], &mut h4, 2);
+    export_state_words_4x(h_vecs[3], v[3], v[11], &mut h4, 3);
+    export_state_words_4x(h_vecs[4], v[4], v[12], &mut h4, 4);
+    export_state_words_4x(h_vecs[5], v[5], v[13], &mut h4, 5);
+    export_state_words_4x(h_vecs[6], v[6], v[14], &mut h4, 6);
+    export_state_words_4x(h_vecs[7], v[7], v[15], &mut h4, 7);
 }
