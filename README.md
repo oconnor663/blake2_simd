@@ -19,8 +19,11 @@ An implementation of the BLAKE2b hash with:
   includes command line flags for all the BLAKE2 associated data features.
 - `no_std` support. The `std` Cargo feature is on by default, for CPU feature detection and
   for implementing `std::io::Write`.
-- An implementation of the multithreaded BLAKE2bp variant. Enable it with `blake2bp` Cargo
-  feature.
+- An implementation of the parallel [BLAKE2bp] variant. This implementation is single-threaded,
+  but it's twice as fast as BLAKE2b, because it uses AVX2 more efficiently. It's available on
+  the command line as `b2sum --blake2bp`.
+- Support for computing multiple BLAKE2b hashes in parallel, matching the throughput of
+  BLAKE2bp. See [`update4`] and [`finalize4`].
 
 ## Example
 
@@ -102,4 +105,9 @@ The `benches/bench_b2sum.py` script benchmarks `b2sum` against several Coreutils
 ```
 
 The `benches/count_cycles` sub-crate (`cargo +nightly run --release`) measures a peak
-throughput of 1.8 cycles per byte.
+throughput of 1.8 cycles per byte for the serial implementation, and 0.9 cycles per byte for
+the parallel implementation.
+
+[BLAKE2bp]: blake2bp/index.html
+[`update4`]: fn.update4.html
+[`finalize4`]: fn.finalize4.html

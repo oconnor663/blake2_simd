@@ -106,6 +106,38 @@ fn hash_one_mb_blake2bp() -> (u64, usize) {
     (total_ticks, iterations * SIZE)
 }
 
+fn hash_one_mb_update4() -> (u64, usize) {
+    const SIZE: usize = 1_000_000;
+    let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
+    let mut total_ticks = 0;
+    for _ in 0..iterations {
+        let start = amd64_timer::ticks_modern();
+        let mut state0 = blake2b_simd::State::new();
+        let mut state1 = blake2b_simd::State::new();
+        let mut state2 = blake2b_simd::State::new();
+        let mut state3 = blake2b_simd::State::new();
+        blake2b_simd::update4(
+            &mut state0,
+            &mut state1,
+            &mut state2,
+            &mut state3,
+            &[0; SIZE / 4],
+            &[0; SIZE / 4],
+            &[0; SIZE / 4],
+            &[0; SIZE / 4],
+        );
+        test::black_box(&blake2b_simd::finalize4(
+            &mut state0,
+            &mut state1,
+            &mut state2,
+            &mut state3,
+        ));
+        let end = amd64_timer::ticks_modern();
+        total_ticks += end - start;
+    }
+    (total_ticks, iterations * SIZE)
+}
+
 fn hash_one_mb_sha1() -> (u64, usize) {
     const SIZE: usize = 1_000_000;
     let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
@@ -147,6 +179,7 @@ fn main() {
         ("one mb", hash_one_mb),
         ("one mb chunks", hash_one_mb_in_chunks),
         ("one mb blake2bp", hash_one_mb_blake2bp),
+        ("one mb update4", hash_one_mb_update4),
         ("one mb sha1", hash_one_mb_sha1),
         ("one mb sha512", hash_one_mb_sha512),
     ];

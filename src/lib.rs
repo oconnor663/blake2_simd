@@ -103,7 +103,8 @@
 //! ```
 //!
 //! The `benches/count_cycles` sub-crate (`cargo +nightly run --release`) measures a peak
-//! throughput of 1.8 cycles per byte.
+//! throughput of 1.8 cycles per byte for the serial implementation, and 0.9 cycles per byte for
+//! the parallel implementation.
 //!
 //! [BLAKE2bp]: blake2bp/index.html
 //! [`update4`]: fn.update4.html
