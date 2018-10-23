@@ -28,12 +28,20 @@ fn compression_fn_4x() -> (u64, usize) {
     const SIZE: usize = 4 * 128;
     let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
     let mut total_ticks = 0;
-    let msg4 = [&[0; 128], &[0; 128], &[0; 128], &[0; 128]];
-    let mut h4 = [&mut [0; 8], &mut [0; 8], &mut [0; 8], &mut [0; 8]];
+    let msg0 = &[0; 128];
+    let msg1 = &[0; 128];
+    let msg2 = &[0; 128];
+    let msg3 = &[0; 128];
+    let h0 = &mut [0; 8];
+    let h1 = &mut [0; 8];
+    let h2 = &mut [0; 8];
+    let h3 = &mut [0; 8];
     for _ in 0..iterations {
         let start = amd64_timer::ticks_modern();
         unsafe {
-            blake2b_simd::benchmarks::compress_4x_avx2(&mut h4, &msg4, 0, 0, 0);
+            blake2b_simd::benchmarks::compress_4x_avx2(
+                h0, h1, h2, h3, msg0, msg1, msg2, msg3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            );
         }
         let end = amd64_timer::ticks_modern();
         total_ticks += end - start;
