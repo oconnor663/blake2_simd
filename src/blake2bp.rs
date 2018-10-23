@@ -13,13 +13,12 @@
 //! let hash = blake2bp::Params::new()
 //!     .hash_length(16)
 //!     .key(b"The Magic Words are Squeamish Ossifrage")
-//!     .personal(b"L. P. Waterhouse")
 //!     .to_state()
 //!     .update(b"foo")
 //!     .update(b"bar")
 //!     .update(b"baz")
 //!     .finalize();
-//! assert_eq!("27b037e0215f71450e83ca5c9d2ea88f", &hash.to_hex());
+//! assert_eq!("e69c7d2c42a5ac14948772231c68c552", &hash.to_hex());
 //! ```
 
 use core::cmp;
@@ -30,8 +29,6 @@ use State as Blake2bState;
 use BLOCKBYTES;
 use KEYBYTES;
 use OUTBYTES;
-use PERSONALBYTES;
-use SALTBYTES;
 
 #[cfg(feature = "std")]
 use std;
@@ -54,9 +51,9 @@ pub fn blake2bp(input: &[u8]) -> Hash {
 /// A parameter builder for BLAKE2bp, just like the [`Params`](../struct.Params.html) type for
 /// BLAKE2b.
 ///
-/// This builder supports all the general parameters from BLAKE2b, but none of the tree parameters.
-/// That's because BLAKE2bp is itself a tree hash, and it specifies its own values for the tree
-/// parameters.
+/// This builder only supports configuring the hash length and a secret key. This matches the
+/// options provided by the [reference
+/// implementation](https://github.com/BLAKE2/BLAKE2/blob/320c325437539ae91091ce62efec1913cd8093c2/ref/blake2.h#L162-L165).
 ///
 /// # Example
 ///
@@ -69,8 +66,6 @@ pub struct Params {
     hash_length: u8,
     key_length: u8,
     key: [u8; KEYBYTES],
-    salt: [u8; SALTBYTES],
-    personal: [u8; PERSONALBYTES],
 }
 
 impl Params {
@@ -106,28 +101,6 @@ impl Params {
         self.key[..key.len()].copy_from_slice(key);
         self
     }
-
-    /// At most `SALTBYTES` (16). Shorter salts are padded with null bytes. An empty salt is
-    /// equivalent to having no salt at all.
-    pub fn salt(&mut self, salt: &[u8]) -> &mut Self {
-        assert!(salt.len() <= SALTBYTES, "Bad salt length: {}", salt.len());
-        self.salt = [0; SALTBYTES];
-        self.salt[..salt.len()].copy_from_slice(salt);
-        self
-    }
-
-    /// At most `PERSONALBYTES` (16). Shorter personalizations are padded with null bytes. An empty
-    /// personalization is equivalent to having no personalization at all.
-    pub fn personal(&mut self, personalization: &[u8]) -> &mut Self {
-        assert!(
-            personalization.len() <= PERSONALBYTES,
-            "Bad personalization length: {}",
-            personalization.len()
-        );
-        self.personal = [0; PERSONALBYTES];
-        self.personal[..personalization.len()].copy_from_slice(personalization);
-        self
-    }
 }
 
 impl Default for Params {
@@ -136,8 +109,6 @@ impl Default for Params {
             hash_length: OUTBYTES as u8,
             key_length: 0,
             key: [0; KEYBYTES],
-            salt: [0; SALTBYTES],
-            personal: [0; PERSONALBYTES],
         }
     }
 }
@@ -146,12 +117,10 @@ impl fmt::Debug for Params {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Params {{ hash_length: {}, key_length: {}, salt: {:?}, personal: {:?} }}",
+            "Params {{ hash_length: {}, key_length: {} }}",
             self.hash_length,
             // NB: Don't print the key itself. Debug shouldn't leak secrets.
             self.key_length,
-            &self.salt,
-            &self.personal,
         )
     }
 }
@@ -197,8 +166,6 @@ impl State {
         base_params
             .hash_length(params.hash_length as usize)
             .key(&params.key[..params.key_length as usize])
-            .salt(&params.salt)
-            .personal(&params.personal)
             .fanout(4)
             .max_depth(2)
             .max_leaf_length(0)
