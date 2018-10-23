@@ -161,6 +161,12 @@ impl State {
         Self::with_params(&Params::default())
     }
 
+    // TODO: There are a couple places in this function where we reach into the BLAKE2b State
+    // object and manually overwrite its fields. This is unfortunate, and it means you can't
+    // actually build BLAKE2bp out of the BLAKE2b public interface. (You can make it work for the
+    // basic default-length-no-key case, but you can't implement either of those parameters
+    // correctly.) It might be nice to talk to the designers about whether this is the intended
+    // state of affairs.
     fn with_params(params: &Params) -> Self {
         let mut base_params = ::Params::new();
         base_params
@@ -196,6 +202,8 @@ impl State {
         // key bytes, though the key length still contributes associated data to the root node.
         // Again this isn't documented in the spec, but it matches the behavior of the reference
         // implementation: https://github.com/BLAKE2/BLAKE2/blob/320c325437539ae91091ce62efec1913cd8093c2/ref/blake2bp-ref.c#L128
+        // This particular behavior (though not the inner hash length behavior above) is also
+        // corroborated by the official test vectors; see tests/vector_tests.rs.
         root_state.buflen = 0;
         root_state.count = 0;
         Self {
