@@ -36,9 +36,9 @@ fn bench_blake2b_avx2_compress_4x(b: &mut Bencher) {
     let mut h3 = [0; 8];
     let mut h4 = [0; 8];
     b.iter(|| unsafe {
-        let mut h_refs = [&mut h1, &mut h2, &mut h3, &mut h4];
-        let m_refs = [BLOCK, BLOCK, BLOCK, BLOCK];
-        benchmarks::compress_4x_avx2(&mut h_refs, &m_refs, 0, 0, 0);
+        benchmarks::compress_4x_avx2(
+            &mut h1, &mut h2, &mut h3, &mut h4, &BLOCK, BLOCK, BLOCK, BLOCK, 0, 0, 0,
+        );
     });
 }
 
@@ -69,9 +69,9 @@ fn bench_blake2b_portable_compress_4x(b: &mut Bencher) {
     let mut h3 = [0; 8];
     let mut h4 = [0; 8];
     b.iter(|| {
-        let mut h_refs = [&mut h1, &mut h2, &mut h3, &mut h4];
-        let m_refs = [BLOCK, BLOCK, BLOCK, BLOCK];
-        benchmarks::compress_4x_portable(&mut h_refs, &m_refs, 0, 0, 0);
+        benchmarks::compress_4x_portable(
+            &mut h1, &mut h2, &mut h3, &mut h4, &BLOCK, BLOCK, BLOCK, BLOCK, 0, 0, 0,
+        );
     });
 }
 

@@ -144,7 +144,10 @@ impl fmt::Debug for Params {
 /// ```
 #[derive(Clone)]
 pub struct State {
-    leaves: [Blake2bState; 4],
+    leaf0: Blake2bState,
+    leaf1: Blake2bState,
+    leaf2: Blake2bState,
+    leaf3: Blake2bState,
     root: Blake2bState,
     // Note that this buffer is twice as large as what compress4x needs. That guarantees that we
     // have enough input when we compress to know we don't need to finalize any of the leaves.
@@ -207,7 +210,10 @@ impl State {
         root_state.buflen = 0;
         root_state.count = 0;
         Self {
-            leaves: [leaf_state(0), leaf_state(1), leaf_state(2), leaf_state(3)],
+            leaf0: leaf_state(0),
+            leaf1: leaf_state(1),
+            leaf2: leaf_state(2),
+            leaf3: leaf_state(3),
             root: root_state,
             buf: [0; 8 * BLOCKBYTES],
             buflen: 0,
@@ -226,37 +232,42 @@ impl State {
 
     fn compress_4x(
         input: &[u8; 4 * BLOCKBYTES],
-        leaves: &mut [Blake2bState; 4],
+        leaf0: &mut Blake2bState,
+        leaf1: &mut Blake2bState,
+        leaf2: &mut Blake2bState,
+        leaf3: &mut Blake2bState,
         compress_4x_fn: Compress4xFn,
     ) {
         // Note that this is reaching into the underlying state objects, so it assumes they don't
         // get input through their normal update() interface. Also we can only call this when we're
         // sure there's more input coming.
-        debug_assert_eq!(0, leaves[0].buflen);
-        debug_assert_eq!(0, leaves[1].buflen);
-        debug_assert_eq!(0, leaves[2].buflen);
-        debug_assert_eq!(0, leaves[3].buflen);
-        debug_assert_eq!(leaves[0].count, leaves[1].count);
-        debug_assert_eq!(leaves[0].count, leaves[2].count);
-        debug_assert_eq!(leaves[0].count, leaves[3].count);
-        leaves[0].count += BLOCKBYTES as u128;
-        leaves[1].count += BLOCKBYTES as u128;
-        leaves[2].count += BLOCKBYTES as u128;
-        leaves[3].count += BLOCKBYTES as u128;
-        let count = leaves[0].count;
+        debug_assert_eq!(0, leaf0.buflen);
+        debug_assert_eq!(0, leaf1.buflen);
+        debug_assert_eq!(0, leaf2.buflen);
+        debug_assert_eq!(0, leaf3.buflen);
+        debug_assert_eq!(leaf0.count, leaf1.count);
+        debug_assert_eq!(leaf0.count, leaf2.count);
+        debug_assert_eq!(leaf0.count, leaf3.count);
+        leaf0.count += BLOCKBYTES as u128;
+        leaf1.count += BLOCKBYTES as u128;
+        leaf2.count += BLOCKBYTES as u128;
+        leaf3.count += BLOCKBYTES as u128;
+        let count = leaf0.count;
         let msg_refs = array_refs!(input, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES);
-        let msg_array = [msg_refs.0, msg_refs.1, msg_refs.2, msg_refs.3];
-        let (left_leaves, right_leaves) = leaves.split_at_mut(2);
-        let (leaf0, leaf1) = left_leaves.split_at_mut(1);
-        let (leaf2, leaf3) = right_leaves.split_at_mut(1);
-        let mut h_array = [
-            &mut leaf0[0].h,
-            &mut leaf1[0].h,
-            &mut leaf2[0].h,
-            &mut leaf3[0].h,
-        ];
         unsafe {
-            (compress_4x_fn)(&mut h_array, &msg_array, count, 0, 0);
+            (compress_4x_fn)(
+                &mut leaf0.h,
+                &mut leaf1.h,
+                &mut leaf2.h,
+                &mut leaf3.h,
+                msg_refs.0,
+                msg_refs.1,
+                msg_refs.2,
+                msg_refs.3,
+                count,
+                0,
+                0,
+            );
         }
     }
 
@@ -274,7 +285,10 @@ impl State {
                 // buffer.
                 Self::compress_4x(
                     array_ref!(self.buf, 0, 4 * BLOCKBYTES),
-                    &mut self.leaves,
+                    &mut self.leaf0,
+                    &mut self.leaf1,
+                    &mut self.leaf2,
+                    &mut self.leaf3,
                     self.compress_4x_fn,
                 );
                 self.buflen -= BLOCKBYTES as u16;
@@ -285,7 +299,10 @@ impl State {
                 if input.len() > 3 * BLOCKBYTES {
                     Self::compress_4x(
                         array_ref!(self.buf, 4 * BLOCKBYTES, 4 * BLOCKBYTES),
-                        &mut self.leaves,
+                        &mut self.leaf0,
+                        &mut self.leaf1,
+                        &mut self.leaf2,
+                        &mut self.leaf3,
                         self.compress_4x_fn,
                     );
                     self.buflen = 0;
@@ -302,7 +319,14 @@ impl State {
         while input.len() > 7 * BLOCKBYTES {
             self.count += 4 * BLOCKBYTES as u128;
             let block = array_ref!(input, 0, 4 * BLOCKBYTES);
-            Self::compress_4x(block, &mut self.leaves, self.compress_4x_fn);
+            Self::compress_4x(
+                block,
+                &mut self.leaf0,
+                &mut self.leaf1,
+                &mut self.leaf2,
+                &mut self.leaf3,
+                self.compress_4x_fn,
+            );
             input = &input[4 * BLOCKBYTES..];
         }
 
@@ -315,10 +339,10 @@ impl State {
     /// Finalize the state and return a `Hash`. This method is idempotent, and calling it multiple
     /// times will give the same result. It's also possible to `update` with more input in between.
     pub fn finalize(&mut self) -> Hash {
-        let mut leaf0 = self.leaves[0].clone();
-        let mut leaf1 = self.leaves[1].clone();
-        let mut leaf2 = self.leaves[2].clone();
-        let mut leaf3 = self.leaves[3].clone();
+        let mut leaf0 = self.leaf0.clone();
+        let mut leaf1 = self.leaf1.clone();
+        let mut leaf2 = self.leaf2.clone();
+        let mut leaf3 = self.leaf3.clone();
         let chunks = array_refs!(
             &self.buf, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES,
             BLOCKBYTES, BLOCKBYTES
@@ -369,8 +393,9 @@ impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "State {{ count: {}, root: {:?}, leaves: {:?} }}",
-            self.count, self.root, self.leaves
+            "State {{ count: {}, root: {:?}, leaf0: {:?}, leaf1: {:?}, \
+             leaf2: {:?}, leaf3: {:?} }}",
+            self.count, self.root, self.leaf0, self.leaf1, self.leaf2, self.leaf3
         )
     }
 }

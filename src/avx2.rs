@@ -416,12 +416,18 @@ unsafe fn load_256_from_4xu64(x1: u64, x2: u64, x3: u64, x4: u64) -> __m256i {
 }
 
 #[inline(always)]
-unsafe fn load_msg4_words(msg4: &[&Block; 4], i: usize) -> __m256i {
+unsafe fn load_msg4_words(
+    msg0: &Block,
+    msg1: &Block,
+    msg2: &Block,
+    msg3: &Block,
+    i: usize,
+) -> __m256i {
     load_256_from_4xu64(
-        LittleEndian::read_u64(&msg4[0][8 * i..]),
-        LittleEndian::read_u64(&msg4[1][8 * i..]),
-        LittleEndian::read_u64(&msg4[2][8 * i..]),
-        LittleEndian::read_u64(&msg4[3][8 * i..]),
+        LittleEndian::read_u64(&msg0[8 * i..]),
+        LittleEndian::read_u64(&msg1[8 * i..]),
+        LittleEndian::read_u64(&msg2[8 * i..]),
+        LittleEndian::read_u64(&msg3[8 * i..]),
     )
 }
 
@@ -547,33 +553,42 @@ unsafe fn export_state_words_4x(
     orig_vec: __m256i,
     low_state: __m256i,
     high_state: __m256i,
-    h4: &mut [&mut StateWords; 4],
+    h0: &mut StateWords,
+    h1: &mut StateWords,
+    h2: &mut StateWords,
+    h3: &mut StateWords,
     i: usize,
 ) {
     let parts: [u64; 4] = mem::transmute(xor(xor(orig_vec, low_state), high_state));
-    h4[0][i] = parts[0];
-    h4[1][i] = parts[1];
-    h4[2][i] = parts[2];
-    h4[3][i] = parts[3];
+    h0[i] = parts[0];
+    h1[i] = parts[1];
+    h2[i] = parts[2];
+    h3[i] = parts[3];
 }
 
 #[target_feature(enable = "avx2")]
 pub unsafe fn compress_4x(
-    h4: &mut [&mut StateWords; 4],
-    msg4: &[&Block; 4],
+    h0: &mut StateWords,
+    h1: &mut StateWords,
+    h2: &mut StateWords,
+    h3: &mut StateWords,
+    msg0: &Block,
+    msg1: &Block,
+    msg2: &Block,
+    msg3: &Block,
     count: u128,
     lastblock: u64,
     lastnode: u64,
 ) {
     let h_vecs = [
-        load_256_from_4xu64(h4[0][0], h4[1][0], h4[2][0], h4[3][0]),
-        load_256_from_4xu64(h4[0][1], h4[1][1], h4[2][1], h4[3][1]),
-        load_256_from_4xu64(h4[0][2], h4[1][2], h4[2][2], h4[3][2]),
-        load_256_from_4xu64(h4[0][3], h4[1][3], h4[2][3], h4[3][3]),
-        load_256_from_4xu64(h4[0][4], h4[1][4], h4[2][4], h4[3][4]),
-        load_256_from_4xu64(h4[0][5], h4[1][5], h4[2][5], h4[3][5]),
-        load_256_from_4xu64(h4[0][6], h4[1][6], h4[2][6], h4[3][6]),
-        load_256_from_4xu64(h4[0][7], h4[1][7], h4[2][7], h4[3][7]),
+        load_256_from_4xu64(h0[0], h1[0], h2[0], h3[0]),
+        load_256_from_4xu64(h0[1], h1[1], h2[1], h3[1]),
+        load_256_from_4xu64(h0[2], h1[2], h2[2], h3[2]),
+        load_256_from_4xu64(h0[3], h1[3], h2[3], h3[3]),
+        load_256_from_4xu64(h0[4], h1[4], h2[4], h3[4]),
+        load_256_from_4xu64(h0[5], h1[5], h2[5], h3[5]),
+        load_256_from_4xu64(h0[6], h1[6], h2[6], h3[6]),
+        load_256_from_4xu64(h0[7], h1[7], h2[7], h3[7]),
     ];
     let count_low = count as u64;
     let count_high = (count >> 64) as u64;
@@ -596,22 +611,22 @@ pub unsafe fn compress_4x(
         xor(load_256_from_u64(IV[7]), load_256_from_u64(lastnode)),
     ];
     let m = [
-        load_msg4_words(msg4, 0),
-        load_msg4_words(msg4, 1),
-        load_msg4_words(msg4, 2),
-        load_msg4_words(msg4, 3),
-        load_msg4_words(msg4, 4),
-        load_msg4_words(msg4, 5),
-        load_msg4_words(msg4, 6),
-        load_msg4_words(msg4, 7),
-        load_msg4_words(msg4, 8),
-        load_msg4_words(msg4, 9),
-        load_msg4_words(msg4, 10),
-        load_msg4_words(msg4, 11),
-        load_msg4_words(msg4, 12),
-        load_msg4_words(msg4, 13),
-        load_msg4_words(msg4, 14),
-        load_msg4_words(msg4, 15),
+        load_msg4_words(msg0, msg1, msg2, msg3, 0),
+        load_msg4_words(msg0, msg1, msg2, msg3, 1),
+        load_msg4_words(msg0, msg1, msg2, msg3, 2),
+        load_msg4_words(msg0, msg1, msg2, msg3, 3),
+        load_msg4_words(msg0, msg1, msg2, msg3, 4),
+        load_msg4_words(msg0, msg1, msg2, msg3, 5),
+        load_msg4_words(msg0, msg1, msg2, msg3, 6),
+        load_msg4_words(msg0, msg1, msg2, msg3, 7),
+        load_msg4_words(msg0, msg1, msg2, msg3, 8),
+        load_msg4_words(msg0, msg1, msg2, msg3, 9),
+        load_msg4_words(msg0, msg1, msg2, msg3, 10),
+        load_msg4_words(msg0, msg1, msg2, msg3, 11),
+        load_msg4_words(msg0, msg1, msg2, msg3, 12),
+        load_msg4_words(msg0, msg1, msg2, msg3, 13),
+        load_msg4_words(msg0, msg1, msg2, msg3, 14),
+        load_msg4_words(msg0, msg1, msg2, msg3, 15),
     ];
 
     blake2b_round_4x(&mut v, &m, 0);
@@ -627,12 +642,12 @@ pub unsafe fn compress_4x(
     blake2b_round_4x(&mut v, &m, 10);
     blake2b_round_4x(&mut v, &m, 11);
 
-    export_state_words_4x(h_vecs[0], v[0], v[8], h4, 0);
-    export_state_words_4x(h_vecs[1], v[1], v[9], h4, 1);
-    export_state_words_4x(h_vecs[2], v[2], v[10], h4, 2);
-    export_state_words_4x(h_vecs[3], v[3], v[11], h4, 3);
-    export_state_words_4x(h_vecs[4], v[4], v[12], h4, 4);
-    export_state_words_4x(h_vecs[5], v[5], v[13], h4, 5);
-    export_state_words_4x(h_vecs[6], v[6], v[14], h4, 6);
-    export_state_words_4x(h_vecs[7], v[7], v[15], h4, 7);
+    export_state_words_4x(h_vecs[0], v[0], v[8], h0, h1, h2, h3, 0);
+    export_state_words_4x(h_vecs[1], v[1], v[9], h0, h1, h2, h3, 1);
+    export_state_words_4x(h_vecs[2], v[2], v[10], h0, h1, h2, h3, 2);
+    export_state_words_4x(h_vecs[3], v[3], v[11], h0, h1, h2, h3, 3);
+    export_state_words_4x(h_vecs[4], v[4], v[12], h0, h1, h2, h3, 4);
+    export_state_words_4x(h_vecs[5], v[5], v[13], h0, h1, h2, h3, 5);
+    export_state_words_4x(h_vecs[6], v[6], v[14], h0, h1, h2, h3, 6);
+    export_state_words_4x(h_vecs[7], v[7], v[15], h0, h1, h2, h3, 7);
 }
