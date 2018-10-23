@@ -224,3 +224,21 @@ fn test_zero_max_depth_panics() {
 fn test_long_inner_hash_length_panics() {
     Params::new().inner_hash_length(OUTBYTES + 1);
 }
+
+#[test]
+#[should_panic]
+fn test_blake2bp_short_hash_length_panics() {
+    blake2bp::Params::new().hash_length(0);
+}
+
+#[test]
+#[should_panic]
+fn test_blake2bp_long_hash_length_panics() {
+    blake2bp::Params::new().hash_length(OUTBYTES + 1);
+}
+
+#[test]
+#[should_panic]
+fn test_blake2bp_long_key_panics() {
+    blake2bp::Params::new().key(&[0; KEYBYTES + 1]);
+}
