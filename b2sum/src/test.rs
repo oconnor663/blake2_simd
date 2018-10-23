@@ -63,7 +63,11 @@ fn test_input_file_mmap() {
 fn test_blake2bp() {
     // From https://raw.githubusercontent.com/BLAKE2/BLAKE2/master/testvectors/blake2-kat.json.
     let vectors: &[(&[u8], &str)] = &[
-        // Note that memory mapping doesn't work on zero-length input.
+        (
+            b"",
+            "b5ef811a8038f70b628fa8b294daae7492b1ebe343a80eaabbf1f6ae664dd67b\
+             9d90b0120791eab81dc96985f28849f6a305186a85501b405114bfa678df9380",
+        ),
         (
             b"\x00",
             "a139280e72757b723e6473d5be59f36e9d50fc5cd7d4585cbc09804895a36c52\

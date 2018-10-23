@@ -25,6 +25,7 @@ use core::cmp;
 use core::fmt;
 use Compress4xFn;
 use Hash;
+use Params as Blake2bParams;
 use State as Blake2bState;
 use BLOCKBYTES;
 use KEYBYTES;
@@ -171,7 +172,7 @@ impl State {
     // correctly.) It might be nice to talk to the designers about whether this is the intended
     // state of affairs.
     fn with_params(params: &Params) -> Self {
-        let mut base_params = ::Params::new();
+        let mut base_params = Blake2bParams::new();
         base_params
             .hash_length(params.hash_length as usize)
             .key(&params.key[..params.key_length as usize])
@@ -291,7 +292,7 @@ impl State {
                     &mut self.leaf3,
                     self.compress_4x_fn,
                 );
-                self.buflen -= BLOCKBYTES as u16;
+                self.buflen -= 4 * BLOCKBYTES as u16;
                 // Now, if there's enough input still coming that all four leaves are going to get
                 // more, we can do the second compression and clear the buffer. Otherwise, we have
                 // to shift the remainder of the buffer to the left (and we know in this case the
@@ -409,42 +410,97 @@ impl Default for State {
 #[cfg(test)]
 mod test {
     use super::*;
+    use byteorder::{ByteOrder, LittleEndian};
+
+    // Paint a byte pattern that won't repeat, so that we don't accidentally miss buffer offset
+    // bugs. This is the same as what Bao uses in its tests.
+    fn paint_input(buf: &mut [u8]) {
+        let mut offset = 0;
+        let mut counter: u32 = 1;
+        while offset < buf.len() {
+            let mut bytes = [0; 4];
+            LittleEndian::write_u32(&mut bytes, counter);
+            let take = cmp::min(4, buf.len() - offset);
+            buf[offset..][..take].copy_from_slice(&bytes[..take]);
+            counter += 1;
+            offset += take;
+        }
+    }
+
+    // This is a simple reference implementation without the complicated buffering or parameter
+    // support of the real implementation. We need this because the official test vectors don't
+    // include any inputs large enough to exercise all the branches in the buffering logic.
+    fn blake2bp_reference(input: &[u8]) -> Hash {
+        let mut leaves = [
+            Blake2bParams::new()
+                .fanout(4)
+                .max_depth(2)
+                .node_offset(0)
+                .inner_hash_length(OUTBYTES)
+                .to_state(),
+            Blake2bParams::new()
+                .fanout(4)
+                .max_depth(2)
+                .node_offset(1)
+                .inner_hash_length(OUTBYTES)
+                .to_state(),
+            Blake2bParams::new()
+                .fanout(4)
+                .max_depth(2)
+                .node_offset(2)
+                .inner_hash_length(OUTBYTES)
+                .to_state(),
+            Blake2bParams::new()
+                .fanout(4)
+                .max_depth(2)
+                .node_offset(3)
+                .inner_hash_length(OUTBYTES)
+                .last_node(true)
+                .to_state(),
+        ];
+        for (i, chunk) in input.chunks(BLOCKBYTES).enumerate() {
+            leaves[i % 4].update(chunk);
+        }
+        let mut root = Blake2bParams::new()
+            .fanout(4)
+            .max_depth(2)
+            .node_depth(1)
+            .inner_hash_length(OUTBYTES)
+            .last_node(true)
+            .to_state();
+        for leaf in &mut leaves {
+            root.update(leaf.finalize().as_bytes());
+        }
+        root.finalize()
+    }
 
     #[test]
-    fn test_blake2bp() {
-        // From https://raw.githubusercontent.com/BLAKE2/BLAKE2/master/testvectors/blake2-kat.json.
-        let vectors: &[(&[u8], &str)] = &[
-            // Note that memory mapping doesn't work on zero-length input.
-            (
-                b"\x00",
-                "a139280e72757b723e6473d5be59f36e9d50fc5cd7d4585cbc09804895a36c52\
-                 1242fb2789f85cb9e35491f31d4a6952f9d8e097aef94fa1ca0b12525721f03d",
-            ),
-            (
-                b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\
-                  \x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\
-                  \x20\x21\x22\x23\x24\x25\x26\x27\x28\x29\x2a\x2b\x2c\x2d\x2e\x2f\
-                  \x30\x31\x32\x33\x34\x35\x36\x37\x38\x39\x3a\x3b\x3c\x3d\x3e\x3f\
-                  \x40\x41\x42\x43\x44\x45\x46\x47\x48\x49\x4a\x4b\x4c\x4d\x4e\x4f\
-                  \x50\x51\x52\x53\x54\x55\x56\x57\x58\x59\x5a\x5b\x5c\x5d\x5e\x5f\
-                  \x60\x61\x62\x63\x64\x65\x66\x67\x68\x69\x6a\x6b\x6c\x6d\x6e\x6f\
-                  \x70\x71\x72\x73\x74\x75\x76\x77\x78\x79\x7a\x7b\x7c\x7d\x7e\x7f\
-                  \x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\
-                  \x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\
-                  \xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\
-                  \xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\
-                  \xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\
-                  \xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\
-                  \xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\
-                  \xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe",
-                "3f35c45d24fcfb4acca651076c08000e279ebbff37a1333ce19fd577202dbd24\
-                 b58c514e36dd9ba64af4d78eea4e2dd13bc18d798887dd971376bcae0087e17e",
-            ),
-        ];
+    fn test_buffering() {
+        let mut buf = [0; 20 * BLOCKBYTES];
+        paint_input(&mut buf);
+        // - 8 chunks is just enought to fill the double buffer.
+        // - 9 chunks triggers the "perform one compression on the double buffer" case.
+        // - 11 chunks is the largest input where only one compression may be performed, on the
+        //   first half of the buffer, because there's not enough input to avoid needing to
+        //   finalize the second half.
+        // - 12 chunks triggers the "perform both compressions in the double buffer" case.
+        // - 15 chunks is the largest input where, after compressing 8 chunks from the buffer,
+        //   there's not enough input to hash directly from memory.
+        // - 16 chunks triggers "after emptying the buffer, hash directly from memory".
+        for num_chunks in 1..=20 {
+            // First hash the input all at once, as a sanity check.
+            let input = &buf[..num_chunks * BLOCKBYTES];
+            let expected = blake2bp_reference(&input);
+            let found = blake2bp(&input);
+            assert_eq!(expected, found);
 
-        for &(input, expected) in vectors {
-            let found = blake2bp(input);
-            assert_eq!(&*expected, &*found.to_hex());
+            // Then, do it again, but buffer 1 byte of input first. That causes the buffering
+            // branch to trigger.
+            let mut state = State::new();
+            state.update(&input[..1]);
+            state.update(&input[1..]);
+            let found = state.finalize();
+            assert_eq!(expected, found);
         }
     }
 }
