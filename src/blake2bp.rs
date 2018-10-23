@@ -19,7 +19,7 @@
 //!     .update(b"bar")
 //!     .update(b"baz")
 //!     .finalize();
-//! assert_eq!("a633afac6affaa1f2044d8b246a14eae", &hash.to_hex());
+//! assert_eq!("27b037e0215f71450e83ca5c9d2ea88f", &hash.to_hex());
 //! ```
 
 use core::cmp;
@@ -202,21 +202,35 @@ impl State {
             .fanout(4)
             .max_depth(2)
             .max_leaf_length(0)
-            .inner_hash_length(params.hash_length as usize);
+            // Note that inner_hash_length is always OUTBYTES, regardless of the hash_length
+            // parameter. This isn't documented in the spec, but it matches the behavior of the
+            // reference implementation: https://github.com/BLAKE2/BLAKE2/blob/320c325437539ae91091ce62efec1913cd8093c2/ref/blake2bp-ref.c#L55
+            .inner_hash_length(OUTBYTES);
         let leaf_state = |worker_index| {
-            base_params
+            let mut state = base_params
                 .clone()
                 .node_offset(worker_index)
                 .node_depth(0)
                 .last_node(worker_index == 3)
-                .to_state()
+                .to_state();
+            // Force the output length to be OUTBYTES, matching the inner_hash_length parameter.
+            // Note that the regular hash_length parameter still contributes associated data to
+            // these instances.
+            state.hash_length = OUTBYTES as u8;
+            state
         };
-        let root_state = base_params
+        let mut root_state = base_params
             .clone()
             .node_offset(0)
             .node_depth(1)
             .last_node(true)
             .to_state();
+        // Clear the keybytes from the root state buffer. Only the leaf nodes will hash the actual
+        // key bytes, though the key length still contributes associated data to the root node.
+        // Again this isn't documented in the spec, but it matches the behavior of the reference
+        // implementation: https://github.com/BLAKE2/BLAKE2/blob/320c325437539ae91091ce62efec1913cd8093c2/ref/blake2bp-ref.c#L128
+        root_state.buflen = 0;
+        root_state.count = 0;
         Self {
             leaves: [leaf_state(0), leaf_state(1), leaf_state(2), leaf_state(3)],
             root: root_state,
