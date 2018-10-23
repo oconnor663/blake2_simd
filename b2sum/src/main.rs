@@ -212,12 +212,16 @@ fn make_state(opt: &Opt) -> Result<EitherState, Box<Error>> {
     if let Some(ref salt) = opt.salt {
         let salt_bytes = hex::decode(salt)?;
         params.salt(&salt_bytes);
-        blake2bp_params.salt(&salt_bytes);
+        if opt.blake2bp {
+            return Err("BLAKE2bp doesn't support --salt.".into());
+        }
     }
     if let Some(ref personal) = opt.personal {
         let personal_bytes = hex::decode(personal)?;
         params.personal(&personal_bytes);
-        blake2bp_params.personal(&personal_bytes);
+        if opt.blake2bp {
+            return Err("BLAKE2bp doesn't support --personal.".into());
+        }
     }
     if let Some(fanout) = opt.fanout {
         params.fanout(fanout);
