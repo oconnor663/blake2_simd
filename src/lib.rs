@@ -102,9 +102,11 @@
 //! ╰───────────────────────────┴────────────╯
 //! ```
 //!
-//! The `benches/count_cycles` sub-crate (`cargo +nightly run --release`) measures a peak
-//! throughput of 1.8 cycles per byte for the serial implementation, and 0.9 cycles per byte for
-//! the parallel implementation.
+//! The 4-way parallel (but single threaded) AVX2 implementation underlying [BLAKE2bp] and
+//! [`update4`] is about twice as fast as the serial implementation underlying the benchmarks
+//! above. The `benches/count_cycles` sub-crate (`cargo +nightly run --release`) measures a long
+//! message throughput of 1.8 cycles per byte for the serial implementation, and 0.9 cycles per
+//! byte for the parallel implementation.
 //!
 //! [BLAKE2bp]: blake2bp/index.html
 //! [`update4`]: fn.update4.html
