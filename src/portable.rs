@@ -119,12 +119,21 @@ pub fn compress_4x(
     msg1: &Block,
     msg2: &Block,
     msg3: &Block,
-    count: u128,
-    lastblock: u64,
-    lastnode: u64,
+    count0: u128,
+    count1: u128,
+    count2: u128,
+    count3: u128,
+    lastblock0: u64,
+    lastblock1: u64,
+    lastblock2: u64,
+    lastblock3: u64,
+    lastnode0: u64,
+    lastnode1: u64,
+    lastnode2: u64,
+    lastnode3: u64,
 ) {
-    compress(h0, msg0, count, lastblock, lastnode);
-    compress(h1, msg1, count, lastblock, lastnode);
-    compress(h2, msg2, count, lastblock, lastnode);
-    compress(h3, msg3, count, lastblock, lastnode);
+    compress(h0, msg0, count0, lastblock0, lastnode0);
+    compress(h1, msg1, count1, lastblock1, lastnode1);
+    compress(h2, msg2, count2, lastblock2, lastnode2);
+    compress(h3, msg3, count3, lastblock3, lastnode3);
 }

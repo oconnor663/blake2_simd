@@ -17,8 +17,11 @@
 //!   includes command line flags for all the BLAKE2 associated data features.
 //! - `no_std` support. The `std` Cargo feature is on by default, for CPU feature detection and
 //!   for implementing `std::io::Write`.
-//! - An implementation of the parallel BLAKE2bp variant. This implementation is single-threaded,
-//!   but it's still twice as fast as BLAKE2b, because it uses AVX2 more efficiently.
+//! - An implementation of the parallel [BLAKE2bp] variant. This implementation is single-threaded,
+//!   but it's twice as fast as BLAKE2b, because it uses AVX2 more efficiently. It's available on
+//!   the command line as `b2sum --blake2bp`.
+//! - Support for computing multiple BLAKE2b hashes in parallel, matching the throughput of
+//!   BLAKE2bp. See [`update4`] and [`finalize4`].
 //!
 //! # Example
 //!
@@ -101,6 +104,10 @@
 //!
 //! The `benches/count_cycles` sub-crate (`cargo +nightly run --release`) measures a peak
 //! throughput of 1.8 cycles per byte.
+//!
+//! [BLAKE2bp]: blake2bp/index.html
+//! [`update4`]: fn.update4.html
+//! [`finalize4`]: fn.finalize4.html
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -169,17 +176,26 @@ const SIGMA: [[u8; 16]; 12] = [
 // support AVX2 is undefined behavior.
 type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64, lastnode: u64);
 type Compress4xFn = unsafe fn(
-    &mut StateWords,
-    &mut StateWords,
-    &mut StateWords,
-    &mut StateWords,
-    &Block,
-    &Block,
-    &Block,
-    &Block,
-    count: u128,
-    lastblock: u64,
-    lastnode: u64,
+    state0: &mut StateWords,
+    state1: &mut StateWords,
+    state2: &mut StateWords,
+    state3: &mut StateWords,
+    block0: &Block,
+    block1: &Block,
+    block2: &Block,
+    block3: &Block,
+    count0: u128,
+    count1: u128,
+    count2: u128,
+    count3: u128,
+    lastblock0: u64,
+    lastblock1: u64,
+    lastblock2: u64,
+    lastblock3: u64,
+    lastnode0: u64,
+    lastnode1: u64,
+    lastnode2: u64,
+    lastnode3: u64,
 );
 type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
@@ -452,12 +468,12 @@ impl State {
         *input = &input[take..];
     }
 
-    /// Add input to the hash. You can call `update` any number of times.
-    pub fn update(&mut self, mut input: &[u8]) -> &mut Self {
-        // If we have a partial buffer, try to complete it. If we complete it and there's more
-        // input waiting (so we know we don't need to finalize), compress it.
+    // If the state already has some input in its buffer, try to fill the buffer and perform a
+    // compression. However, only do the compression if there's more input coming, otherwise it
+    // will give the wrong hash it the caller finalizes immediately after.
+    fn compress_buffer_if_possible(&mut self, input: &mut &[u8]) {
         if self.buflen > 0 {
-            self.fill_buf(&mut input);
+            self.fill_buf(input);
             if !input.is_empty() {
                 unsafe {
                     (self.compress_fn)(&mut self.h, &self.buf, self.count, 0, 0);
@@ -465,7 +481,14 @@ impl State {
                 self.buflen = 0;
             }
         }
-        // While there's more than a block of input left, compress blocks directly without copying.
+    }
+
+    /// Add input to the hash. You can call `update` any number of times.
+    pub fn update(&mut self, mut input: &[u8]) -> &mut Self {
+        // If we have a partial buffer, try to complete it.
+        self.compress_buffer_if_possible(&mut input);
+        // While there's more than a block of input left (which also means we cleared the buffer
+        // above), compress blocks directly without copying.
         while input.len() > BLOCKBYTES {
             self.count += BLOCKBYTES as u128;
             let block = array_ref!(input, 0, BLOCKBYTES);
@@ -651,6 +674,233 @@ fn default_compress_impl() -> (CompressFn, Compress4xFn) {
     }
     // On other platforms (non-x86 or pre-AVX2) use the portable implementation.
     (portable::compress, portable::compress_4x)
+}
+
+/// Update four `State` objects at the same time.
+///
+/// Without SIMD, this is no different from making four separate calls to [`update`]. However, with
+/// SIMD, it can be implemented more efficiently. AVX2 is very good at doing four things in
+/// parallel, and the regular BLAKE2b implementation is able to take advantage of that somewhat,
+/// but actually hashing four separate inputs at once is a more natural fit for the instruction
+/// set. This parallel implementation shares its underlying machinery with BLAKE2bp, and like
+/// BLAKE2bp is has about double the throughput of serial BLAKE2b.
+///
+/// `update4` can only operate in parallel as long as all four inputs still have bytes left. Once
+/// one or more of the inputs are exhausted, it falls back to regular serial hashing for the rest.
+/// To get the best throughput, try make your inputs roughly the same length.
+///
+/// # Example
+///
+/// ```
+/// use blake2b_simd::{blake2b, finalize4, update4, State};
+///
+/// let mut state0 = State::new();
+/// let mut state1 = State::new();
+/// let mut state2 = State::new();
+/// let mut state3 = State::new();
+///
+/// update4(
+///     &mut state0,
+///     &mut state1,
+///     &mut state2,
+///     &mut state3,
+///     b"foo",
+///     b"bar",
+///     b"baz",
+///     b"bing",
+/// );
+///
+/// let parallel_hashes = finalize4(&mut state0, &mut state1, &mut state2, &mut state3);
+///
+/// let serial_hashes = [
+///     blake2b(b"foo"),
+///     blake2b(b"bar"),
+///     blake2b(b"baz"),
+///     blake2b(b"bing"),
+/// ];
+/// assert_eq!(serial_hashes, parallel_hashes);
+/// ```
+///
+/// [`update`]: struct.State.html#method.update
+pub fn update4(
+    state0: &mut State,
+    state1: &mut State,
+    state2: &mut State,
+    state3: &mut State,
+    mut input0: &[u8],
+    mut input1: &[u8],
+    mut input2: &[u8],
+    mut input3: &[u8],
+) {
+    // First we need to make sure all the buffers are clear.
+    state0.compress_buffer_if_possible(&mut input0);
+    state1.compress_buffer_if_possible(&mut input1);
+    state2.compress_buffer_if_possible(&mut input2);
+    state3.compress_buffer_if_possible(&mut input3);
+    // Now, as long as all of the states have more than a block of input coming (so that we know we
+    // don't need to finalize any of them), compress in parallel directly into their state words.
+    let (_, compress_4x_fn) = default_compress_impl();
+    while input0.len() > BLOCKBYTES
+        && input1.len() > BLOCKBYTES
+        && input2.len() > BLOCKBYTES
+        && input3.len() > BLOCKBYTES
+    {
+        state0.count += BLOCKBYTES as u128;
+        state1.count += BLOCKBYTES as u128;
+        state2.count += BLOCKBYTES as u128;
+        state3.count += BLOCKBYTES as u128;
+        unsafe {
+            compress_4x_fn(
+                &mut state0.h,
+                &mut state1.h,
+                &mut state2.h,
+                &mut state3.h,
+                array_ref!(input0, 0, BLOCKBYTES),
+                array_ref!(input1, 0, BLOCKBYTES),
+                array_ref!(input2, 0, BLOCKBYTES),
+                array_ref!(input3, 0, BLOCKBYTES),
+                state0.count as u128,
+                state1.count as u128,
+                state2.count as u128,
+                state3.count as u128,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            );
+        }
+        input0 = &input0[BLOCKBYTES..];
+        input1 = &input1[BLOCKBYTES..];
+        input2 = &input2[BLOCKBYTES..];
+        input3 = &input3[BLOCKBYTES..];
+    }
+    // Finally, if there's any remaining input, add it into the state the usual way. Note that if
+    // one of the inputs is short, this could actually be more work than the loop above. The caller
+    // should hopefully arrange for that not to happen.
+    state0.update(input0);
+    state1.update(input1);
+    state2.update(input2);
+    state3.update(input3);
+}
+
+/// Finalize four `State` objects at the same time.
+///
+/// This is the counterpart to [`update4`]. Like the regular [`finalize`], this is idempotent.
+/// Calling it multiple times on the same states will produce the same output, and it's possible to
+/// add more input in between calls.
+///
+/// # Example
+///
+/// ```
+/// use blake2b_simd::{blake2b, finalize4, update4, State};
+///
+/// let mut state0 = State::new();
+/// let mut state1 = State::new();
+/// let mut state2 = State::new();
+/// let mut state3 = State::new();
+///
+/// update4(
+///     &mut state0,
+///     &mut state1,
+///     &mut state2,
+///     &mut state3,
+///     b"foo",
+///     b"bar",
+///     b"baz",
+///     b"bing",
+/// );
+///
+/// let parallel_hashes = finalize4(&mut state0, &mut state1, &mut state2, &mut state3);
+///
+/// let serial_hashes = [
+///     blake2b(b"foo"),
+///     blake2b(b"bar"),
+///     blake2b(b"baz"),
+///     blake2b(b"bing"),
+/// ];
+/// assert_eq!(serial_hashes, parallel_hashes);
+/// ```
+///
+/// [`update4`]: fn.update4.html
+/// [`finalize`]: struct.State.html#method.finalize
+pub fn finalize4(
+    state0: &mut State,
+    state1: &mut State,
+    state2: &mut State,
+    state3: &mut State,
+) -> [Hash; 4] {
+    // Zero out the buffer tails, which might contain bytes from previous blocks.
+    for i in state0.buflen as usize..BLOCKBYTES {
+        state0.buf[i] = 0;
+    }
+    for i in state1.buflen as usize..BLOCKBYTES {
+        state1.buf[i] = 0;
+    }
+    for i in state2.buflen as usize..BLOCKBYTES {
+        state2.buf[i] = 0;
+    }
+    for i in state3.buflen as usize..BLOCKBYTES {
+        state3.buf[i] = 0;
+    }
+    // Translate the last node flag of each state into the u64 that BLAKE2 uses.
+    let last_node0: u64 = if state0.last_node { !0 } else { 0 };
+    let last_node1: u64 = if state1.last_node { !0 } else { 0 };
+    let last_node2: u64 = if state2.last_node { !0 } else { 0 };
+    let last_node3: u64 = if state3.last_node { !0 } else { 0 };
+    // Make copies of all the state words. This step is what makes finalize idempotent.
+    let mut h_copy0 = state0.h;
+    let mut h_copy1 = state1.h;
+    let mut h_copy2 = state2.h;
+    let mut h_copy3 = state3.h;
+    // Do the final parallel compression step.
+    let (_, compress_4x_fn) = default_compress_impl();
+    unsafe {
+        compress_4x_fn(
+            &mut h_copy0,
+            &mut h_copy1,
+            &mut h_copy2,
+            &mut h_copy3,
+            &state0.buf,
+            &state1.buf,
+            &state2.buf,
+            &state3.buf,
+            state0.count as u128,
+            state1.count as u128,
+            state2.count as u128,
+            state3.count as u128,
+            !0,
+            !0,
+            !0,
+            !0,
+            last_node0,
+            last_node1,
+            last_node2,
+            last_node3,
+        );
+    }
+    // Extract the resulting hashes.
+    [
+        Hash {
+            bytes: state_words_to_bytes(&h_copy0),
+            len: state0.hash_length,
+        },
+        Hash {
+            bytes: state_words_to_bytes(&h_copy1),
+            len: state1.hash_length,
+        },
+        Hash {
+            bytes: state_words_to_bytes(&h_copy2),
+            len: state2.hash_length,
+        },
+        Hash {
+            bytes: state_words_to_bytes(&h_copy3),
+            len: state3.hash_length,
+        },
+    ]
 }
 
 // This module is pub for internal benchmarks only. Please don't use it.

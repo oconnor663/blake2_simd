@@ -37,7 +37,8 @@ fn bench_blake2b_avx2_compress_4x(b: &mut Bencher) {
     let mut h4 = [0; 8];
     b.iter(|| unsafe {
         benchmarks::compress_4x_avx2(
-            &mut h1, &mut h2, &mut h3, &mut h4, &BLOCK, BLOCK, BLOCK, BLOCK, 0, 0, 0,
+            &mut h1, &mut h2, &mut h3, &mut h4, &BLOCK, BLOCK, BLOCK, BLOCK, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0,
         );
     });
 }
@@ -70,7 +71,8 @@ fn bench_blake2b_portable_compress_4x(b: &mut Bencher) {
     let mut h4 = [0; 8];
     b.iter(|| {
         benchmarks::compress_4x_portable(
-            &mut h1, &mut h2, &mut h3, &mut h4, &BLOCK, BLOCK, BLOCK, BLOCK, 0, 0, 0,
+            &mut h1, &mut h2, &mut h3, &mut h4, &BLOCK, BLOCK, BLOCK, BLOCK, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0,
         );
     });
 }
@@ -101,6 +103,74 @@ fn bench_blake2b_portable_one_mb(b: &mut Bencher) {
 fn bench_blake2bp_one_mb(b: &mut Bencher) {
     b.bytes = MB.len() as u64;
     b.iter(|| blake2bp::blake2bp(MB));
+}
+
+#[bench]
+fn bench_blake2b_x4_four_block(b: &mut Bencher) {
+    b.bytes = 4 * BLOCK.len() as u64;
+    b.iter(|| {
+        let mut state0 = State::new();
+        let mut state1 = State::new();
+        let mut state2 = State::new();
+        let mut state3 = State::new();
+        update4(
+            &mut state0,
+            &mut state1,
+            &mut state2,
+            &mut state3,
+            BLOCK,
+            BLOCK,
+            BLOCK,
+            BLOCK,
+        );
+        finalize4(&mut state0, &mut state1, &mut state2, &mut state3)
+    });
+}
+
+#[bench]
+fn bench_blake2b_x4_four_4096(b: &mut Bencher) {
+    let chunk = [0; 4096];
+    b.bytes = 4 * chunk.len() as u64;
+    b.iter(|| {
+        let mut state0 = State::new();
+        let mut state1 = State::new();
+        let mut state2 = State::new();
+        let mut state3 = State::new();
+        update4(
+            &mut state0,
+            &mut state1,
+            &mut state2,
+            &mut state3,
+            &chunk,
+            &chunk,
+            &chunk,
+            &chunk,
+        );
+        finalize4(&mut state0, &mut state1, &mut state2, &mut state3)
+    });
+}
+
+#[bench]
+fn bench_blake2b_x4_four_mb(b: &mut Bencher) {
+    let mb = vec![0; 1 << 20];
+    b.bytes = 4 * mb.len() as u64;
+    b.iter(|| {
+        let mut state0 = State::new();
+        let mut state1 = State::new();
+        let mut state2 = State::new();
+        let mut state3 = State::new();
+        update4(
+            &mut state0,
+            &mut state1,
+            &mut state2,
+            &mut state3,
+            &mb,
+            &mb,
+            &mb,
+            &mb,
+        );
+        finalize4(&mut state0, &mut state1, &mut state2, &mut state3)
+    });
 }
 
 #[cfg(feature = "libsodium-ffi")]

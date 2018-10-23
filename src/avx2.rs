@@ -576,9 +576,18 @@ pub unsafe fn compress_4x(
     msg1: &Block,
     msg2: &Block,
     msg3: &Block,
-    count: u128,
-    lastblock: u64,
-    lastnode: u64,
+    count0: u128,
+    count1: u128,
+    count2: u128,
+    count3: u128,
+    lastblock0: u64,
+    lastblock1: u64,
+    lastblock2: u64,
+    lastblock3: u64,
+    lastnode0: u64,
+    lastnode1: u64,
+    lastnode2: u64,
+    lastnode3: u64,
 ) {
     let h_vecs = [
         load_256_from_4xu64(h0[0], h1[0], h2[0], h3[0]),
@@ -590,8 +599,25 @@ pub unsafe fn compress_4x(
         load_256_from_4xu64(h0[6], h1[6], h2[6], h3[6]),
         load_256_from_4xu64(h0[7], h1[7], h2[7], h3[7]),
     ];
-    let count_low = count as u64;
-    let count_high = (count >> 64) as u64;
+    let count_low = load_256_from_4xu64(count0 as u64, count1 as u64, count2 as u64, count3 as u64);
+    let count_high = load_256_from_4xu64(
+        (count0 >> 64) as u64,
+        (count1 >> 64) as u64,
+        (count2 >> 64) as u64,
+        (count3 >> 64) as u64,
+    );
+    let lastblock = load_256_from_4xu64(
+        lastblock0 as u64,
+        lastblock1 as u64,
+        lastblock2 as u64,
+        lastblock3 as u64,
+    );
+    let lastnode = load_256_from_4xu64(
+        lastnode0 as u64,
+        lastnode1 as u64,
+        lastnode2 as u64,
+        lastnode3 as u64,
+    );
     let mut v = [
         h_vecs[0],
         h_vecs[1],
@@ -605,10 +631,10 @@ pub unsafe fn compress_4x(
         load_256_from_u64(IV[1]),
         load_256_from_u64(IV[2]),
         load_256_from_u64(IV[3]),
-        xor(load_256_from_u64(IV[4]), load_256_from_u64(count_low)),
-        xor(load_256_from_u64(IV[5]), load_256_from_u64(count_high)),
-        xor(load_256_from_u64(IV[6]), load_256_from_u64(lastblock)),
-        xor(load_256_from_u64(IV[7]), load_256_from_u64(lastnode)),
+        xor(load_256_from_u64(IV[4]), count_low),
+        xor(load_256_from_u64(IV[5]), count_high),
+        xor(load_256_from_u64(IV[6]), lastblock),
+        xor(load_256_from_u64(IV[7]), lastnode),
     ];
     let m = [
         load_msg4_words(msg0, msg1, msg2, msg3, 0),

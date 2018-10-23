@@ -253,7 +253,6 @@ impl State {
         leaf1.count += BLOCKBYTES as u128;
         leaf2.count += BLOCKBYTES as u128;
         leaf3.count += BLOCKBYTES as u128;
-        let count = leaf0.count;
         let msg_refs = array_refs!(input, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES);
         unsafe {
             (compress_4x_fn)(
@@ -265,7 +264,16 @@ impl State {
                 msg_refs.1,
                 msg_refs.2,
                 msg_refs.3,
-                count,
+                leaf0.count,
+                leaf1.count,
+                leaf2.count,
+                leaf3.count,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
                 0,
                 0,
             );

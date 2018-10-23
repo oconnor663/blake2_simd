@@ -46,7 +46,16 @@ fn compress_four(compress_fn: Compress4xFn) -> [HexString; 4] {
             &[3; BLOCKBYTES],
             &[4; BLOCKBYTES],
             BLOCKBYTES as u128,
+            BLOCKBYTES as u128,
+            BLOCKBYTES as u128,
+            BLOCKBYTES as u128,
             !0,
+            !0,
+            !0,
+            !0,
+            0,
+            0,
+            0,
             0,
         );
     }
@@ -254,4 +263,54 @@ fn test_blake2bp_long_hash_length_panics() {
 #[should_panic]
 fn test_blake2bp_long_key_panics() {
     blake2bp::Params::new().key(&[0; KEYBYTES + 1]);
+}
+
+#[test]
+fn test_four_way() {
+    let mut params = Params::new();
+    params
+        .hash_length(18)
+        .salt(b"bazbazbazbazbazb")
+        .personal(b"bing bing bing b")
+        .fanout(2)
+        .max_depth(3)
+        .max_leaf_length(0x04050607)
+        .node_offset(0x08090a0b0c0d0e0f)
+        .node_depth(16)
+        .inner_hash_length(17);
+    const MAX_BLOCKS: usize = 10;
+    let bytes0 = [0; MAX_BLOCKS * BLOCKBYTES];
+    let bytes1 = [1; MAX_BLOCKS * BLOCKBYTES];
+    let bytes2 = [2; MAX_BLOCKS * BLOCKBYTES];
+    let bytes3 = [3; MAX_BLOCKS * BLOCKBYTES];
+    for &blocks in &[1, 2, MAX_BLOCKS] {
+        let len = blocks * BLOCKBYTES;
+        let input0 = &bytes0[..len];
+        let input1 = &bytes1[..len];
+        let input2 = &bytes2[..len];
+        let input3 = &bytes3[..len];
+        let expected0 = params.to_state().update(input0).finalize();
+        let expected1 = params.to_state().update(input1).finalize();
+        let expected2 = params.to_state().update(input2).finalize();
+        let expected3 = params.to_state().update(input3).finalize();
+        let mut state0 = params.to_state();
+        let mut state1 = params.to_state();
+        let mut state2 = params.to_state();
+        let mut state3 = params.to_state();
+        update4(
+            &mut state0,
+            &mut state1,
+            &mut state2,
+            &mut state3,
+            input0,
+            input1,
+            input2,
+            input3,
+        );
+        let output = finalize4(&mut state0, &mut state1, &mut state2, &mut state3);
+        assert_eq!(expected0, output[0]);
+        assert_eq!(expected1, output[1]);
+        assert_eq!(expected2, output[2]);
+        assert_eq!(expected3, output[3]);
+    }
 }
