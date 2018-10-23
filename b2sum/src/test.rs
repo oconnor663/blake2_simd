@@ -139,3 +139,14 @@ fn test_all_parameters() {
         .expect("b2sum failed");
     assert_eq!("ec0f59cb65f92e7fcca1280ba859a6925ded  -", output);
 }
+
+// This is the exact same result as test_all_parameters_blake2bp in the library tests.
+#[test]
+fn test_all_parameters_blake2bp() {
+    let flags = ["--blake2bp", "--length=144", "--key=626172"];
+    let output = cmd(b2sum_exe(), flags.iter())
+        .input("foo")
+        .read()
+        .expect("b2sum failed");
+    assert_eq!("8c54e888a8a01c63da6585c058fe54ea81df  -", output);
+}

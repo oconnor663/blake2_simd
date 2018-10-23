@@ -184,6 +184,19 @@ fn test_all_parameters() {
 }
 
 #[test]
+fn test_all_parameters_blake2bp() {
+    let hash = blake2bp::Params::new()
+        .hash_length(18)
+        // Make sure a shorter key properly overwrites a longer one.
+        .key(b"not the real key")
+        .key(b"bar")
+        .to_state()
+        .update(b"foo")
+        .finalize();
+    assert_eq!("8c54e888a8a01c63da6585c058fe54ea81df", &hash.to_hex());
+}
+
+#[test]
 #[should_panic]
 fn test_short_hash_length_panics() {
     Params::new().hash_length(0);
