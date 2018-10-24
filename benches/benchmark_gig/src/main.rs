@@ -16,34 +16,7 @@ const NS_PER_SEC: u64 = 1_000_000_000;
 const INPUT_LEN: usize = 1_000_000_000;
 const RUNS: usize = 10;
 
-#[inline(never)]
-fn hash(input: &[u8], force_portable: bool, four_way: bool) {
-    assert!(!(force_portable && four_way));
-    if four_way {
-        let mut state0 = blake2b_simd::State::new();
-        let mut state1 = blake2b_simd::State::new();
-        let mut state2 = blake2b_simd::State::new();
-        let mut state3 = blake2b_simd::State::new();
-        blake2b_simd::update4(
-            &mut state0,
-            &mut state1,
-            &mut state2,
-            &mut state3,
-            &input[..input.len() / 4],
-            &input[..input.len() / 4],
-            &input[..input.len() / 4],
-            &input[..input.len() / 4],
-        );
-        blake2b_simd::finalize4(&mut state0, &mut state1, &mut state2, &mut state3);
-    } else {
-        let mut state = blake2b_simd::State::new();
-        if force_portable {
-            blake2b_simd::benchmarks::force_portable(&mut state);
-        }
-        state.update(&input);
-        state.finalize();
-    }
-}
+type HashFn = fn(input: &[u8]);
 
 fn print(d: Duration, message: &str) {
     let nanos: u64 = NS_PER_SEC * d.as_secs() + d.subsec_nanos() as u64;
@@ -53,12 +26,12 @@ fn print(d: Duration, message: &str) {
     println!("{:.06}s ({:.06} GB/s) {}", secs, rate, message);
 }
 
-fn run(input: &[u8], force_portable: bool, four_way: bool) {
+fn run(input: &[u8], hash_fn: HashFn) {
     let mut fastest = Duration::from_secs(u64::max_value());
     let mut total = Duration::from_secs(0);
     for i in 0..RUNS {
         let before = Instant::now();
-        hash(input, force_portable, four_way);
+        hash_fn(input);
         let after = Instant::now();
         let diff = after - before;
         if i == 0 {
@@ -79,18 +52,60 @@ fn run(input: &[u8], force_portable: bool, four_way: bool) {
     println!("-----");
 }
 
+fn hash_portable(input: &[u8]) {
+    let mut state = blake2b_simd::State::new();
+    blake2b_simd::benchmarks::force_portable(&mut state);
+    state.update(input);
+    state.finalize();
+}
+
+fn hash_avx2(input: &[u8]) {
+    blake2b_simd::blake2b(input);
+}
+
+fn hash_update4(input: &[u8]) {
+    let mut state0 = blake2b_simd::State::new();
+    let mut state1 = blake2b_simd::State::new();
+    let mut state2 = blake2b_simd::State::new();
+    let mut state3 = blake2b_simd::State::new();
+    let quarter = input.len() / 4;
+    let input0 = &input[0 * quarter..][..quarter];
+    let input1 = &input[1 * quarter..][..quarter];
+    let input2 = &input[2 * quarter..][..quarter];
+    let input3 = &input[3 * quarter..][..quarter];
+    blake2b_simd::update4(
+        &mut state0,
+        &mut state1,
+        &mut state2,
+        &mut state3,
+        input0,
+        input1,
+        input2,
+        input3,
+    );
+    blake2b_simd::finalize4(&mut state0, &mut state1, &mut state2, &mut state3);
+}
+
+fn hash_blake2bp(input: &[u8]) {
+    blake2b_simd::blake2bp::blake2bp(input);
+}
+
 fn main() {
     let input = vec![0; INPUT_LEN];
 
-    // First benchmark with the portable implementation.
+    // Benchmark the portable implementation.
     println!("run #1, the portable implementation");
-    run(&input, true, false);
+    run(&input, hash_portable);
 
-    // Then benchmark with the AVX2 implementation.
+    // Benchmark the AVX2 implementation.
     println!("run #2, the AVX2 implementation");
-    run(&input, false, false);
+    run(&input, hash_avx2);
 
-    // Then benchmark the 4-way AVX2 implementation.
+    // Benchmark the 4-way AVX2 implementation.
     println!("run #3, the 4-way AVX2 implementation");
-    run(&input, false, true);
+    run(&input, hash_update4);
+
+    // Benchmark BLAKE2bp.
+    println!("run #4, BLAKE2bp");
+    run(&input, hash_blake2bp);
 }
