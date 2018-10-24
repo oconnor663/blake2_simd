@@ -156,7 +156,7 @@ pub struct State {
     buflen: u16,
     // This count isn't used for hashing, only for self.count().
     count: u128,
-    pub(crate) compress_4x_fn: Compress4xFn,
+    compress_4x_fn: Compress4xFn,
 }
 
 impl State {
@@ -413,6 +413,15 @@ impl Default for State {
     fn default() -> Self {
         Self::with_params(&Params::default())
     }
+}
+
+pub(crate) fn force_portable(state: &mut State) {
+    state.compress_4x_fn = ::portable::compress_4x;
+    state.root.compress_fn = ::portable::compress;
+    state.leaf0.compress_fn = ::portable::compress;
+    state.leaf1.compress_fn = ::portable::compress;
+    state.leaf2.compress_fn = ::portable::compress;
+    state.leaf3.compress_fn = ::portable::compress;
 }
 
 #[cfg(test)]
