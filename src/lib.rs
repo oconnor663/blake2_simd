@@ -692,6 +692,10 @@ fn default_compress_impl() -> (CompressFn, Compress4xFn) {
 /// one or more of the inputs are exhausted, it falls back to regular serial hashing for the rest.
 /// To get the best throughput, try make your inputs roughly the same length.
 ///
+/// Note that unlike BLAKE2bp, which is specifically designed to have four lanes, parallel BLAKE2b
+/// isn't tied to any particular number of lanes. When the AVX-512 instruction set becomes more
+/// widespread, for example, we could add an `update8` implementation to take full advantage of it.
+///
 /// # Example
 ///
 /// ```
