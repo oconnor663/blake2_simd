@@ -5,14 +5,14 @@
 //! An implementation of the BLAKE2b hash with:
 //!
 //! - 100% stable Rust.
-//! - An AVX2 implementation ported from [libsodium](https://github.com/jedisct1/libsodium). This
-//!   implementation is faster than libsodium's, and faster than any hash function provided by
-//!   OpenSSL. See the Performance section below.
+//! - An AVX2 implementation ported from [libsodium]. This implementation is faster than
+//!   libsodium's, and faster than any hash function provided by OpenSSL. See the Performance
+//!   section below.
 //! - A portable, safe implementation for other platforms.
 //! - Dynamic CPU feature detection. Binaries for x86 include the AVX2 implementation by default
 //!   and call it if the processor supports it at runtime.
-//! - All the features from the [the BLAKE2 spec](https://blake2.net/blake2.pdf), like adjustable
-//!   length, keying, and associated data for tree hashing.
+//! - All the features from the [the BLAKE2 spec], like adjustable length, keying, and associated
+//!   data for tree hashing.
 //! - A clone of the Coreutils `b2sum` command line utility, provided as a sub-crate. `b2sum`
 //!   includes command line flags for all the BLAKE2 associated data features.
 //! - `no_std` support. The `std` Cargo feature is on by default, for CPU feature detection and
@@ -58,9 +58,8 @@
 //! # Performance
 //!
 //! The AVX2 implementation in this crate is ported from the C implementation in libsodium. That
-//! implementation was [originally written](https://github.com/sneves/blake2-avx2) by Samuel Neves
-//! and [integrated into libsodium](https://github.com/jedisct1/libsodium/commit/0131a720826045e476e6dd6a8e7a1991f1d941aa)
-//! by Frank Denis. All credit for performance goes to those authors.
+//! implementation was [originally written] by Samuel Neves and [integrated into libsodium] by
+//! Frank Denis. All credit for performance goes to those authors.
 //!
 //! To run small benchmarks yourself, first install OpenSSL and libsodium on your machine, then:
 //!
@@ -108,9 +107,14 @@
 //! message throughput of 1.8 cycles per byte for the serial implementation, and 0.9 cycles per
 //! byte for the parallel implementation.
 //!
-//! [BLAKE2bp]: blake2bp/index.html
-//! [`update4`]: fn.update4.html
-//! [`finalize4`]: fn.finalize4.html
+//! [libsodium]: https://github.com/jedisct1/libsodium
+//! [the BLAKE2 spec]: https://blake2.net/blake2.pdf
+//! [originally written]: https://github.com/sneves/blake2-avx2
+//! [integrated into libsodium]: https://github.com/jedisct1/libsodium/commit/0131a720826045e476e6dd6a8e7a1991f1d941aa
+//! [BLAKE2bp]: https://docs.rs/blake2b_simd/latest/blake2b_simd/blake2bp/index.html
+//! [`update4`]: https://docs.rs/blake2b_simd/latest/blake2b_simd/fn.update4.html
+//! [`finalize4`]: https://docs.rs/blake2b_simd/latest/blake2b_simd/fn.finalize4.html
+// Note that the links above wind up in README.md, so they need to be absolute.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
