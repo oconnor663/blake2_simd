@@ -10,7 +10,7 @@ import time
 # On my i5-8250U laptop, at 1MB of input or below, the results of the benchmark
 # are pretty random. Above 10MB, all of the implementations keep getting
 # faster, but their relative performance is consistent.
-INPUT_SIZE = 10_000_000
+INPUT_SIZE = 1_000_000_000
 NUM_RUNS = 10
 
 b2sum_root = Path(__file__).parent / "../b2sum"
@@ -22,7 +22,7 @@ targets = [
     ["sha512sum"],
     ["/usr/bin/b2sum"],
     [b2sum_path],
-    [b2sum_path, "--mmap"],
+    [b2sum_path, "--blake2bp"],
 ]
 
 

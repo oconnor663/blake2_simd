@@ -157,7 +157,7 @@ fn main() {
         // Loop for real.
         let (total_cycles, total_bytes) = f();
         println!(
-            "{:34}  {:.2}",
+            "{:34}  {:.3}",
             name,
             total_cycles as f64 / total_bytes as f64
         );
