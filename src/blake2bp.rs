@@ -154,8 +154,6 @@ pub struct State {
     // have enough input when we compress to know we don't need to finalize any of the leaves.
     buf: [u8; 8 * BLOCKBYTES],
     buflen: u16,
-    // This count isn't used for hashing, only for self.count().
-    count: u128,
     compress_4x_fn: Compress4xFn,
 }
 
@@ -218,7 +216,6 @@ impl State {
             root: root_state,
             buf: [0; 8 * BLOCKBYTES],
             buflen: 0,
-            count: 0,
             compress_4x_fn: ::default_compress_impl().1,
         }
     }
@@ -227,7 +224,6 @@ impl State {
         let take = cmp::min(self.buf.len() - self.buflen as usize, input.len());
         self.buf[self.buflen as usize..self.buflen as usize + take].copy_from_slice(&input[..take]);
         self.buflen += take as u16;
-        self.count += take as u128;
         *input = &input[take..];
     }
 
@@ -326,7 +322,6 @@ impl State {
         // compression and still have more input coming for each leaf. (We also know that the
         // buffer must have been emptied above.)
         while input.len() > 7 * BLOCKBYTES {
-            self.count += 4 * BLOCKBYTES as u128;
             let block = array_ref!(input, 0, 4 * BLOCKBYTES);
             Self::compress_4x(
                 block,
@@ -382,7 +377,11 @@ impl State {
 
     /// Return the total number of bytes input so far.
     pub fn count(&self) -> u128 {
-        self.count
+        self.leaf0.count()
+            + self.leaf1.count()
+            + self.leaf2.count()
+            + self.leaf3.count()
+            + self.buflen as u128
     }
 }
 
@@ -404,7 +403,12 @@ impl fmt::Debug for State {
             f,
             "State {{ count: {}, root: {:?}, leaf0: {:?}, leaf1: {:?}, \
              leaf2: {:?}, leaf3: {:?} }}",
-            self.count, self.root, self.leaf0, self.leaf1, self.leaf2, self.leaf3
+            self.count(),
+            self.root,
+            self.leaf0,
+            self.leaf1,
+            self.leaf2,
+            self.leaf3
         )
     }
 }
@@ -515,7 +519,9 @@ pub(crate) mod test {
             // branch to trigger.
             let mut state = State::new();
             state.update(&input[..1]);
+            assert_eq!(1, state.count());
             state.update(&input[1..]);
+            assert_eq!(input.len() as u128, state.count());
             let found = state.finalize();
             assert_eq!(expected, found);
         }
