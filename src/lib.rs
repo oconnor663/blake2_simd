@@ -682,27 +682,25 @@ fn default_compress_impl() -> (CompressFn, Compress4xFn) {
 
 /// Update four `State` objects at the same time.
 ///
-/// Without SIMD, this is no different from making four separate calls to [`update`]. However, with
-/// SIMD, it can be implemented more efficiently. AVX2 is designed to work with four 64-bit values
-/// in parallel. While the regular BLAKE2b implementation is able to take advantage of that
-/// somewhat, actually hashing four separate inputs at once is a more natural fit for the
-/// instruction set. This parallel implementation shares its underlying machinery with BLAKE2bp,
-/// and like BLAKE2bp is has about twice as much throughput on a single core as serial BLAKE2b.
+/// This implementation isn't multithreaded. Rather, it uses AVX2 (if available) to hash the four
+/// inputs in parallel on a single thread, which is more efficient than hashing them one at a time.
+/// It uses the same underlying machinery as BLAKE2bp, and like BLAKE2bp is has about twice the
+/// overall throughput of regular BLAKE2b.
+///
+/// Note that you can benefit from this implementation even if you're already using multiple
+/// threads. If you have enough separate inputs, hashing four of them per thread raises the
+/// throughput of each thread. With many threads in practice, this seems to be about a 50% increase
+/// rather than the 100% increase we see in single thread benchmarks, possibly because of
+/// interactions with Turbo Boost and Hyper-Threading on Intel processors.
 ///
 /// `update4` can only operate in parallel as long as all four inputs still have bytes left. Once
-/// one or more of the inputs are exhausted, it falls back to regular serial hashing for the rest.
-/// To get the best throughput, try make your inputs roughly the same length.
+/// one of the inputs is exhausted, it falls back to regular serial hashing for the rest. To get
+/// the best throughput, use inputs that are roughly the same length.
 ///
-/// Note that unlike BLAKE2bp, which is specifically designed to have four lanes, parallel BLAKE2b
-/// isn't tied to any particular number of lanes. When the AVX-512 instruction set becomes more
-/// widespread, for example, we could add an `update8` implementation to take full advantage of it.
-///
-/// Also note that you can benefit from using this interface even if you're already using multiple
-/// threads to hash different inputs in parallel. Hashing four inputs per thread gives a higher
-/// overall throughput, because each thread is working more efficiently. Though in practice this
-/// seems to be around a 50% improvement rather than the 100% improvement we see in single threaded
-/// benchmarks, possibly because of interactions with Turbo Boost and Hyper-Threading on Intel
-/// processors.
+/// Unlike BLAKE2bp, which is specifically designed to have four lanes, parallel BLAKE2b isn't tied
+/// to any particular number of lanes. When the AVX-512 instruction set becomes more widespread,
+/// for example, we could add an `update8` implementation to take full advantage of it. We could
+/// also add an SSE-based `update2` implementation to support older machines.
 ///
 /// # Example
 ///
