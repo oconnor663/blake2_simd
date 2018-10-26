@@ -82,6 +82,7 @@ fn test_all_compression_impls() {
     assert_eq!(expected_4, compress_four(portable::compress_4x));
 
     // If we're on an AVX2 platform, test the AVX2 implementation.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[cfg(feature = "std")]
     {
         if is_x86_feature_detected!("avx2") {
