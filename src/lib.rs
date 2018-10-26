@@ -921,11 +921,13 @@ pub fn finalize4(
 // This module is pub for internal benchmarks only. Please don't use it.
 #[doc(hidden)]
 pub mod benchmarks {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use avx2::compress as compress_avx2;
-    pub use avx2::compress_4x as compress_4x_avx2;
     pub use portable::compress as compress_portable;
     pub use portable::compress_4x as compress_4x_portable;
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub use avx2::compress as compress_avx2;
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub use avx2::compress_4x as compress_4x_avx2;
 
     // Safety: The portable implementation should be safe to call on any platform.
     pub fn force_portable(state: &mut ::State) {
