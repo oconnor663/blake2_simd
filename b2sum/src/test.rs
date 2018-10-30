@@ -130,7 +130,7 @@ fn test_all_parameters() {
         "--max-leaf-length=67438087",
         "--node-offset=579005069656919567",
         "--node-depth=16",
-        "--inner-hash-length=17",
+        "--inner-hash-length=136",
         "--last-node",
     ];
     let output = cmd(b2sum_exe(), flags.iter())

@@ -44,7 +44,7 @@ struct Opt {
     portable: bool,
 
     #[structopt(short = "l", long = "length")]
-    /// The size of the output in bits. Must be a multiple of 8.
+    /// The size of the output in bits. Must be a multiple of 8. Max 512.
     length_bits: Option<usize>,
 
     #[structopt(long = "key")]
@@ -60,28 +60,28 @@ struct Opt {
     personal: Option<String>,
 
     #[structopt(long = "fanout")]
-    /// Set the BLAKE2 fanout parameter, 1 byte.
+    /// Set the BLAKE2 fanout parameter.
     fanout: Option<u8>,
 
     #[structopt(long = "max-depth")]
-    /// Set the BLAKE2 max depth parameter, 1 bytes.
+    /// Set the BLAKE2 max depth parameter.
     max_depth: Option<u8>,
 
     #[structopt(long = "max-leaf-length")]
-    /// Set the BLAKE2 max leaf length parameter, 4 bytes.
+    /// Set the BLAKE2 max leaf length parameter.
     max_leaf_length: Option<u32>,
 
     #[structopt(long = "node-offset")]
-    /// Set the BLAKE2 node offset parameter, 8 bytes.
+    /// Set the BLAKE2 node offset parameter.
     node_offset: Option<u64>,
 
     #[structopt(long = "node-depth")]
-    /// Set the BLAKE2 node depth parameter, 1 byte.
+    /// Set the BLAKE2 node depth parameter.
     node_depth: Option<u8>,
 
     #[structopt(long = "inner-hash-length")]
-    /// Set the BLAKE2 inner hash length parameter, 1 byte.
-    inner_hash_length: Option<u8>,
+    /// Set the BLAKE2 inner hash length parameter, in bits like --length.
+    inner_hash_length_bits: Option<usize>,
 
     #[structopt(long = "last-node")]
     /// Set the BLAKE2 last node flag.
@@ -193,16 +193,21 @@ fn read_write_all<R: Read>(reader: &mut R, writer: &mut EitherState) -> io::Resu
     }
 }
 
+fn bits_to_bytes(bits: usize) -> Result<usize, Box<Error>> {
+    if bits == 0 || bits > 512 || bits % 8 != 0 {
+        Err("Invalid number of bits.".into())
+    } else {
+        Ok(bits / 8)
+    }
+}
+
 fn make_state(opt: &Opt) -> Result<EitherState, Box<Error>> {
     let mut params = Params::new();
     let mut blake2bp_params = blake2bp::Params::new();
     if let Some(length_bits) = opt.length_bits {
-        if length_bits == 0 || length_bits > 512 || length_bits % 8 != 0 {
-            return Err("Invalid length.".into());
-        }
-        let length = length_bits / 8;
-        params.hash_length(length);
-        blake2bp_params.hash_length(length);
+        let length_bytes = bits_to_bytes(length_bits)?;
+        params.hash_length(length_bytes);
+        blake2bp_params.hash_length(length_bytes);
     }
     if let Some(ref key) = opt.key {
         let key_bytes = hex::decode(key)?;
@@ -253,8 +258,9 @@ fn make_state(opt: &Opt) -> Result<EitherState, Box<Error>> {
             return Err("BLAKE2bp doesn't support --node-depth.".into());
         }
     }
-    if let Some(inner_hash_length) = opt.inner_hash_length {
-        params.inner_hash_length(inner_hash_length as usize);
+    if let Some(inner_hash_length_bits) = opt.inner_hash_length_bits {
+        let inner_hash_length_bytes = bits_to_bytes(inner_hash_length_bits)?;
+        params.inner_hash_length(inner_hash_length_bytes);
         if opt.blake2bp {
             return Err("BLAKE2bp doesn't support --inner-hash-length.".into());
         }
