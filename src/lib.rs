@@ -262,9 +262,13 @@ impl Params {
         State::with_params(self)
     }
 
-    /// Set the length of the final hash, from 1 to `OUTBYTES` (64). Apart from controlling the
-    /// length of the final `Hash`, this is also associated data, and changing it will result in a
-    /// totally different hash.
+    /// Set the length of the final hash in bytes, from 1 to `OUTBYTES` (64). Apart from
+    /// controlling the length of the final `Hash`, this is also associated data, and changing it
+    /// will result in a totally different hash.
+    ///
+    /// Note that the `b2sum` command line utility expects the `--length` flag in bits rather than
+    /// bytes, for compatibility with the `b2sum` implementation in coreutils. The BLAKE2 standard
+    /// defines the parameter as a count of bytes, however, and this method follows the standard.
     pub fn hash_length(&mut self, length: usize) -> &mut Self {
         assert!(
             1 <= length && length <= OUTBYTES,
@@ -339,6 +343,10 @@ impl Params {
     }
 
     /// From 0 (the default, meaning sequential) to `OUTBYTES` (64).
+    ///
+    /// Note that the `b2sum` command line utility expects the `--inner-hash-length` flag in bits
+    /// rather than bytes, to stay consistent with `--length`. The BLAKE2 standard defines the
+    /// parameter as a count of bytes, however, and this method follows the standard.
     pub fn inner_hash_length(&mut self, length: usize) -> &mut Self {
         assert!(length <= OUTBYTES, "Bad inner hash length: {}", length);
         self.inner_hash_length = length as u8;
