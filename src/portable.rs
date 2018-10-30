@@ -1,9 +1,9 @@
 use byteorder::{ByteOrder, LittleEndian};
 
-use Block;
-use StateWords;
-use IV;
-use SIGMA;
+use crate::Block;
+use crate::StateWords;
+use crate::IV;
+use crate::SIGMA;
 
 // G is the mixing function, called eight times per round in the compression
 // function. V is the 16-word state vector of the compression function, usually

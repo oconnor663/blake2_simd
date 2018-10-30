@@ -6,10 +6,10 @@ use core::arch::x86_64::*;
 use byteorder::{ByteOrder, LittleEndian};
 use core::mem;
 
-use Block;
-use StateWords;
-use IV;
-use SIGMA;
+use crate::Block;
+use crate::StateWords;
+use crate::IV;
+use crate::SIGMA;
 
 #[inline(always)]
 unsafe fn load_256_unaligned(mem_addr: &[u64; 4]) -> __m256i {

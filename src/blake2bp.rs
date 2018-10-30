@@ -23,13 +23,13 @@
 
 use core::cmp;
 use core::fmt;
-use Compress4xFn;
-use Hash;
-use Params as Blake2bParams;
-use State as Blake2bState;
-use BLOCKBYTES;
-use KEYBYTES;
-use OUTBYTES;
+use crate::Compress4xFn;
+use crate::Hash;
+use crate::Params as Blake2bParams;
+use crate::State as Blake2bState;
+use crate::BLOCKBYTES;
+use crate::KEYBYTES;
+use crate::OUTBYTES;
 
 #[cfg(feature = "std")]
 use std;
@@ -216,7 +216,7 @@ impl State {
             root: root_state,
             buf: [0; 8 * BLOCKBYTES],
             buflen: 0,
-            compress_4x_fn: ::default_compress_impl().1,
+            compress_4x_fn: crate::default_compress_impl().1,
         }
     }
 
@@ -420,12 +420,12 @@ impl Default for State {
 }
 
 pub(crate) fn force_portable(state: &mut State) {
-    state.compress_4x_fn = ::portable::compress_4x;
-    state.root.compress_fn = ::portable::compress;
-    state.leaf0.compress_fn = ::portable::compress;
-    state.leaf1.compress_fn = ::portable::compress;
-    state.leaf2.compress_fn = ::portable::compress;
-    state.leaf3.compress_fn = ::portable::compress;
+    state.compress_4x_fn = crate::portable::compress_4x;
+    state.root.compress_fn = crate::portable::compress;
+    state.leaf0.compress_fn = crate::portable::compress;
+    state.leaf1.compress_fn = crate::portable::compress;
+    state.leaf2.compress_fn = crate::portable::compress;
+    state.leaf3.compress_fn = crate::portable::compress;
 }
 
 #[cfg(test)]

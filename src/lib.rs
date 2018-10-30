@@ -927,19 +927,19 @@ pub fn finalize4(
 // This module is pub for internal benchmarks only. Please don't use it.
 #[doc(hidden)]
 pub mod benchmarks {
-    pub use portable::compress as compress_portable;
-    pub use portable::compress_4x as compress_4x_portable;
+    pub use crate::portable::compress as compress_portable;
+    pub use crate::portable::compress_4x as compress_4x_portable;
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use avx2::compress as compress_avx2;
+    pub use crate::avx2::compress as compress_avx2;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use avx2::compress_4x as compress_4x_avx2;
+    pub use crate::avx2::compress_4x as compress_4x_avx2;
 
     // Safety: The portable implementation should be safe to call on any platform.
-    pub fn force_portable(state: &mut ::State) {
+    pub fn force_portable(state: &mut crate::State) {
         state.compress_fn = compress_portable;
     }
-    pub fn force_portable_blake2bp(state: &mut ::blake2bp::State) {
-        ::blake2bp::force_portable(state);
+    pub fn force_portable_blake2bp(state: &mut crate::blake2bp::State) {
+        crate::blake2bp::force_portable(state);
     }
 }
