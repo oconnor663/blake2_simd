@@ -1,7 +1,6 @@
 extern crate blake2b_simd;
 extern crate hex;
 extern crate memmap;
-#[macro_use]
 extern crate structopt;
 
 use blake2b_simd::{blake2bp, Hash, Params, State};
@@ -17,7 +16,6 @@ use structopt::StructOpt;
 #[cfg(test)]
 mod test;
 #[cfg(test)]
-#[macro_use]
 extern crate duct;
 #[cfg(test)]
 extern crate tempfile;
