@@ -39,7 +39,7 @@ fn blake2b_compression_4x() -> (u64, usize) {
     for _ in 0..iterations {
         let start = amd64_timer::ticks_modern();
         unsafe {
-            blake2b_simd::benchmarks::compress_4x_avx2(
+            blake2b_simd::benchmarks::compress4_avx2(
                 h0, h1, h2, h3, msg0, msg1, msg2, msg3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             );
         }

@@ -567,7 +567,7 @@ unsafe fn export_state_words_4x(
 }
 
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress_4x(
+pub unsafe fn compress4(
     h0: &mut StateWords,
     h1: &mut StateWords,
     h2: &mut StateWords,

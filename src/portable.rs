@@ -110,7 +110,7 @@ pub fn compress(h: &mut StateWords, msg: &Block, count: u128, lastblock: u64, la
     h[7] ^= v[7] ^ v[15];
 }
 
-pub fn compress_4x(
+pub fn compress4(
     h0: &mut StateWords,
     h1: &mut StateWords,
     h2: &mut StateWords,

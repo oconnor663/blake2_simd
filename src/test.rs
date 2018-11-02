@@ -28,7 +28,7 @@ fn compress_one(compress_fn: CompressFn) -> HexString {
     bytes_to_hex(&state_words_to_bytes(&state.h))
 }
 
-fn compress_four(compress_fn: Compress4xFn) -> [HexString; 4] {
+fn compress_four(compress_fn: Compress4Fn) -> [HexString; 4] {
     let mut state1 = State::new();
     let mut state2 = State::new();
     let mut state3 = State::new();
@@ -79,7 +79,7 @@ fn test_all_compression_impls() {
         HexString::from(BLOCK_OF_THREES).unwrap(),
         HexString::from(BLOCK_OF_FOURS).unwrap(),
     ];
-    assert_eq!(expected_4, compress_four(portable::compress_4x));
+    assert_eq!(expected_4, compress_four(portable::compress4));
 
     // If we're on an AVX2 platform, test the AVX2 implementation.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -87,7 +87,7 @@ fn test_all_compression_impls() {
     {
         if is_x86_feature_detected!("avx2") {
             assert_eq!(expected_1, compress_one(avx2::compress));
-            assert_eq!(expected_4, compress_four(avx2::compress_4x));
+            assert_eq!(expected_4, compress_four(avx2::compress4));
         }
     }
 }

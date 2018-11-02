@@ -23,7 +23,7 @@
 
 use core::cmp;
 use core::fmt;
-use crate::Compress4xFn;
+use crate::Compress4Fn;
 use crate::Hash;
 use crate::Params as Blake2bParams;
 use crate::State as Blake2bState;
@@ -150,11 +150,11 @@ pub struct State {
     leaf2: Blake2bState,
     leaf3: Blake2bState,
     root: Blake2bState,
-    // Note that this buffer is twice as large as what compress4x needs. That guarantees that we
+    // Note that this buffer is twice as large as what compress4 needs. That guarantees that we
     // have enough input when we compress to know we don't need to finalize any of the leaves.
     buf: [u8; 8 * BLOCKBYTES],
     buflen: u16,
-    compress_4x_fn: Compress4xFn,
+    compress4_fn: Compress4Fn,
 }
 
 impl State {
@@ -216,7 +216,7 @@ impl State {
             root: root_state,
             buf: [0; 8 * BLOCKBYTES],
             buflen: 0,
-            compress_4x_fn: crate::default_compress_impl().1,
+            compress4_fn: crate::default_compress_impl().1,
         }
     }
 
@@ -227,13 +227,13 @@ impl State {
         *input = &input[take..];
     }
 
-    fn compress_4x(
+    fn compress4(
         input: &[u8; 4 * BLOCKBYTES],
         leaf0: &mut Blake2bState,
         leaf1: &mut Blake2bState,
         leaf2: &mut Blake2bState,
         leaf3: &mut Blake2bState,
-        compress_4x_fn: Compress4xFn,
+        compress4_fn: Compress4Fn,
     ) {
         // Note that this is reaching into the underlying state objects, so it assumes they don't
         // get input through their normal update() interface. Also we can only call this when we're
@@ -251,7 +251,7 @@ impl State {
         leaf3.count += BLOCKBYTES as u128;
         let msg_refs = array_refs!(input, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES);
         unsafe {
-            (compress_4x_fn)(
+            (compress4_fn)(
                 &mut leaf0.h,
                 &mut leaf1.h,
                 &mut leaf2.h,
@@ -288,13 +288,13 @@ impl State {
                 // The buffer is large enough for two compressions. If it's full and there's more
                 // input coming, always do at least the first compression, on the left half of the
                 // buffer.
-                Self::compress_4x(
+                Self::compress4(
                     array_ref!(self.buf, 0, 4 * BLOCKBYTES),
                     &mut self.leaf0,
                     &mut self.leaf1,
                     &mut self.leaf2,
                     &mut self.leaf3,
-                    self.compress_4x_fn,
+                    self.compress4_fn,
                 );
                 self.buflen -= 4 * BLOCKBYTES as u16;
                 // Now, if there's enough input still coming that all four leaves are going to get
@@ -302,13 +302,13 @@ impl State {
                 // to shift the remainder of the buffer to the left (and we know in this case the
                 // direct-from-memory loop will get skipped too).
                 if input.len() > 3 * BLOCKBYTES {
-                    Self::compress_4x(
+                    Self::compress4(
                         array_ref!(self.buf, 4 * BLOCKBYTES, 4 * BLOCKBYTES),
                         &mut self.leaf0,
                         &mut self.leaf1,
                         &mut self.leaf2,
                         &mut self.leaf3,
-                        self.compress_4x_fn,
+                        self.compress4_fn,
                     );
                     self.buflen = 0;
                 } else {
@@ -323,13 +323,13 @@ impl State {
         // buffer must have been emptied above.)
         while input.len() > 7 * BLOCKBYTES {
             let block = array_ref!(input, 0, 4 * BLOCKBYTES);
-            Self::compress_4x(
+            Self::compress4(
                 block,
                 &mut self.leaf0,
                 &mut self.leaf1,
                 &mut self.leaf2,
                 &mut self.leaf3,
-                self.compress_4x_fn,
+                self.compress4_fn,
             );
             input = &input[4 * BLOCKBYTES..];
         }
@@ -420,7 +420,7 @@ impl Default for State {
 }
 
 pub(crate) fn force_portable(state: &mut State) {
-    state.compress_4x_fn = crate::portable::compress_4x;
+    state.compress4_fn = crate::portable::compress4;
     state.root.compress_fn = crate::portable::compress;
     state.leaf0.compress_fn = crate::portable::compress;
     state.leaf1.compress_fn = crate::portable::compress;

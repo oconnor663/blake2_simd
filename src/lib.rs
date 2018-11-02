@@ -179,7 +179,7 @@ const SIGMA: [[u8; 16]; 12] = [
 // implementation is safe, because calling the AVX2 implementation on a platform that doesn't
 // support AVX2 is undefined behavior.
 type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64, lastnode: u64);
-type Compress4xFn = unsafe fn(
+type Compress4Fn = unsafe fn(
     state0: &mut StateWords,
     state1: &mut StateWords,
     state2: &mut StateWords,
@@ -663,7 +663,7 @@ impl fmt::Debug for Hash {
 // Safety: The unsafe blocks above rely on this function to never return avx2::compress except on
 // platforms where it's safe to call.
 #[allow(unreachable_code)]
-fn default_compress_impl() -> (CompressFn, Compress4xFn) {
+fn default_compress_impl() -> (CompressFn, Compress4Fn) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         // If AVX2 is enabled at the top level for the whole build (using something like
@@ -672,7 +672,7 @@ fn default_compress_impl() -> (CompressFn, Compress4xFn) {
         // least until more features get stabilized in the future.
         #[cfg(target_feature = "avx2")]
         {
-            return (avx2::compress, avx2::compress_4x);
+            return (avx2::compress, avx2::compress4);
         }
         // Do dynamic feature detection at runtime, and use AVX2 if the current CPU supports it.
         // This is what the default build does. Note that no_std doesn't currently support dynamic
@@ -680,12 +680,12 @@ fn default_compress_impl() -> (CompressFn, Compress4xFn) {
         #[cfg(feature = "std")]
         {
             if is_x86_feature_detected!("avx2") {
-                return (avx2::compress, avx2::compress_4x);
+                return (avx2::compress, avx2::compress4);
             }
         }
     }
     // On other platforms (non-x86 or pre-AVX2) use the portable implementation.
-    (portable::compress, portable::compress_4x)
+    (portable::compress, portable::compress4)
 }
 
 /// Update four `State` objects at the same time.
@@ -760,7 +760,7 @@ pub fn update4(
     state3.compress_buffer_if_possible(&mut input3);
     // Now, as long as all of the states have more than a block of input coming (so that we know we
     // don't need to finalize any of them), compress in parallel directly into their state words.
-    let (_, compress_4x_fn) = default_compress_impl();
+    let (_, compress4_fn) = default_compress_impl();
     while input0.len() > BLOCKBYTES
         && input1.len() > BLOCKBYTES
         && input2.len() > BLOCKBYTES
@@ -771,7 +771,7 @@ pub fn update4(
         state2.count += BLOCKBYTES as u128;
         state3.count += BLOCKBYTES as u128;
         unsafe {
-            compress_4x_fn(
+            compress4_fn(
                 &mut state0.h,
                 &mut state1.h,
                 &mut state2.h,
@@ -878,9 +878,9 @@ pub fn finalize4(
     let mut h_copy2 = state2.h;
     let mut h_copy3 = state3.h;
     // Do the final parallel compression step.
-    let (_, compress_4x_fn) = default_compress_impl();
+    let (_, compress4_fn) = default_compress_impl();
     unsafe {
-        compress_4x_fn(
+        compress4_fn(
             &mut h_copy0,
             &mut h_copy1,
             &mut h_copy2,
@@ -928,12 +928,12 @@ pub fn finalize4(
 #[doc(hidden)]
 pub mod benchmarks {
     pub use crate::portable::compress as compress_portable;
-    pub use crate::portable::compress_4x as compress_4x_portable;
+    pub use crate::portable::compress4 as compress4_portable;
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub use crate::avx2::compress as compress_avx2;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use crate::avx2::compress_4x as compress_4x_avx2;
+    pub use crate::avx2::compress4 as compress4_avx2;
 
     // Safety: The portable implementation should be safe to call on any platform.
     pub fn force_portable(state: &mut crate::State) {
