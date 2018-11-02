@@ -106,7 +106,7 @@ fn bench_blake2bp_one_mb(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2b_x4_four_block(b: &mut Bencher) {
+fn bench_blake2b_update4_one_block(b: &mut Bencher) {
     b.bytes = 4 * BLOCK.len() as u64;
     b.iter(|| {
         let mut state0 = State::new();
@@ -128,9 +128,8 @@ fn bench_blake2b_x4_four_block(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2b_x4_four_4096(b: &mut Bencher) {
-    let chunk = [0; 4096];
-    b.bytes = 4 * chunk.len() as u64;
+fn bench_blake2b_update4_one_mb(b: &mut Bencher) {
+    b.bytes = 4 * MB.len() as u64;
     b.iter(|| {
         let mut state0 = State::new();
         let mut state1 = State::new();
@@ -141,33 +140,10 @@ fn bench_blake2b_x4_four_4096(b: &mut Bencher) {
             &mut state1,
             &mut state2,
             &mut state3,
-            &chunk,
-            &chunk,
-            &chunk,
-            &chunk,
-        );
-        finalize4(&mut state0, &mut state1, &mut state2, &mut state3)
-    });
-}
-
-#[bench]
-fn bench_blake2b_x4_four_mb(b: &mut Bencher) {
-    let mb = vec![0; 1 << 20];
-    b.bytes = 4 * mb.len() as u64;
-    b.iter(|| {
-        let mut state0 = State::new();
-        let mut state1 = State::new();
-        let mut state2 = State::new();
-        let mut state3 = State::new();
-        update4(
-            &mut state0,
-            &mut state1,
-            &mut state2,
-            &mut state3,
-            &mb,
-            &mb,
-            &mb,
-            &mb,
+            MB,
+            MB,
+            MB,
+            MB,
         );
         finalize4(&mut state0, &mut state1, &mut state2, &mut state3)
     });
