@@ -175,7 +175,7 @@ const SIGMA: [[u8; 16]; 12] = [
     [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
 ];
 
-// Safety note: The compression interface is unsafe in general, even though the portable
+// Safety note: The implementation interfaces are unsafe in general, even though the portable
 // implementation is safe, because calling the AVX2 implementation on a platform that doesn't
 // support AVX2 is undefined behavior.
 type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64, lastnode: u64);
@@ -201,6 +201,9 @@ type Compress4Fn = unsafe fn(
     lastnode2: u64,
     lastnode3: u64,
 );
+type Hash4ExactFn =
+    unsafe fn(params: &Params, input0: &[u8], input1: &[u8], input2: &[u8], input3: &[u8])
+        -> [Hash; 4];
 type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
 type HexString = arrayvec::ArrayString<[u8; 2 * OUTBYTES]>;
@@ -255,6 +258,26 @@ impl Params {
     /// Equivalent to `Params::default()`.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn to_state_words(&self) -> StateWords {
+        let (salt_left, salt_right) = array_refs!(&self.salt, 8, 8);
+        let (personal_left, personal_right) = array_refs!(&self.personal, 8, 8);
+        [
+            IV[0]
+                ^ self.hash_length as u64
+                ^ (self.key_length as u64) << 8
+                ^ (self.fanout as u64) << 16
+                ^ (self.max_depth as u64) << 24
+                ^ (self.max_leaf_length as u64) << 32,
+            IV[1] ^ self.node_offset,
+            IV[2] ^ self.node_depth as u64 ^ (self.inner_hash_length as u64) << 8,
+            IV[3],
+            IV[4] ^ LittleEndian::read_u64(salt_left),
+            IV[5] ^ LittleEndian::read_u64(salt_right),
+            IV[6] ^ LittleEndian::read_u64(personal_left),
+            IV[7] ^ LittleEndian::read_u64(personal_right),
+        ]
     }
 
     /// Construct a `State` object based on these parameters.
@@ -439,24 +462,8 @@ impl State {
     }
 
     fn with_params(params: &Params) -> Self {
-        let (salt_left, salt_right) = array_refs!(&params.salt, 8, 8);
-        let (personal_left, personal_right) = array_refs!(&params.personal, 8, 8);
         let mut state = Self {
-            h: [
-                IV[0]
-                    ^ params.hash_length as u64
-                    ^ (params.key_length as u64) << 8
-                    ^ (params.fanout as u64) << 16
-                    ^ (params.max_depth as u64) << 24
-                    ^ (params.max_leaf_length as u64) << 32,
-                IV[1] ^ params.node_offset,
-                IV[2] ^ params.node_depth as u64 ^ (params.inner_hash_length as u64) << 8,
-                IV[3],
-                IV[4] ^ LittleEndian::read_u64(salt_left),
-                IV[5] ^ LittleEndian::read_u64(salt_right),
-                IV[6] ^ LittleEndian::read_u64(personal_left),
-                IV[7] ^ LittleEndian::read_u64(personal_right),
-            ],
+            h: params.to_state_words(),
             compress_fn: default_compress_impl().0,
             buf: [0; BLOCKBYTES],
             buflen: 0,
@@ -512,10 +519,8 @@ impl State {
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
         // Note that this represents some copying overhead, which in theory we could avoid in
         // all-at-once setting. A function hardcoded for exactly BLOCKSIZE input bytes is about 10%
-        // faster than using this implementation for the same input. But non-multiple sizes still
-        // require copying, and the savings disappear into the noise for any larger multiple. Any
-        // caller so concerned with performance that they're shaping their hash inputs down to the
-        // single byte, should just call the compression function directly.
+        // faster than using this implementation for the same input. The hash4_exact interface
+        // benefits from that for single-block inputs.
         self.fill_buf(&mut input);
         self
     }
@@ -660,34 +665,6 @@ impl fmt::Debug for Hash {
     }
 }
 
-// Safety: The unsafe blocks above rely on this function to never return avx2::compress except on
-// platforms where it's safe to call.
-#[allow(unreachable_code)]
-fn default_compress_impl() -> (CompressFn, Compress4Fn) {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    {
-        // If AVX2 is enabled at the top level for the whole build (using something like
-        // RUSTFLAGS="-C target-cpu=native"), return the AVX2 implementation without doing dynamic
-        // feature detection. This isn't common, but it's the only way to use AVX2 with no_std, at
-        // least until more features get stabilized in the future.
-        #[cfg(target_feature = "avx2")]
-        {
-            return (avx2::compress, avx2::compress4);
-        }
-        // Do dynamic feature detection at runtime, and use AVX2 if the current CPU supports it.
-        // This is what the default build does. Note that no_std doesn't currently support dynamic
-        // detection.
-        #[cfg(feature = "std")]
-        {
-            if is_x86_feature_detected!("avx2") {
-                return (avx2::compress, avx2::compress4);
-            }
-        }
-    }
-    // On other platforms (non-x86 or pre-AVX2) use the portable implementation.
-    (portable::compress, portable::compress4)
-}
-
 /// Update four `State` objects at the same time.
 ///
 /// This implementation isn't multithreaded. Rather, it uses AVX2 (if available) to hash the four
@@ -760,7 +737,7 @@ pub fn update4(
     state3.compress_buffer_if_possible(&mut input3);
     // Now, as long as all of the states have more than a block of input coming (so that we know we
     // don't need to finalize any of them), compress in parallel directly into their state words.
-    let (_, compress4_fn) = default_compress_impl();
+    let compress4_fn = default_compress_impl().1;
     while input0.len() > BLOCKBYTES
         && input1.len() > BLOCKBYTES
         && input2.len() > BLOCKBYTES
@@ -878,7 +855,7 @@ pub fn finalize4(
     let mut h_copy2 = state2.h;
     let mut h_copy3 = state3.h;
     // Do the final parallel compression step.
-    let (_, compress4_fn) = default_compress_impl();
+    let compress4_fn = default_compress_impl().1;
     unsafe {
         compress4_fn(
             &mut h_copy0,
@@ -922,6 +899,60 @@ pub fn finalize4(
             len: state3.hash_length,
         },
     ]
+}
+
+pub fn hash4_exact(
+    // TODO: Separate params for each input.
+    params: &Params,
+    input0: &[u8],
+    input1: &[u8],
+    input2: &[u8],
+    input3: &[u8],
+) -> [Hash; 4] {
+    // These asserts are safety invariants for the AVX2 implementation.
+    let len = input0.len();
+    let same_length = (input1.len() == len) && (input2.len() == len) && (input3.len() == len);
+    let even_length = len % BLOCKBYTES == 0;
+    let nonempty = len != 0;
+    assert!(
+        same_length && even_length && nonempty,
+        "invalid hash4_exact inputs"
+    );
+
+    let hash4_exact_fn = default_compress_impl().2;
+    unsafe { hash4_exact_fn(params, input0, input1, input2, input3) }
+}
+
+// Safety: The unsafe blocks above rely on this function to never return avx2::compress except on
+// platforms where it's safe to call.
+#[allow(unreachable_code)]
+fn default_compress_impl() -> (CompressFn, Compress4Fn, Hash4ExactFn) {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        // If AVX2 is enabled at the top level for the whole build (using something like
+        // RUSTFLAGS="-C target-cpu=native"), return the AVX2 implementation without doing dynamic
+        // feature detection. This isn't common, but it's the only way to use AVX2 with no_std, at
+        // least until more features get stabilized in the future.
+        #[cfg(target_feature = "avx2")]
+        {
+            return (avx2::compress, avx2::compress4, avx2::hash4_exact);
+        }
+        // Do dynamic feature detection at runtime, and use AVX2 if the current CPU supports it.
+        // This is what the default build does. Note that no_std doesn't currently support dynamic
+        // detection.
+        #[cfg(feature = "std")]
+        {
+            if is_x86_feature_detected!("avx2") {
+                return (avx2::compress, avx2::compress4, avx2::hash4_exact);
+            }
+        }
+    }
+    // On other platforms (non-x86 or pre-AVX2) use the portable implementation.
+    (
+        portable::compress,
+        portable::compress4,
+        portable::hash4_exact,
+    )
 }
 
 // This module is pub for internal benchmarks only. Please don't use it.

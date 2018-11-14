@@ -381,3 +381,22 @@ fn test_update4() {
         );
     }
 }
+
+#[test]
+fn test_hash4_exact() {
+    let input0 = &[0xf0; 4 * BLOCKBYTES];
+    let input1 = &[0xf1; 4 * BLOCKBYTES];
+    let input2 = &[0xf2; 4 * BLOCKBYTES];
+    let input3 = &[0xf3; 4 * BLOCKBYTES];
+    let mut params = Params::new();
+    params.hash_length(63).personal(b"foo").last_node(true);
+    let expected0 = params.to_state().update(input0).finalize();
+    let expected1 = params.to_state().update(input1).finalize();
+    let expected2 = params.to_state().update(input2).finalize();
+    let expected3 = params.to_state().update(input3).finalize();
+    let [out0, out1, out2, out3] = hash4_exact(&params, input0, input1, input2, input3);
+    assert_eq!(expected0, out0);
+    assert_eq!(expected1, out1);
+    assert_eq!(expected2, out2);
+    assert_eq!(expected3, out3);
+}

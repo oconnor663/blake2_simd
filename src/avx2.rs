@@ -3,10 +3,7 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-use crate::Block;
-use crate::StateWords;
-use crate::IV;
-use crate::SIGMA;
+use super::*;
 
 #[inline(always)]
 unsafe fn load_256_unaligned(mem_addr: &[u64; 4]) -> __m256i {
@@ -407,9 +404,7 @@ unsafe fn load_256_from_u64(x: u64) -> __m256i {
 
 #[inline(always)]
 unsafe fn load_256_from_4xu64(x1: u64, x2: u64, x3: u64, x4: u64) -> __m256i {
-    // NOTE: This order of arguments for _mm256_set_epi64x is the reverse of how the ints come out
-    // when you transmute them back into an array of u64's.
-    _mm256_set_epi64x(x4 as i64, x3 as i64, x2 as i64, x1 as i64)
+    _mm256_setr_epi64x(x1 as i64, x2 as i64, x3 as i64, x4 as i64)
 }
 
 #[inline(always)]
@@ -771,4 +766,105 @@ pub unsafe fn compress4_transposed(
     compress4_transposed_inline(
         h_vecs, msg0, msg1, msg2, msg3, count_low, count_high, lastblock, lastnode,
     );
+}
+
+#[inline(always)]
+unsafe fn export_hashes(h_vecs: &[__m256i; 8], hash_length: u8) -> [Hash; 4] {
+    let mut bytes0 = [0; OUTBYTES];
+    let mut bytes1 = [0; OUTBYTES];
+    let mut bytes2 = [0; OUTBYTES];
+    let mut bytes3 = [0; OUTBYTES];
+    // Transpose is its own inverse.
+    let deinterleaved_lo = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
+    _mm256_storeu_si256(&mut bytes0[0] as *mut u8 as *mut _, deinterleaved_lo[0]);
+    _mm256_storeu_si256(&mut bytes1[0] as *mut u8 as *mut _, deinterleaved_lo[1]);
+    _mm256_storeu_si256(&mut bytes2[0] as *mut u8 as *mut _, deinterleaved_lo[2]);
+    _mm256_storeu_si256(&mut bytes3[0] as *mut u8 as *mut _, deinterleaved_lo[3]);
+    let deinterleaved_hi = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
+    _mm256_storeu_si256(&mut bytes0[32] as *mut u8 as *mut _, deinterleaved_hi[0]);
+    _mm256_storeu_si256(&mut bytes1[32] as *mut u8 as *mut _, deinterleaved_hi[1]);
+    _mm256_storeu_si256(&mut bytes2[32] as *mut u8 as *mut _, deinterleaved_hi[2]);
+    _mm256_storeu_si256(&mut bytes3[32] as *mut u8 as *mut _, deinterleaved_hi[3]);
+    // BLAKE2 and AVX2 both use little-endian representation, so we can just transmute the word
+    // bytes out of each de-interleaved vector.
+    [
+        Hash {
+            len: hash_length,
+            bytes: bytes0,
+        },
+        Hash {
+            len: hash_length,
+            bytes: bytes1,
+        },
+        Hash {
+            len: hash_length,
+            bytes: bytes2,
+        },
+        Hash {
+            len: hash_length,
+            bytes: bytes3,
+        },
+    ]
+}
+
+#[target_feature(enable = "avx2")]
+pub unsafe fn hash4_exact(
+    params: &Params,
+    input0: &[u8],
+    input1: &[u8],
+    input2: &[u8],
+    input3: &[u8],
+) -> [Hash; 4] {
+    // INVARIANTS! The caller must assert:
+    //   1. The inputs are the same length.
+    //   2. The inputs are a multiple of the block size.
+    //   3. The inputs aren't empty.
+
+    let param_words = params.to_state_words();
+    // This creates word vectors in an aready-transposed position.
+    let mut h_vecs = [
+        load_256_from_u64(param_words[0]),
+        load_256_from_u64(param_words[1]),
+        load_256_from_u64(param_words[2]),
+        load_256_from_u64(param_words[3]),
+        load_256_from_u64(param_words[4]),
+        load_256_from_u64(param_words[5]),
+        load_256_from_u64(param_words[6]),
+        load_256_from_u64(param_words[7]),
+    ];
+    let len = input0.len();
+    let mut count = 0;
+
+    loop {
+        // Use pointer casts to avoid bounds checks here. The caller has to assert that these exact
+        // bounds are valid. Note that if these bounds were wrong, we'd get the wrong hash in any
+        // case, because count is an input to the compression function.
+        let msg0 = &*(input0.as_ptr().add(count) as *const Block);
+        let msg1 = &*(input1.as_ptr().add(count) as *const Block);
+        let msg2 = &*(input2.as_ptr().add(count) as *const Block);
+        let msg3 = &*(input3.as_ptr().add(count) as *const Block);
+        count += BLOCKBYTES;
+        let count_low = load_256_from_u64(count as u64);
+        let count_high = load_256_from_u64(0);
+        let lastblock = load_256_from_u64(if count == len { !0 } else { 0 });
+        let lastnode = load_256_from_u64(if params.last_node && count == len {
+            !0
+        } else {
+            0
+        });
+        compress4_transposed_inline(
+            &mut h_vecs,
+            msg0,
+            msg1,
+            msg2,
+            msg3,
+            count_low,
+            count_high,
+            lastblock,
+            lastnode,
+        );
+        if count == len {
+            return export_hashes(&h_vecs, params.hash_length);
+        }
+    }
 }
