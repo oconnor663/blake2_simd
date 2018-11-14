@@ -8,6 +8,7 @@ extern crate openssl;
 extern crate test;
 
 use blake2b_simd::*;
+use std::mem;
 use test::Bencher;
 
 const BLOCK: &[u8; BLOCKBYTES] = &[0; BLOCKBYTES];
@@ -41,6 +42,40 @@ fn bench_blake2b_avx2_compress4(b: &mut Bencher) {
             0, 0, 0, 0, 0,
         );
     });
+}
+
+#[bench]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn bench_blake2b_avx2_compress4_transposed(b: &mut Bencher) {
+    if !is_x86_feature_detected!("avx2") {
+        return;
+    }
+    b.bytes = BLOCK.len() as u64 * 4;
+    unsafe {
+        let mut h_vecs = mem::zeroed();
+        let msg0 = [1; BLOCKBYTES];
+        let msg1 = [2; BLOCKBYTES];
+        let msg2 = [3; BLOCKBYTES];
+        let msg3 = [4; BLOCKBYTES];
+        let count_low = mem::zeroed();
+        let count_high = mem::zeroed();
+        let lastblock = mem::zeroed();
+        let lastnode = mem::zeroed();
+        b.iter(|| {
+            benchmarks::compress4_transposed_avx2(
+                &mut h_vecs,
+                &msg0,
+                &msg1,
+                &msg2,
+                &msg3,
+                count_low,
+                count_high,
+                lastblock,
+                lastnode,
+            );
+            test::black_box(&mut h_vecs);
+        });
+    }
 }
 
 #[bench]

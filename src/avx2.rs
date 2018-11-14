@@ -594,7 +594,7 @@ pub unsafe fn compress4(
         lastnode3 as u64,
     );
 
-    compress4_inner(
+    compress4_transposed_inner(
         &mut h_vecs,
         msg0,
         msg1,
@@ -700,7 +700,7 @@ pub unsafe fn transpose_message_blocks(
 }
 
 #[inline(always)]
-unsafe fn compress4_inner(
+unsafe fn compress4_transposed_inner(
     h_vecs: &mut [__m256i; 8],
     msg0: &Block,
     msg1: &Block,
@@ -753,4 +753,22 @@ unsafe fn compress4_inner(
     h_vecs[5] = xor(xor(h_vecs[5], v[5]), v[13]);
     h_vecs[6] = xor(xor(h_vecs[6], v[6]), v[14]);
     h_vecs[7] = xor(xor(h_vecs[7], v[7]), v[15]);
+}
+
+// Currently just for benchmarking.
+#[target_feature(enable = "avx2")]
+pub unsafe fn compress4_transposed(
+    h_vecs: &mut [__m256i; 8],
+    msg0: &Block,
+    msg1: &Block,
+    msg2: &Block,
+    msg3: &Block,
+    count_low: __m256i,
+    count_high: __m256i,
+    lastblock: __m256i,
+    lastnode: __m256i,
+) {
+    compress4_transposed_inner(
+        h_vecs, msg0, msg1, msg2, msg3, count_low, count_high, lastblock, lastnode,
+    );
 }
