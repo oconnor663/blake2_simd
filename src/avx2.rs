@@ -3,9 +3,6 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-use byteorder::{ByteOrder, LittleEndian};
-use core::mem;
-
 use crate::Block;
 use crate::StateWords;
 use crate::IV;
@@ -416,22 +413,6 @@ unsafe fn load_256_from_4xu64(x1: u64, x2: u64, x3: u64, x4: u64) -> __m256i {
 }
 
 #[inline(always)]
-unsafe fn load_msg4_words(
-    msg0: &Block,
-    msg1: &Block,
-    msg2: &Block,
-    msg3: &Block,
-    i: usize,
-) -> __m256i {
-    load_256_from_4xu64(
-        LittleEndian::read_u64(&msg0[8 * i..]),
-        LittleEndian::read_u64(&msg1[8 * i..]),
-        LittleEndian::read_u64(&msg2[8 * i..]),
-        LittleEndian::read_u64(&msg3[8 * i..]),
-    )
-}
-
-#[inline(always)]
 unsafe fn blake2b_round_4x(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
     v[0] = add(v[0], m[SIGMA[r][0] as usize]);
     v[1] = add(v[1], m[SIGMA[r][2] as usize]);
@@ -548,24 +529,6 @@ unsafe fn blake2b_round_4x(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
     v[4] = rot63(v[4]);
 }
 
-#[inline(always)]
-unsafe fn export_state_words_4x(
-    orig_vec: __m256i,
-    low_state: __m256i,
-    high_state: __m256i,
-    h0: &mut StateWords,
-    h1: &mut StateWords,
-    h2: &mut StateWords,
-    h3: &mut StateWords,
-    i: usize,
-) {
-    let parts: [u64; 4] = mem::transmute(xor(xor(orig_vec, low_state), high_state));
-    h0[i] = parts[0];
-    h1[i] = parts[1];
-    h2[i] = parts[2];
-    h3[i] = parts[3];
-}
-
 #[target_feature(enable = "avx2")]
 pub unsafe fn compress4(
     h0: &mut StateWords,
@@ -589,15 +552,27 @@ pub unsafe fn compress4(
     lastnode2: u64,
     lastnode3: u64,
 ) {
-    let h_vecs = [
-        load_256_from_4xu64(h0[0], h1[0], h2[0], h3[0]),
-        load_256_from_4xu64(h0[1], h1[1], h2[1], h3[1]),
-        load_256_from_4xu64(h0[2], h1[2], h2[2], h3[2]),
-        load_256_from_4xu64(h0[3], h1[3], h2[3], h3[3]),
-        load_256_from_4xu64(h0[4], h1[4], h2[4], h3[4]),
-        load_256_from_4xu64(h0[5], h1[5], h2[5], h3[5]),
-        load_256_from_4xu64(h0[6], h1[6], h2[6], h3[6]),
-        load_256_from_4xu64(h0[7], h1[7], h2[7], h3[7]),
+    let h_vecs_lo = transpose_vecs(
+        _mm256_loadu_si256(&h0[0] as *const u64 as *const __m256i),
+        _mm256_loadu_si256(&h1[0] as *const u64 as *const __m256i),
+        _mm256_loadu_si256(&h2[0] as *const u64 as *const __m256i),
+        _mm256_loadu_si256(&h3[0] as *const u64 as *const __m256i),
+    );
+    let h_vecs_hi = transpose_vecs(
+        _mm256_loadu_si256(&h0[4] as *const u64 as *const __m256i),
+        _mm256_loadu_si256(&h1[4] as *const u64 as *const __m256i),
+        _mm256_loadu_si256(&h2[4] as *const u64 as *const __m256i),
+        _mm256_loadu_si256(&h3[4] as *const u64 as *const __m256i),
+    );
+    let mut h_vecs = [
+        h_vecs_lo[0],
+        h_vecs_lo[1],
+        h_vecs_lo[2],
+        h_vecs_lo[3],
+        h_vecs_hi[0],
+        h_vecs_hi[1],
+        h_vecs_hi[2],
+        h_vecs_hi[3],
     ];
     let count_low = load_256_from_4xu64(count0 as u64, count1 as u64, count2 as u64, count3 as u64);
     let count_high = load_256_from_4xu64(
@@ -618,6 +593,124 @@ pub unsafe fn compress4(
         lastnode2 as u64,
         lastnode3 as u64,
     );
+
+    compress4_inner(
+        &mut h_vecs,
+        msg0,
+        msg1,
+        msg2,
+        msg3,
+        count_low,
+        count_high,
+        lastblock,
+        lastnode,
+    );
+
+    let out_vecs_lo = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
+    _mm256_storeu_si256(&mut h0[0] as *mut u64 as *mut __m256i, out_vecs_lo[0]);
+    _mm256_storeu_si256(&mut h1[0] as *mut u64 as *mut __m256i, out_vecs_lo[1]);
+    _mm256_storeu_si256(&mut h2[0] as *mut u64 as *mut __m256i, out_vecs_lo[2]);
+    _mm256_storeu_si256(&mut h3[0] as *mut u64 as *mut __m256i, out_vecs_lo[3]);
+    let out_vecs_hi = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
+    _mm256_storeu_si256(&mut h0[4] as *mut u64 as *mut __m256i, out_vecs_hi[0]);
+    _mm256_storeu_si256(&mut h1[4] as *mut u64 as *mut __m256i, out_vecs_hi[1]);
+    _mm256_storeu_si256(&mut h2[4] as *mut u64 as *mut __m256i, out_vecs_hi[2]);
+    _mm256_storeu_si256(&mut h3[4] as *mut u64 as *mut __m256i, out_vecs_hi[3]);
+}
+
+#[inline(always)]
+unsafe fn interleave128(a: __m256i, b: __m256i) -> (__m256i, __m256i) {
+    (
+        _mm256_permute2x128_si256(a, b, 0x20),
+        _mm256_permute2x128_si256(a, b, 0x31),
+    )
+}
+
+// There are several ways to do a transposition. We could do it naively, with 8 separate
+// _mm256_set_epi64x instructions, referencing each of the 64 words explicitly. Or we could copy
+// the vecs into contiguous storage and then use gather instructions. This third approach is to use
+// a series of unpack instructions to interleave the vectors. In my benchmarks, interleaving is the
+// fastest approach. To test this, run `cargo +nightly bench --bench libtest load_4` in the
+// https://github.com/oconnor663/bao_experiments repo.
+#[inline(always)]
+unsafe fn transpose_vecs(
+    vec_a: __m256i,
+    vec_b: __m256i,
+    vec_c: __m256i,
+    vec_d: __m256i,
+) -> [__m256i; 4] {
+    // Interleave 64-bit lates. The low unpack is lanes 00/22 and the high is 11/33.
+    let ab_02 = _mm256_unpacklo_epi64(vec_a, vec_b);
+    let ab_13 = _mm256_unpackhi_epi64(vec_a, vec_b);
+    let cd_02 = _mm256_unpacklo_epi64(vec_c, vec_d);
+    let cd_13 = _mm256_unpackhi_epi64(vec_c, vec_d);
+
+    // Interleave 128-bit lanes.
+    let (abcd_0, abcd_2) = interleave128(ab_02, cd_02);
+    let (abcd_1, abcd_3) = interleave128(ab_13, cd_13);
+
+    [abcd_0, abcd_1, abcd_2, abcd_3]
+}
+
+#[inline(always)]
+unsafe fn load_4x256(msg: &Block) -> (__m256i, __m256i, __m256i, __m256i) {
+    (
+        _mm256_loadu_si256((msg.as_ptr() as *const __m256i).add(0)),
+        _mm256_loadu_si256((msg.as_ptr() as *const __m256i).add(1)),
+        _mm256_loadu_si256((msg.as_ptr() as *const __m256i).add(2)),
+        _mm256_loadu_si256((msg.as_ptr() as *const __m256i).add(3)),
+    )
+}
+
+#[inline(always)]
+pub unsafe fn transpose_message_blocks(
+    msg_a: &Block,
+    msg_b: &Block,
+    msg_c: &Block,
+    msg_d: &Block,
+) -> [__m256i; 16] {
+    let (a0, a1, a2, a3) = load_4x256(msg_a);
+    let (b0, b1, b2, b3) = load_4x256(msg_b);
+    let (c0, c1, c2, c3) = load_4x256(msg_c);
+    let (d0, d1, d2, d3) = load_4x256(msg_d);
+
+    let transposed0 = transpose_vecs(a0, b0, c0, d0);
+    let transposed1 = transpose_vecs(a1, b1, c1, d1);
+    let transposed2 = transpose_vecs(a2, b2, c2, d2);
+    let transposed3 = transpose_vecs(a3, b3, c3, d3);
+
+    [
+        transposed0[0],
+        transposed0[1],
+        transposed0[2],
+        transposed0[3],
+        transposed1[0],
+        transposed1[1],
+        transposed1[2],
+        transposed1[3],
+        transposed2[0],
+        transposed2[1],
+        transposed2[2],
+        transposed2[3],
+        transposed3[0],
+        transposed3[1],
+        transposed3[2],
+        transposed3[3],
+    ]
+}
+
+#[inline(always)]
+unsafe fn compress4_inner(
+    h_vecs: &mut [__m256i; 8],
+    msg0: &Block,
+    msg1: &Block,
+    msg2: &Block,
+    msg3: &Block,
+    count_low: __m256i,
+    count_high: __m256i,
+    lastblock: __m256i,
+    lastnode: __m256i,
+) {
     let mut v = [
         h_vecs[0],
         h_vecs[1],
@@ -636,24 +729,8 @@ pub unsafe fn compress4(
         xor(load_256_from_u64(IV[6]), lastblock),
         xor(load_256_from_u64(IV[7]), lastnode),
     ];
-    let m = [
-        load_msg4_words(msg0, msg1, msg2, msg3, 0),
-        load_msg4_words(msg0, msg1, msg2, msg3, 1),
-        load_msg4_words(msg0, msg1, msg2, msg3, 2),
-        load_msg4_words(msg0, msg1, msg2, msg3, 3),
-        load_msg4_words(msg0, msg1, msg2, msg3, 4),
-        load_msg4_words(msg0, msg1, msg2, msg3, 5),
-        load_msg4_words(msg0, msg1, msg2, msg3, 6),
-        load_msg4_words(msg0, msg1, msg2, msg3, 7),
-        load_msg4_words(msg0, msg1, msg2, msg3, 8),
-        load_msg4_words(msg0, msg1, msg2, msg3, 9),
-        load_msg4_words(msg0, msg1, msg2, msg3, 10),
-        load_msg4_words(msg0, msg1, msg2, msg3, 11),
-        load_msg4_words(msg0, msg1, msg2, msg3, 12),
-        load_msg4_words(msg0, msg1, msg2, msg3, 13),
-        load_msg4_words(msg0, msg1, msg2, msg3, 14),
-        load_msg4_words(msg0, msg1, msg2, msg3, 15),
-    ];
+
+    let m = transpose_message_blocks(msg0, msg1, msg2, msg3);
 
     blake2b_round_4x(&mut v, &m, 0);
     blake2b_round_4x(&mut v, &m, 1);
@@ -668,12 +745,12 @@ pub unsafe fn compress4(
     blake2b_round_4x(&mut v, &m, 10);
     blake2b_round_4x(&mut v, &m, 11);
 
-    export_state_words_4x(h_vecs[0], v[0], v[8], h0, h1, h2, h3, 0);
-    export_state_words_4x(h_vecs[1], v[1], v[9], h0, h1, h2, h3, 1);
-    export_state_words_4x(h_vecs[2], v[2], v[10], h0, h1, h2, h3, 2);
-    export_state_words_4x(h_vecs[3], v[3], v[11], h0, h1, h2, h3, 3);
-    export_state_words_4x(h_vecs[4], v[4], v[12], h0, h1, h2, h3, 4);
-    export_state_words_4x(h_vecs[5], v[5], v[13], h0, h1, h2, h3, 5);
-    export_state_words_4x(h_vecs[6], v[6], v[14], h0, h1, h2, h3, 6);
-    export_state_words_4x(h_vecs[7], v[7], v[15], h0, h1, h2, h3, 7);
+    h_vecs[0] = xor(xor(h_vecs[0], v[0]), v[8]);
+    h_vecs[1] = xor(xor(h_vecs[1], v[1]), v[9]);
+    h_vecs[2] = xor(xor(h_vecs[2], v[2]), v[10]);
+    h_vecs[3] = xor(xor(h_vecs[3], v[3]), v[11]);
+    h_vecs[4] = xor(xor(h_vecs[4], v[4]), v[12]);
+    h_vecs[5] = xor(xor(h_vecs[5], v[5]), v[13]);
+    h_vecs[6] = xor(xor(h_vecs[6], v[6]), v[14]);
+    h_vecs[7] = xor(xor(h_vecs[7], v[7]), v[15]);
 }
