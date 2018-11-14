@@ -594,7 +594,7 @@ pub unsafe fn compress4(
         lastnode3 as u64,
     );
 
-    compress4_transposed_inner(
+    compress4_transposed_inline(
         &mut h_vecs,
         msg0,
         msg1,
@@ -700,7 +700,7 @@ pub unsafe fn transpose_message_blocks(
 }
 
 #[inline(always)]
-unsafe fn compress4_transposed_inner(
+unsafe fn compress4_transposed_inline(
     h_vecs: &mut [__m256i; 8],
     msg0: &Block,
     msg1: &Block,
@@ -768,7 +768,7 @@ pub unsafe fn compress4_transposed(
     lastblock: __m256i,
     lastnode: __m256i,
 ) {
-    compress4_transposed_inner(
+    compress4_transposed_inline(
         h_vecs, msg0, msg1, msg2, msg3, count_low, count_high, lastblock, lastnode,
     );
 }

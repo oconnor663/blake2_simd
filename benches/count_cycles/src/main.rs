@@ -5,6 +5,8 @@ extern crate blake2b_simd;
 extern crate openssl;
 extern crate test;
 
+use std::mem;
+
 const TOTAL_BYTES_PER_TYPE: usize = 1 << 30; // 1 gigabyte
 
 fn blake2b_compression() -> (u64, usize) {
@@ -47,6 +49,40 @@ fn blake2b_compression_4x() -> (u64, usize) {
         total_ticks += end - start;
     }
     (total_ticks, iterations * SIZE)
+}
+
+fn blake2b_compression_4x_transposed() -> (u64, usize) {
+    unsafe {
+        const SIZE: usize = 4 * 128;
+        let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
+        let mut total_ticks = 0;
+        let mut h_vecs = mem::zeroed();
+        let msg0 = &[1; 128];
+        let msg1 = &[2; 128];
+        let msg2 = &[3; 128];
+        let msg3 = &[4; 128];
+        let count_low = mem::zeroed();
+        let count_high = mem::zeroed();
+        let lastblock = mem::zeroed();
+        let lastnode = mem::zeroed();
+        for _ in 0..iterations {
+            let start = amd64_timer::ticks_modern();
+            blake2b_simd::benchmarks::compress4_transposed_avx2(
+                &mut h_vecs,
+                &msg0,
+                &msg1,
+                &msg2,
+                &msg3,
+                count_low,
+                count_high,
+                lastblock,
+                lastnode,
+            );
+            let end = amd64_timer::ticks_modern();
+            total_ticks += end - start;
+        }
+        (total_ticks, iterations * SIZE)
+    }
 }
 
 fn blake2b_one_mb() -> (u64, usize) {
@@ -144,6 +180,10 @@ fn main() {
     let cases: &[(&str, fn() -> (u64, usize))] = &[
         ("BLAKE2b compression function", blake2b_compression),
         ("BLAKE2b 4-way compression function", blake2b_compression_4x),
+        (
+            "BLAKE2b 4-way transposed compression",
+            blake2b_compression_4x_transposed,
+        ),
         ("BLAKE2b 1 MB", blake2b_one_mb),
         ("BLAKE2bp 1 MB", blake2bp_one_mb),
         ("BLAKE2b update4 1 MB", blake2b_update4_one_mb),
@@ -157,7 +197,7 @@ fn main() {
         // Loop for real.
         let (total_cycles, total_bytes) = f();
         println!(
-            "{:34}  {:.3}",
+            "{:36}  {:.3}",
             name,
             total_cycles as f64 / total_bytes as f64
         );
