@@ -174,18 +174,10 @@ pub unsafe fn compress(
     let flags = _mm256_set_epi64x(lastnode as i64, lastblock as i64, count_high, count_low);
     let mut d = xor(load_256_unaligned(iv_high), flags);
 
-    round(&mut a, &mut b, &mut c, &mut d, msg, 0);
-    round(&mut a, &mut b, &mut c, &mut d, msg, 1);
-    round(&mut a, &mut b, &mut c, &mut d, msg, 2);
-    round(&mut a, &mut b, &mut c, &mut d, msg, 3);
-    round(&mut a, &mut b, &mut c, &mut d, msg, 4);
-    round(&mut a, &mut b, &mut c, &mut d, msg, 5);
-    round(&mut a, &mut b, &mut c, &mut d, msg, 6);
-    round(&mut a, &mut b, &mut c, &mut d, msg, 7);
-    round(&mut a, &mut b, &mut c, &mut d, msg, 8);
-    round(&mut a, &mut b, &mut c, &mut d, msg, 9);
-    round(&mut a, &mut b, &mut c, &mut d, msg, 10);
-    round(&mut a, &mut b, &mut c, &mut d, msg, 11);
+    // Unrolling this loop HURTS throughput by about 25%. WHY?!
+    for i in 0..12 {
+        round(&mut a, &mut b, &mut c, &mut d, msg, i);
+    }
 
     a = xor(a, c);
     b = xor(b, d);
