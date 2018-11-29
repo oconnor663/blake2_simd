@@ -407,6 +407,13 @@ unsafe fn load_256_from_4xu64(x1: u64, x2: u64, x3: u64, x4: u64) -> __m256i {
     _mm256_setr_epi64x(x1 as i64, x2 as i64, x3 as i64, x4 as i64)
 }
 
+// Performance note: Factoring out a G function here doesn't hurt performance,
+// unlike in the case of BLAKE2s where it hurts substantially. In fact, on my
+// machine, it helps a tiny bit. But the difference it tiny, so I'm going to
+// stick to the approach used by https://github.com/sneves/blake2-avx2
+// until/unless I can be sure the (tiny) improvement is consistent across
+// different Intel microarchitectures. Smaller code size is nice, but a
+// divergence between the BLAKE2b and BLAKE2s implementations is less nice.
 #[inline(always)]
 unsafe fn blake2b_round_4x(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
     v[0] = add(v[0], m[SIGMA[r][0] as usize]);
