@@ -408,120 +408,48 @@ unsafe fn load_256_from_4xu64(x1: u64, x2: u64, x3: u64, x4: u64) -> __m256i {
 }
 
 #[inline(always)]
-unsafe fn blake2b_round_4x(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
-    v[0] = add(v[0], m[SIGMA[r][0] as usize]);
-    v[1] = add(v[1], m[SIGMA[r][2] as usize]);
-    v[2] = add(v[2], m[SIGMA[r][4] as usize]);
-    v[3] = add(v[3], m[SIGMA[r][6] as usize]);
-    v[0] = add(v[0], v[4]);
-    v[1] = add(v[1], v[5]);
-    v[2] = add(v[2], v[6]);
-    v[3] = add(v[3], v[7]);
-    v[12] = xor(v[12], v[0]);
-    v[13] = xor(v[13], v[1]);
-    v[14] = xor(v[14], v[2]);
-    v[15] = xor(v[15], v[3]);
-    v[12] = rot32(v[12]);
-    v[13] = rot32(v[13]);
-    v[14] = rot32(v[14]);
-    v[15] = rot32(v[15]);
-    v[8] = add(v[8], v[12]);
-    v[9] = add(v[9], v[13]);
-    v[10] = add(v[10], v[14]);
-    v[11] = add(v[11], v[15]);
-    v[4] = xor(v[4], v[8]);
-    v[5] = xor(v[5], v[9]);
-    v[6] = xor(v[6], v[10]);
-    v[7] = xor(v[7], v[11]);
-    v[4] = rot24(v[4]);
-    v[5] = rot24(v[5]);
-    v[6] = rot24(v[6]);
-    v[7] = rot24(v[7]);
-    v[0] = add(v[0], m[SIGMA[r][1] as usize]);
-    v[1] = add(v[1], m[SIGMA[r][3] as usize]);
-    v[2] = add(v[2], m[SIGMA[r][5] as usize]);
-    v[3] = add(v[3], m[SIGMA[r][7] as usize]);
-    v[0] = add(v[0], v[4]);
-    v[1] = add(v[1], v[5]);
-    v[2] = add(v[2], v[6]);
-    v[3] = add(v[3], v[7]);
-    v[12] = xor(v[12], v[0]);
-    v[13] = xor(v[13], v[1]);
-    v[14] = xor(v[14], v[2]);
-    v[15] = xor(v[15], v[3]);
-    v[12] = rot16(v[12]);
-    v[13] = rot16(v[13]);
-    v[14] = rot16(v[14]);
-    v[15] = rot16(v[15]);
-    v[8] = add(v[8], v[12]);
-    v[9] = add(v[9], v[13]);
-    v[10] = add(v[10], v[14]);
-    v[11] = add(v[11], v[15]);
-    v[4] = xor(v[4], v[8]);
-    v[5] = xor(v[5], v[9]);
-    v[6] = xor(v[6], v[10]);
-    v[7] = xor(v[7], v[11]);
-    v[4] = rot63(v[4]);
-    v[5] = rot63(v[5]);
-    v[6] = rot63(v[6]);
-    v[7] = rot63(v[7]);
+unsafe fn g_4x(
+    v: &mut [__m256i; 16],
+    m: &[__m256i; 16],
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+    m1: usize,
+    m2: usize,
+) {
+    v[a] = add(add(v[a], v[b]), m[m1]);
+    v[d] = rot32(xor(v[d], v[a]));
+    v[c] = add(v[c], v[d]);
+    v[b] = rot24(xor(v[b], v[c]));
+    v[a] = add(add(v[a], v[b]), m[m2]);
+    v[d] = rot16(xor(v[d], v[a]));
+    v[c] = add(v[c], v[d]);
+    v[b] = rot63(xor(v[b], v[c]));
+}
 
-    v[0] = add(v[0], m[SIGMA[r][8] as usize]);
-    v[1] = add(v[1], m[SIGMA[r][10] as usize]);
-    v[2] = add(v[2], m[SIGMA[r][12] as usize]);
-    v[3] = add(v[3], m[SIGMA[r][14] as usize]);
-    v[0] = add(v[0], v[5]);
-    v[1] = add(v[1], v[6]);
-    v[2] = add(v[2], v[7]);
-    v[3] = add(v[3], v[4]);
-    v[15] = xor(v[15], v[0]);
-    v[12] = xor(v[12], v[1]);
-    v[13] = xor(v[13], v[2]);
-    v[14] = xor(v[14], v[3]);
-    v[15] = rot32(v[15]);
-    v[12] = rot32(v[12]);
-    v[13] = rot32(v[13]);
-    v[14] = rot32(v[14]);
-    v[10] = add(v[10], v[15]);
-    v[11] = add(v[11], v[12]);
-    v[8] = add(v[8], v[13]);
-    v[9] = add(v[9], v[14]);
-    v[5] = xor(v[5], v[10]);
-    v[6] = xor(v[6], v[11]);
-    v[7] = xor(v[7], v[8]);
-    v[4] = xor(v[4], v[9]);
-    v[5] = rot24(v[5]);
-    v[6] = rot24(v[6]);
-    v[7] = rot24(v[7]);
-    v[4] = rot24(v[4]);
-    v[0] = add(v[0], m[SIGMA[r][9] as usize]);
-    v[1] = add(v[1], m[SIGMA[r][11] as usize]);
-    v[2] = add(v[2], m[SIGMA[r][13] as usize]);
-    v[3] = add(v[3], m[SIGMA[r][15] as usize]);
-    v[0] = add(v[0], v[5]);
-    v[1] = add(v[1], v[6]);
-    v[2] = add(v[2], v[7]);
-    v[3] = add(v[3], v[4]);
-    v[15] = xor(v[15], v[0]);
-    v[12] = xor(v[12], v[1]);
-    v[13] = xor(v[13], v[2]);
-    v[14] = xor(v[14], v[3]);
-    v[15] = rot16(v[15]);
-    v[12] = rot16(v[12]);
-    v[13] = rot16(v[13]);
-    v[14] = rot16(v[14]);
-    v[10] = add(v[10], v[15]);
-    v[11] = add(v[11], v[12]);
-    v[8] = add(v[8], v[13]);
-    v[9] = add(v[9], v[14]);
-    v[5] = xor(v[5], v[10]);
-    v[6] = xor(v[6], v[11]);
-    v[7] = xor(v[7], v[8]);
-    v[4] = xor(v[4], v[9]);
-    v[5] = rot63(v[5]);
-    v[6] = rot63(v[6]);
-    v[7] = rot63(v[7]);
-    v[4] = rot63(v[4]);
+// Performance note: The https://github.com/sneves/blake2-avx2 uses a fully
+// unrolled round function for both BLAKE2b and BLAKE2s, where the steps of
+// each column are explictly put next to each other, rather than relying on the
+// compiler to reorder them for better parallelism. For BLAKE2s, this does seem
+// to help about 7%. But for BLAKE2b, it seems to hurt a tiny bit, less than
+// 1%.
+#[inline(always)]
+unsafe fn blake2b_round_4x(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
+    // Select the message schedule based on the round.
+    let s = SIGMA[r];
+
+    // Mix the columns.
+    g_4x(v, m, 0, 4, 8, 12, s[0] as usize, s[1] as usize);
+    g_4x(v, m, 1, 5, 9, 13, s[2] as usize, s[3] as usize);
+    g_4x(v, m, 2, 6, 10, 14, s[4] as usize, s[5] as usize);
+    g_4x(v, m, 3, 7, 11, 15, s[6] as usize, s[7] as usize);
+
+    // Mix the rows.
+    g_4x(v, m, 0, 5, 10, 15, s[8] as usize, s[9] as usize);
+    g_4x(v, m, 1, 6, 11, 12, s[10] as usize, s[11] as usize);
+    g_4x(v, m, 2, 7, 8, 13, s[12] as usize, s[13] as usize);
+    g_4x(v, m, 3, 4, 9, 14, s[14] as usize, s[15] as usize);
 }
 
 #[target_feature(enable = "avx2")]
