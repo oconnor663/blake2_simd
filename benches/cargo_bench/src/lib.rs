@@ -46,7 +46,7 @@ fn bench_blake2b_avx2_compress4(b: &mut Bencher) {
 
 #[bench]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-fn bench_blake2b_avx2_compress4_transposed(b: &mut Bencher) {
+fn bench_blake2b_avx2_compress4_transposed_state(b: &mut Bencher) {
     if !is_x86_feature_detected!("avx2") {
         return;
     }
@@ -62,12 +62,40 @@ fn bench_blake2b_avx2_compress4_transposed(b: &mut Bencher) {
         let lastblock = mem::zeroed();
         let lastnode = mem::zeroed();
         b.iter(|| {
-            benchmarks::compress4_transposed_avx2(
+            benchmarks::compress4_transposed_state_avx2(
                 &mut h_vecs,
                 &msg0,
                 &msg1,
                 &msg2,
                 &msg3,
+                count_low,
+                count_high,
+                lastblock,
+                lastnode,
+            );
+            test::black_box(&mut h_vecs);
+        });
+    }
+}
+
+#[bench]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn bench_blake2b_avx2_compress4_transposed_all(b: &mut Bencher) {
+    if !is_x86_feature_detected!("avx2") {
+        return;
+    }
+    b.bytes = BLOCK.len() as u64 * 4;
+    unsafe {
+        let mut h_vecs = mem::transmute([1u8; 32 * 8]);
+        let msg_vecs = mem::transmute([2u8; 32 * 16]);
+        let count_low = mem::transmute([3u8; 32]);
+        let count_high = mem::transmute([4u8; 32]);
+        let lastblock = mem::transmute([5u8; 32]);
+        let lastnode = mem::transmute([6u8; 32]);
+        b.iter(|| {
+            benchmarks::compress4_transposed_all_avx2(
+                &mut h_vecs,
+                &msg_vecs,
                 count_low,
                 count_high,
                 lastblock,

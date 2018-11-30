@@ -596,17 +596,8 @@ pub unsafe fn compress4(
         lastnode3 as u64,
     );
 
-    compress4_transposed_inline(
-        &mut h_vecs,
-        msg0,
-        msg1,
-        msg2,
-        msg3,
-        count_low,
-        count_high,
-        lastblock,
-        lastnode,
-    );
+    let m = transpose_message_blocks(msg0, msg1, msg2, msg3);
+    compress4_transposed_inline(&mut h_vecs, &m, count_low, count_high, lastblock, lastnode);
 
     let out_vecs_lo = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
     _mm256_storeu_si256(&mut h0[0] as *mut u64 as *mut __m256i, out_vecs_lo[0]);
@@ -704,10 +695,7 @@ pub unsafe fn transpose_message_blocks(
 #[inline(always)]
 unsafe fn compress4_transposed_inline(
     h_vecs: &mut [__m256i; 8],
-    msg0: &Block,
-    msg1: &Block,
-    msg2: &Block,
-    msg3: &Block,
+    msg_vecs: &[__m256i; 16],
     count_low: __m256i,
     count_high: __m256i,
     lastblock: __m256i,
@@ -732,20 +720,18 @@ unsafe fn compress4_transposed_inline(
         xor(load_256_from_u64(IV[7]), lastnode),
     ];
 
-    let m = transpose_message_blocks(msg0, msg1, msg2, msg3);
-
-    blake2b_round_4x(&mut v, &m, 0);
-    blake2b_round_4x(&mut v, &m, 1);
-    blake2b_round_4x(&mut v, &m, 2);
-    blake2b_round_4x(&mut v, &m, 3);
-    blake2b_round_4x(&mut v, &m, 4);
-    blake2b_round_4x(&mut v, &m, 5);
-    blake2b_round_4x(&mut v, &m, 6);
-    blake2b_round_4x(&mut v, &m, 7);
-    blake2b_round_4x(&mut v, &m, 8);
-    blake2b_round_4x(&mut v, &m, 9);
-    blake2b_round_4x(&mut v, &m, 10);
-    blake2b_round_4x(&mut v, &m, 11);
+    blake2b_round_4x(&mut v, &msg_vecs, 0);
+    blake2b_round_4x(&mut v, &msg_vecs, 1);
+    blake2b_round_4x(&mut v, &msg_vecs, 2);
+    blake2b_round_4x(&mut v, &msg_vecs, 3);
+    blake2b_round_4x(&mut v, &msg_vecs, 4);
+    blake2b_round_4x(&mut v, &msg_vecs, 5);
+    blake2b_round_4x(&mut v, &msg_vecs, 6);
+    blake2b_round_4x(&mut v, &msg_vecs, 7);
+    blake2b_round_4x(&mut v, &msg_vecs, 8);
+    blake2b_round_4x(&mut v, &msg_vecs, 9);
+    blake2b_round_4x(&mut v, &msg_vecs, 10);
+    blake2b_round_4x(&mut v, &msg_vecs, 11);
 
     h_vecs[0] = xor(xor(h_vecs[0], v[0]), v[8]);
     h_vecs[1] = xor(xor(h_vecs[1], v[1]), v[9]);
@@ -759,7 +745,20 @@ unsafe fn compress4_transposed_inline(
 
 // Currently just for benchmarking.
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress4_transposed(
+pub unsafe fn compress4_transposed_all(
+    h_vecs: &mut [__m256i; 8],
+    msg_vecs: &[__m256i; 16],
+    count_low: __m256i,
+    count_high: __m256i,
+    lastblock: __m256i,
+    lastnode: __m256i,
+) {
+    compress4_transposed_inline(h_vecs, msg_vecs, count_low, count_high, lastblock, lastnode);
+}
+
+// Currently just for benchmarking.
+#[target_feature(enable = "avx2")]
+pub unsafe fn compress4_transposed_state(
     h_vecs: &mut [__m256i; 8],
     msg0: &Block,
     msg1: &Block,
@@ -770,9 +769,8 @@ pub unsafe fn compress4_transposed(
     lastblock: __m256i,
     lastnode: __m256i,
 ) {
-    compress4_transposed_inline(
-        h_vecs, msg0, msg1, msg2, msg3, count_low, count_high, lastblock, lastnode,
-    );
+    let m = transpose_message_blocks(msg0, msg1, msg2, msg3);
+    compress4_transposed_inline(h_vecs, &m, count_low, count_high, lastblock, lastnode);
 }
 
 #[inline(always)]
@@ -859,17 +857,8 @@ pub unsafe fn hash4_exact(
         } else {
             0
         });
-        compress4_transposed_inline(
-            &mut h_vecs,
-            msg0,
-            msg1,
-            msg2,
-            msg3,
-            count_low,
-            count_high,
-            lastblock,
-            lastnode,
-        );
+        let m = transpose_message_blocks(msg0, msg1, msg2, msg3);
+        compress4_transposed_inline(&mut h_vecs, &m, count_low, count_high, lastblock, lastnode);
         if count == len {
             return export_hashes(&h_vecs, params.hash_length);
         }
