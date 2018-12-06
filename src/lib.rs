@@ -131,6 +131,8 @@ use core::fmt;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod avx2;
 mod portable;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+mod sse41;
 
 pub mod blake2bp;
 
@@ -179,6 +181,18 @@ const SIGMA: [[u8; 16]; 12] = [
 // implementation is safe, because calling the AVX2 implementation on a platform that doesn't
 // support AVX2 is undefined behavior.
 type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64, lastnode: u64);
+type Compress2Fn = unsafe fn(
+    state0: &mut StateWords,
+    state1: &mut StateWords,
+    block0: &Block,
+    block1: &Block,
+    count0: u128,
+    count1: u128,
+    lastblock0: u64,
+    lastblock1: u64,
+    lastnode0: u64,
+    lastnode1: u64,
+);
 type Compress4Fn = unsafe fn(
     state0: &mut StateWords,
     state1: &mut StateWords,
@@ -201,9 +215,13 @@ type Compress4Fn = unsafe fn(
     lastnode2: u64,
     lastnode3: u64,
 );
-type Hash4ExactFn =
-    unsafe fn(params: &Params, input0: &[u8], input1: &[u8], input2: &[u8], input3: &[u8])
-        -> [Hash; 4];
+type Hash4ExactFn = unsafe fn(
+    params: &Params,
+    input0: &[u8],
+    input1: &[u8],
+    input2: &[u8],
+    input3: &[u8],
+) -> [Hash; 4];
 type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
 type HexString = arrayvec::ArrayString<[u8; 2 * OUTBYTES]>;
@@ -926,7 +944,7 @@ pub fn hash4_exact(
 // Safety: The unsafe blocks above rely on this function to never return avx2::compress except on
 // platforms where it's safe to call.
 #[allow(unreachable_code)]
-fn default_compress_impl() -> (CompressFn, Compress4Fn, Hash4ExactFn) {
+fn default_compress_impl() -> (CompressFn, Compress4Fn, Hash4ExactFn, Compress2Fn) {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         // If AVX2 is enabled at the top level for the whole build (using something like
@@ -935,7 +953,12 @@ fn default_compress_impl() -> (CompressFn, Compress4Fn, Hash4ExactFn) {
         // least until more features get stabilized in the future.
         #[cfg(target_feature = "avx2")]
         {
-            return (avx2::compress, avx2::compress4, avx2::hash4_exact);
+            return (
+                avx2::compress,
+                avx2::compress4,
+                avx2::hash4_exact,
+                sse41::compress2,
+            );
         }
         // Do dynamic feature detection at runtime, and use AVX2 if the current CPU supports it.
         // This is what the default build does. Note that no_std doesn't currently support dynamic
@@ -943,7 +966,12 @@ fn default_compress_impl() -> (CompressFn, Compress4Fn, Hash4ExactFn) {
         #[cfg(feature = "std")]
         {
             if is_x86_feature_detected!("avx2") {
-                return (avx2::compress, avx2::compress4, avx2::hash4_exact);
+                return (
+                    avx2::compress,
+                    avx2::compress4,
+                    avx2::hash4_exact,
+                    sse41::compress2,
+                );
             }
         }
     }
@@ -952,6 +980,7 @@ fn default_compress_impl() -> (CompressFn, Compress4Fn, Hash4ExactFn) {
         portable::compress,
         portable::compress4,
         portable::hash4_exact,
+        portable::compress2,
     )
 }
 
@@ -969,6 +998,10 @@ pub mod benchmarks {
     pub use crate::avx2::compress4_transposed_all as compress4_transposed_all_avx2;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub use crate::avx2::compress4_transposed_state as compress4_transposed_state_avx2;
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub use crate::sse41::compress2 as compress2_sse41;
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub use crate::sse41::compress2_transposed as compress2_transposed_sse41;
 
     // Safety: The portable implementation should be safe to call on any platform.
     pub fn force_portable(state: &mut crate::State) {

@@ -23,9 +23,34 @@ fn compress_one(compress_fn: CompressFn) -> HexString {
     // Normally we'd have to be super careful to avoid passing the AVX2 impl here on non-AVX2
     // platforms, but this is test code so no biggie.
     unsafe {
-        compress_fn(&mut state.h, &[0; BLOCKBYTES], BLOCKBYTES as u128, !0, 0);
+        compress_fn(&mut state.h, &[1; BLOCKBYTES], BLOCKBYTES as u128, !0, 0);
     }
     bytes_to_hex(&state_words_to_bytes(&state.h))
+}
+
+fn compress_two(compress_fn: Compress2Fn) -> [HexString; 2] {
+    let mut state1 = State::new();
+    let mut state2 = State::new();
+    // Normally we'd have to be super careful to avoid passing the AVX2 impl here on non-AVX2
+    // platforms, but this is test code so no biggie.
+    unsafe {
+        compress_fn(
+            &mut state1.h,
+            &mut state2.h,
+            &[1; BLOCKBYTES],
+            &[2; BLOCKBYTES],
+            BLOCKBYTES as u128,
+            BLOCKBYTES as u128,
+            !0,
+            !0,
+            0,
+            0,
+        );
+    }
+    [
+        bytes_to_hex(&state_words_to_bytes(&state1.h)),
+        bytes_to_hex(&state_words_to_bytes(&state2.h)),
+    ]
 }
 
 fn compress_four(compress_fn: Compress4Fn) -> [HexString; 4] {
@@ -70,8 +95,14 @@ fn compress_four(compress_fn: Compress4Fn) -> [HexString; 4] {
 #[test]
 fn test_all_compression_impls() {
     // Test the portable implementation.
-    let expected_1 = HexString::from(ONE_BLOCK_HASH).unwrap();
+    let expected_1 = HexString::from(BLOCK_OF_ONES).unwrap();
     assert_eq!(expected_1, compress_one(portable::compress));
+
+    let expected_2 = [
+        HexString::from(BLOCK_OF_ONES).unwrap(),
+        HexString::from(BLOCK_OF_TWOS).unwrap(),
+    ];
+    assert_eq!(expected_2, compress_two(portable::compress2));
 
     let expected_4 = [
         HexString::from(BLOCK_OF_ONES).unwrap(),
@@ -80,6 +111,15 @@ fn test_all_compression_impls() {
         HexString::from(BLOCK_OF_FOURS).unwrap(),
     ];
     assert_eq!(expected_4, compress_four(portable::compress4));
+
+    // If we're on an SSE4.1 platform, test the SSE4.1 implementation.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    #[cfg(feature = "std")]
+    {
+        if is_x86_feature_detected!("sse4.1") {
+            assert_eq!(expected_2, compress_two(sse41::compress2));
+        }
+    }
 
     // If we're on an AVX2 platform, test the AVX2 implementation.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

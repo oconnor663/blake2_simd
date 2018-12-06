@@ -16,6 +16,50 @@ const MB: &[u8; 1_000_000] = &[0; 1_000_000];
 
 #[bench]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn bench_blake2b_sse41_compress2(b: &mut Bencher) {
+    if !is_x86_feature_detected!("sse4.1") {
+        return;
+    }
+    b.bytes = BLOCK.len() as u64 * 2;
+    let mut h1 = [0; 8];
+    let mut h2 = [0; 8];
+    b.iter(|| unsafe {
+        benchmarks::compress2_sse41(&mut h1, &mut h2, BLOCK, BLOCK, 0, 0, 0, 0, 0, 0);
+    });
+}
+
+#[bench]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn bench_blake2b_sse41_compress2_transposed(b: &mut Bencher) {
+    if !is_x86_feature_detected!("sse4.1") {
+        return;
+    }
+    b.bytes = BLOCK.len() as u64 * 2;
+    unsafe {
+        let mut h_vecs = mem::zeroed();
+        let msg0 = [1; BLOCKBYTES];
+        let msg1 = [2; BLOCKBYTES];
+        let count_low = mem::zeroed();
+        let count_high = mem::zeroed();
+        let lastblock = mem::zeroed();
+        let lastnode = mem::zeroed();
+        b.iter(|| {
+            benchmarks::compress2_transposed_sse41(
+                &mut h_vecs,
+                &msg0,
+                &msg1,
+                count_low,
+                count_high,
+                lastblock,
+                lastnode,
+            );
+            test::black_box(&mut h_vecs);
+        });
+    }
+}
+
+#[bench]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn bench_blake2b_avx2_compress(b: &mut Bencher) {
     if !is_x86_feature_detected!("avx2") {
         return;
