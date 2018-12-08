@@ -48,10 +48,10 @@ fn bench_blake2b_sse41_compress2_transposed(b: &mut Bencher) {
                 &mut h_vecs,
                 &msg0,
                 &msg1,
-                count_low,
-                count_high,
-                lastblock,
-                lastnode,
+                &count_low,
+                &count_high,
+                &lastblock,
+                &lastnode,
             );
             test::black_box(&mut h_vecs);
         });
@@ -76,21 +76,29 @@ fn bench_blake2b_avx2_compress4(b: &mut Bencher) {
         return;
     }
     b.bytes = BLOCK.len() as u64 * 4;
-    let mut h1 = [0; 8];
-    let mut h2 = [0; 8];
-    let mut h3 = [0; 8];
-    let mut h4 = [0; 8];
+    let mut h1 = [1; 8];
+    let mut h2 = [2; 8];
+    let mut h3 = [3; 8];
+    let mut h4 = [4; 8];
+    let msg1 = [5; BLOCKBYTES];
+    let msg2 = [6; BLOCKBYTES];
+    let msg3 = [7; BLOCKBYTES];
+    let msg4 = [8; BLOCKBYTES];
     b.iter(|| unsafe {
         benchmarks::compress4_avx2(
-            &mut h1, &mut h2, &mut h3, &mut h4, &BLOCK, BLOCK, BLOCK, BLOCK, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0,
+            &mut h1, &mut h2, &mut h3, &mut h4, &msg1, &msg2, &msg3, &msg4, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0,
         );
+        test::black_box(&mut h1);
+        test::black_box(&mut h2);
+        test::black_box(&mut h3);
+        test::black_box(&mut h4);
     });
 }
 
 #[bench]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-fn bench_blake2b_avx2_compress4_transposed_state(b: &mut Bencher) {
+fn bench_blake2b_avx2_compress4_transposed(b: &mut Bencher) {
     if !is_x86_feature_detected!("avx2") {
         return;
     }
@@ -106,16 +114,16 @@ fn bench_blake2b_avx2_compress4_transposed_state(b: &mut Bencher) {
         let lastblock = mem::zeroed();
         let lastnode = mem::zeroed();
         b.iter(|| {
-            benchmarks::compress4_transposed_state_avx2(
+            benchmarks::compress4_transposed_avx2(
                 &mut h_vecs,
                 &msg0,
                 &msg1,
                 &msg2,
                 &msg3,
-                count_low,
-                count_high,
-                lastblock,
-                lastnode,
+                &count_low,
+                &count_high,
+                &lastblock,
+                &lastnode,
             );
             test::black_box(&mut h_vecs);
         });
@@ -331,4 +339,258 @@ fn bench_openssl_sha1_one_mb(b: &mut Bencher) {
 fn bench_openssl_sha512_one_mb(b: &mut Bencher) {
     b.bytes = MB.len() as u64;
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), MB));
+}
+
+#[bench]
+fn bench_guts_compress1_portable(b: &mut Bencher) {
+    b.bytes = BLOCK.len() as u64;
+    let portable = guts::Implementation::portable();
+    let mut state = [1; 8];
+    b.iter(|| {
+        portable.compress(&mut state, BLOCK, 0, 0, 0);
+    });
+    test::black_box(&mut state);
+}
+
+#[bench]
+fn bench_guts_compress1_avx2(b: &mut Bencher) {
+    b.bytes = BLOCK.len() as u64;
+    let avx2 = if let Some(imp) = guts::Implementation::avx2_if_supported() {
+        imp
+    } else {
+        return;
+    };
+    let mut state = [1; 8];
+    b.iter(|| {
+        avx2.compress(&mut state, BLOCK, 0, 0, 0);
+    });
+    test::black_box(&mut state);
+}
+
+#[bench]
+fn bench_guts_compress2_portable(b: &mut Bencher) {
+    b.bytes = BLOCK.len() as u64 * 2;
+    let portable = guts::Implementation::portable();
+    let mut state = [guts::u64x2([1, 1]); 8];
+    let count_low = guts::u64x2([1, 1]);
+    let count_high = guts::u64x2([1, 1]);
+    let lastblock = guts::u64x2([1, 1]);
+    let lastnode = guts::u64x2([1, 1]);
+    b.iter(|| {
+        portable.compress2(
+            &mut state,
+            BLOCK,
+            BLOCK,
+            &count_low,
+            &count_high,
+            &lastblock,
+            &lastnode,
+        );
+    });
+    test::black_box(&mut state);
+}
+
+#[bench]
+fn bench_guts_compress2_sse41(b: &mut Bencher) {
+    b.bytes = BLOCK.len() as u64 * 2;
+    let sse41 = if let Some(imp) = guts::Implementation::sse41_if_supported() {
+        imp
+    } else {
+        return;
+    };
+    let mut state = [guts::u64x2([1, 1]); 8];
+    let count_low = guts::u64x2([1, 1]);
+    let count_high = guts::u64x2([1, 1]);
+    let lastblock = guts::u64x2([1, 1]);
+    let lastnode = guts::u64x2([1, 1]);
+    b.iter(|| {
+        sse41.compress2(
+            &mut state,
+            BLOCK,
+            BLOCK,
+            &count_low,
+            &count_high,
+            &lastblock,
+            &lastnode,
+        );
+    });
+    test::black_box(&mut state);
+}
+
+#[bench]
+fn bench_guts_transpose2_portable(b: &mut Bencher) {
+    let portable = guts::Implementation::portable();
+    let state0 = [1; 8];
+    let state1 = [2; 8];
+    b.iter(|| portable.transpose2(&state0, &state1));
+}
+
+#[bench]
+fn bench_guts_untranspose2_portable(b: &mut Bencher) {
+    let portable = guts::Implementation::portable();
+    let mut state0 = [1; 8];
+    let mut state1 = [2; 8];
+    let transposed = portable.transpose2(&state0, &state1);
+    b.iter(|| {
+        portable.untranspose2(&transposed, &mut state0, &mut state1);
+        test::black_box(&mut state0);
+        test::black_box(&mut state1);
+    });
+}
+
+#[bench]
+fn bench_guts_compress4_portable(b: &mut Bencher) {
+    b.bytes = BLOCK.len() as u64 * 4;
+    let portable = guts::Implementation::portable();
+    let mut state = [guts::u64x4([1, 1, 1, 1]); 8];
+    let count_low = guts::u64x4([1, 1, 1, 1]);
+    let count_high = guts::u64x4([1, 1, 1, 1]);
+    let lastblock = guts::u64x4([1, 1, 1, 1]);
+    let lastnode = guts::u64x4([1, 1, 1, 1]);
+    b.iter(|| {
+        portable.compress4(
+            &mut state,
+            BLOCK,
+            BLOCK,
+            BLOCK,
+            BLOCK,
+            &count_low,
+            &count_high,
+            &lastblock,
+            &lastnode,
+        );
+    });
+    test::black_box(&mut state);
+}
+
+#[bench]
+fn bench_guts_compress4_sse41(b: &mut Bencher) {
+    b.bytes = BLOCK.len() as u64 * 4;
+    let sse41 = if let Some(imp) = guts::Implementation::sse41_if_supported() {
+        imp
+    } else {
+        return;
+    };
+    let mut state = [guts::u64x4([1, 1, 1, 1]); 8];
+    let count_low = guts::u64x4([1, 1, 1, 1]);
+    let count_high = guts::u64x4([1, 1, 1, 1]);
+    let lastblock = guts::u64x4([1, 1, 1, 1]);
+    let lastnode = guts::u64x4([1, 1, 1, 1]);
+    b.iter(|| {
+        sse41.compress4(
+            &mut state,
+            BLOCK,
+            BLOCK,
+            BLOCK,
+            BLOCK,
+            &count_low,
+            &count_high,
+            &lastblock,
+            &lastnode,
+        );
+    });
+    test::black_box(&mut state);
+}
+
+#[bench]
+fn bench_guts_compress4_avx2(b: &mut Bencher) {
+    b.bytes = BLOCK.len() as u64 * 4;
+    let avx2 = if let Some(imp) = guts::Implementation::avx2_if_supported() {
+        imp
+    } else {
+        return;
+    };
+    let mut state = [guts::u64x4([1, 1, 1, 1]); 8];
+    let count_low = guts::u64x4([1, 1, 1, 1]);
+    let count_high = guts::u64x4([1, 1, 1, 1]);
+    let lastblock = guts::u64x4([1, 1, 1, 1]);
+    let lastnode = guts::u64x4([1, 1, 1, 1]);
+    b.iter(|| {
+        avx2.compress4(
+            &mut state,
+            BLOCK,
+            BLOCK,
+            BLOCK,
+            BLOCK,
+            &count_low,
+            &count_high,
+            &lastblock,
+            &lastnode,
+        );
+    });
+    test::black_box(&mut state);
+}
+
+#[bench]
+fn bench_guts_transpose4_portable(b: &mut Bencher) {
+    let portable = guts::Implementation::portable();
+    let state0 = [1; 8];
+    let state1 = [2; 8];
+    let state2 = [3; 8];
+    let state3 = [4; 8];
+    b.iter(|| portable.transpose4(&state0, &state1, &state2, &state3));
+}
+
+#[bench]
+fn bench_guts_transpose4_avx2(b: &mut Bencher) {
+    let avx2 = if let Some(imp) = guts::Implementation::avx2_if_supported() {
+        imp
+    } else {
+        return;
+    };
+    let state0 = [1; 8];
+    let state1 = [2; 8];
+    let state2 = [3; 8];
+    let state3 = [4; 8];
+    b.iter(|| avx2.transpose4(&state0, &state1, &state2, &state3));
+}
+
+#[bench]
+fn bench_guts_untranspose4_portable(b: &mut Bencher) {
+    let portable = guts::Implementation::portable();
+    let mut state0 = [1; 8];
+    let mut state1 = [2; 8];
+    let mut state2 = [3; 8];
+    let mut state3 = [4; 8];
+    let transposed = portable.transpose4(&state0, &state1, &state2, &state3);
+    b.iter(|| {
+        portable.untranspose4(
+            &transposed,
+            &mut state0,
+            &mut state1,
+            &mut state2,
+            &mut state3,
+        );
+        test::black_box(&mut state0);
+        test::black_box(&mut state1);
+        test::black_box(&mut state2);
+        test::black_box(&mut state3);
+    });
+}
+
+#[bench]
+fn bench_guts_untranspose4_avx2(b: &mut Bencher) {
+    let avx2 = if let Some(imp) = guts::Implementation::avx2_if_supported() {
+        imp
+    } else {
+        return;
+    };
+    let mut state0 = [1; 8];
+    let mut state1 = [2; 8];
+    let mut state2 = [3; 8];
+    let mut state3 = [4; 8];
+    let transposed = avx2.transpose4(&state0, &state1, &state2, &state3);
+    b.iter(|| {
+        avx2.untranspose4(
+            &transposed,
+            &mut state0,
+            &mut state1,
+            &mut state2,
+            &mut state3,
+        );
+        test::black_box(&mut state0);
+        test::black_box(&mut state1);
+        test::black_box(&mut state2);
+        test::black_box(&mut state3);
+    });
 }

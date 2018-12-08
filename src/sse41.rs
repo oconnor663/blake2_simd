@@ -6,6 +6,8 @@ use core::arch::x86_64::*;
 use super::*;
 use core::mem;
 use core::ptr;
+use guts::u64x2;
+use guts::u64x4;
 
 #[inline(always)]
 unsafe fn add(a: __m128i, b: __m128i) -> __m128i {
@@ -342,17 +344,86 @@ unsafe fn compress2_transposed_inline(
     h_vecs[7] = xor(xor(h_vecs[7], v[7]), v[15]);
 }
 
-// Currently just for benchmarking.
 #[target_feature(enable = "sse4.1")]
 pub unsafe fn compress2_transposed(
-    h_vecs: &mut [__m128i; 8],
+    h_vecs: &mut [u64x2; 8],
     msg0: &Block,
     msg1: &Block,
-    count_low: __m128i,
-    count_high: __m128i,
-    lastblock: __m128i,
-    lastnode: __m128i,
+    count_low: &u64x2,
+    count_high: &u64x2,
+    lastblock: &u64x2,
+    lastnode: &u64x2,
 ) {
     let m = transpose_message_blocks(msg0, msg1);
-    compress2_transposed_inline(h_vecs, &m, count_low, count_high, lastblock, lastnode);
+    compress2_transposed_inline(
+        mem::transmute(h_vecs),
+        &m,
+        mem::transmute(*count_low),
+        mem::transmute(*count_high),
+        mem::transmute(*lastblock),
+        mem::transmute(*lastnode),
+    );
+}
+
+#[inline(always)]
+unsafe fn load_from_4(words: &[u64x4; 8], i: usize) -> [u64x2; 8] {
+    [
+        words[0].split()[i],
+        words[1].split()[i],
+        words[2].split()[i],
+        words[3].split()[i],
+        words[4].split()[i],
+        words[5].split()[i],
+        words[6].split()[i],
+        words[7].split()[i],
+    ]
+}
+
+#[inline(always)]
+unsafe fn store_to_4(whole: &mut [u64x4; 8], part: &[u64x2; 8], i: usize) {
+    whole[0].split_mut()[i] = part[0];
+    whole[1].split_mut()[i] = part[1];
+    whole[2].split_mut()[i] = part[2];
+    whole[3].split_mut()[i] = part[3];
+    whole[4].split_mut()[i] = part[4];
+    whole[5].split_mut()[i] = part[5];
+    whole[6].split_mut()[i] = part[6];
+    whole[7].split_mut()[i] = part[7];
+}
+
+#[target_feature(enable = "sse4.1")]
+pub unsafe fn compress4_transposed(
+    h_vecs: &mut [u64x4; 8],
+    msg0: &Block,
+    msg1: &Block,
+    msg2: &Block,
+    msg3: &Block,
+    count_low: &u64x4,
+    count_high: &u64x4,
+    lastblock: &u64x4,
+    lastnode: &u64x4,
+) {
+    let mut state0 = load_from_4(h_vecs, 0);
+    compress2_transposed(
+        &mut state0,
+        msg0,
+        msg1,
+        &count_low.split()[0],
+        &count_high.split()[0],
+        &lastblock.split()[0],
+        &lastnode.split()[0],
+    );
+    store_to_4(h_vecs, &state0, 0);
+
+    let mut state1 = load_from_4(h_vecs, 1);
+    compress2_transposed(
+        &mut state1,
+        msg2,
+        msg3,
+        &count_low.split()[1],
+        &count_high.split()[1],
+        &lastblock.split()[1],
+        &lastnode.split()[1],
+    );
+    store_to_4(h_vecs, &state1, 1);
 }

@@ -135,6 +135,7 @@ mod portable;
 mod sse41;
 
 pub mod blake2bp;
+pub mod guts;
 
 #[cfg(test)]
 mod test;
@@ -995,9 +996,9 @@ pub mod benchmarks {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub use crate::avx2::compress4 as compress4_avx2;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use crate::avx2::compress4_transposed_all as compress4_transposed_all_avx2;
+    pub use crate::avx2::compress4_transposed as compress4_transposed_avx2;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use crate::avx2::compress4_transposed_state as compress4_transposed_state_avx2;
+    pub use crate::avx2::compress4_transposed_all as compress4_transposed_all_avx2;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub use crate::sse41::compress2 as compress2_sse41;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

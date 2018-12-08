@@ -1,6 +1,8 @@
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
+use guts::u64x2;
+use guts::u64x4;
 
 // G is the mixing function, called eight times per round in the compression
 // function. V is the 16-word state vector of the compression function, usually
@@ -164,4 +166,211 @@ pub fn hash4_exact(
         params.to_state().update(input2).finalize(),
         params.to_state().update(input3).finalize(),
     ]
+}
+
+pub fn transpose2(words0: &[u64; 8], words1: &[u64; 8]) -> [u64x2; 8] {
+    [
+        u64x2([words0[0], words1[0]]),
+        u64x2([words0[1], words1[1]]),
+        u64x2([words0[2], words1[2]]),
+        u64x2([words0[3], words1[3]]),
+        u64x2([words0[4], words1[4]]),
+        u64x2([words0[5], words1[5]]),
+        u64x2([words0[6], words1[6]]),
+        u64x2([words0[7], words1[7]]),
+    ]
+}
+
+pub fn untranspose2(transposed: &[u64x2; 8], out0: &mut [u64; 8], out1: &mut [u64; 8]) {
+    *out0 = [
+        transposed[0][0],
+        transposed[1][0],
+        transposed[2][0],
+        transposed[3][0],
+        transposed[4][0],
+        transposed[5][0],
+        transposed[6][0],
+        transposed[7][0],
+    ];
+    *out1 = [
+        transposed[0][1],
+        transposed[1][1],
+        transposed[2][1],
+        transposed[3][1],
+        transposed[4][1],
+        transposed[5][1],
+        transposed[6][1],
+        transposed[7][1],
+    ];
+}
+
+#[inline(always)]
+fn load_from_2(words: &[u64x2; 8], i: usize) -> [u64; 8] {
+    [
+        words[0][i],
+        words[1][i],
+        words[2][i],
+        words[3][i],
+        words[4][i],
+        words[5][i],
+        words[6][i],
+        words[7][i],
+    ]
+}
+
+#[inline(always)]
+fn store_to_2(whole: &mut [u64x2; 8], part: &[u64; 8], i: usize) {
+    whole[0][i] = part[0];
+    whole[1][i] = part[1];
+    whole[2][i] = part[2];
+    whole[3][i] = part[3];
+    whole[4][i] = part[4];
+    whole[5][i] = part[5];
+    whole[6][i] = part[6];
+    whole[7][i] = part[7];
+}
+
+pub fn compress2_transposed(
+    h_vecs: &mut [u64x2; 8],
+    msg0: &Block,
+    msg1: &Block,
+    count_low: &u64x2,
+    count_high: &u64x2,
+    lastblock: &u64x2,
+    lastnode: &u64x2,
+) {
+    let mut state0 = load_from_2(h_vecs, 0);
+    let count0 = count_low[0] as u128 + ((count_high[0] as u128) << 64);
+    compress(&mut state0, msg0, count0, lastblock[0], lastnode[0]);
+    store_to_2(h_vecs, &state0, 0);
+
+    let mut state1 = load_from_2(h_vecs, 1);
+    let count1 = count_low[1] as u128 + ((count_high[1] as u128) << 64);
+    compress(&mut state1, msg1, count1, lastblock[1], lastnode[1]);
+    store_to_2(h_vecs, &state1, 1);
+}
+
+pub fn transpose4(
+    words0: &[u64; 8],
+    words1: &[u64; 8],
+    words2: &[u64; 8],
+    words3: &[u64; 8],
+) -> [u64x4; 8] {
+    [
+        u64x4([words0[0], words1[0], words2[0], words3[0]]),
+        u64x4([words0[1], words1[1], words2[1], words3[1]]),
+        u64x4([words0[2], words1[2], words2[2], words3[2]]),
+        u64x4([words0[3], words1[3], words2[3], words3[3]]),
+        u64x4([words0[4], words1[4], words2[4], words3[4]]),
+        u64x4([words0[5], words1[5], words2[5], words3[5]]),
+        u64x4([words0[6], words1[6], words2[6], words3[6]]),
+        u64x4([words0[7], words1[7], words2[7], words3[7]]),
+    ]
+}
+
+pub fn untranspose4(
+    transposed: &[u64x4; 8],
+    out0: &mut [u64; 8],
+    out1: &mut [u64; 8],
+    out2: &mut [u64; 8],
+    out3: &mut [u64; 8],
+) {
+    *out0 = [
+        transposed[0][0],
+        transposed[1][0],
+        transposed[2][0],
+        transposed[3][0],
+        transposed[4][0],
+        transposed[5][0],
+        transposed[6][0],
+        transposed[7][0],
+    ];
+    *out1 = [
+        transposed[0][1],
+        transposed[1][1],
+        transposed[2][1],
+        transposed[3][1],
+        transposed[4][1],
+        transposed[5][1],
+        transposed[6][1],
+        transposed[7][1],
+    ];
+    *out2 = [
+        transposed[0][2],
+        transposed[1][2],
+        transposed[2][2],
+        transposed[3][2],
+        transposed[4][2],
+        transposed[5][2],
+        transposed[6][2],
+        transposed[7][2],
+    ];
+    *out3 = [
+        transposed[0][3],
+        transposed[1][3],
+        transposed[2][3],
+        transposed[3][3],
+        transposed[4][3],
+        transposed[5][3],
+        transposed[6][3],
+        transposed[7][3],
+    ];
+}
+
+#[inline(always)]
+fn load_from_4(words: &[u64x4; 8], i: usize) -> [u64; 8] {
+    [
+        words[0][i],
+        words[1][i],
+        words[2][i],
+        words[3][i],
+        words[4][i],
+        words[5][i],
+        words[6][i],
+        words[7][i],
+    ]
+}
+
+#[inline(always)]
+fn store_to_4(whole: &mut [u64x4; 8], part: &[u64; 8], i: usize) {
+    whole[0][i] = part[0];
+    whole[1][i] = part[1];
+    whole[2][i] = part[2];
+    whole[3][i] = part[3];
+    whole[4][i] = part[4];
+    whole[5][i] = part[5];
+    whole[6][i] = part[6];
+    whole[7][i] = part[7];
+}
+
+pub fn compress4_transposed(
+    h_vecs: &mut [u64x4; 8],
+    msg0: &Block,
+    msg1: &Block,
+    msg2: &Block,
+    msg3: &Block,
+    count_low: &u64x4,
+    count_high: &u64x4,
+    lastblock: &u64x4,
+    lastnode: &u64x4,
+) {
+    let mut state0 = load_from_4(h_vecs, 0);
+    let count0 = count_low[0] as u128 + ((count_high[0] as u128) << 64);
+    compress(&mut state0, msg0, count0, lastblock[0], lastnode[0]);
+    store_to_4(h_vecs, &state0, 0);
+
+    let mut state1 = load_from_4(h_vecs, 1);
+    let count1 = count_low[1] as u128 + ((count_high[1] as u128) << 64);
+    compress(&mut state1, msg1, count1, lastblock[1], lastnode[1]);
+    store_to_4(h_vecs, &state1, 1);
+
+    let mut state2 = load_from_4(h_vecs, 2);
+    let count2 = count_low[2] as u128 + ((count_high[2] as u128) << 64);
+    compress(&mut state2, msg2, count2, lastblock[2], lastnode[2]);
+    store_to_4(h_vecs, &state2, 2);
+
+    let mut state3 = load_from_4(h_vecs, 3);
+    let count3 = count_low[3] as u128 + ((count_high[3] as u128) << 64);
+    compress(&mut state3, msg3, count3, lastblock[3], lastnode[3]);
+    store_to_4(h_vecs, &state3, 3);
 }
