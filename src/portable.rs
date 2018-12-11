@@ -1,8 +1,8 @@
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
-use guts::u64x2;
-use guts::u64x4;
+use crate::guts::u64x2;
+use crate::guts::u64x4;
 
 // G is the mixing function, called eight times per round in the compression
 // function. V is the 16-word state vector of the compression function, usually
@@ -107,65 +107,6 @@ pub fn compress(h: &mut StateWords, msg: &Block, count: u128, lastblock: u64, la
     h[5] ^= v[5] ^ v[13];
     h[6] ^= v[6] ^ v[14];
     h[7] ^= v[7] ^ v[15];
-}
-
-pub fn compress2(
-    h0: &mut StateWords,
-    h1: &mut StateWords,
-    msg0: &Block,
-    msg1: &Block,
-    count0: u128,
-    count1: u128,
-    lastblock0: u64,
-    lastblock1: u64,
-    lastnode0: u64,
-    lastnode1: u64,
-) {
-    compress(h0, msg0, count0, lastblock0, lastnode0);
-    compress(h1, msg1, count1, lastblock1, lastnode1);
-}
-
-pub fn compress4(
-    h0: &mut StateWords,
-    h1: &mut StateWords,
-    h2: &mut StateWords,
-    h3: &mut StateWords,
-    msg0: &Block,
-    msg1: &Block,
-    msg2: &Block,
-    msg3: &Block,
-    count0: u128,
-    count1: u128,
-    count2: u128,
-    count3: u128,
-    lastblock0: u64,
-    lastblock1: u64,
-    lastblock2: u64,
-    lastblock3: u64,
-    lastnode0: u64,
-    lastnode1: u64,
-    lastnode2: u64,
-    lastnode3: u64,
-) {
-    compress(h0, msg0, count0, lastblock0, lastnode0);
-    compress(h1, msg1, count1, lastblock1, lastnode1);
-    compress(h2, msg2, count2, lastblock2, lastnode2);
-    compress(h3, msg3, count3, lastblock3, lastnode3);
-}
-
-pub fn hash4_exact(
-    params: &Params,
-    input0: &[u8],
-    input1: &[u8],
-    input2: &[u8],
-    input3: &[u8],
-) -> [Hash; 4] {
-    [
-        params.to_state().update(input0).finalize(),
-        params.to_state().update(input1).finalize(),
-        params.to_state().update(input2).finalize(),
-        params.to_state().update(input3).finalize(),
-    ]
 }
 
 pub fn transpose2(words0: &[u64; 8], words1: &[u64; 8]) -> [u64x2; 8] {

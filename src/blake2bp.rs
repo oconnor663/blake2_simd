@@ -21,18 +21,20 @@
 //! assert_eq!("e69c7d2c42a5ac14948772231c68c552", &hash.to_hex());
 //! ```
 
-use core::cmp;
-use core::fmt;
-use crate::Compress4Fn;
+use crate::guts;
 use crate::Hash;
 use crate::Params as Blake2bParams;
-use crate::State as Blake2bState;
 use crate::BLOCKBYTES;
 use crate::KEYBYTES;
 use crate::OUTBYTES;
+use byteorder::{ByteOrder, LittleEndian};
+use core::cmp;
+use core::fmt;
 
 #[cfg(feature = "std")]
 use std;
+
+const DEGREE: usize = 4;
 
 /// Compute the BLAKE2bp hash of a slice of bytes, using default parameters.
 ///
@@ -145,16 +147,15 @@ impl fmt::Debug for Params {
 /// ```
 #[derive(Clone)]
 pub struct State {
-    leaf0: Blake2bState,
-    leaf1: Blake2bState,
-    leaf2: Blake2bState,
-    leaf3: Blake2bState,
-    root: Blake2bState,
+    transposed_leaf_words: [guts::u64x4; 8],
+    root_words: [u64; 8],
     // Note that this buffer is twice as large as what compress4 needs. That guarantees that we
     // have enough input when we compress to know we don't need to finalize any of the leaves.
     buf: [u8; 8 * BLOCKBYTES],
     buflen: u16,
-    compress4_fn: Compress4Fn,
+    count: u128,
+    hash_length: u8,
+    implementation: guts::Implementation,
 }
 
 impl State {
@@ -163,60 +164,69 @@ impl State {
         Self::with_params(&Params::default())
     }
 
-    // TODO: There are a couple places in this function where we reach into the BLAKE2b State
-    // object and manually overwrite its fields. This is unfortunate, and it means you can't
-    // actually build BLAKE2bp out of the BLAKE2b public interface. (You can make it work for the
-    // basic default-length-no-key case, but you can't implement either of those parameters
-    // correctly.) It might be nice to talk to the designers about whether this is the intended
-    // state of affairs.
     fn with_params(params: &Params) -> Self {
+        let implementation = guts::Implementation::detect();
         let mut base_params = Blake2bParams::new();
         base_params
             .hash_length(params.hash_length as usize)
             .key(&params.key[..params.key_length as usize])
-            .fanout(4)
+            .fanout(DEGREE as u8)
             .max_depth(2)
             .max_leaf_length(0)
             // Note that inner_hash_length is always OUTBYTES, regardless of the hash_length
             // parameter. This isn't documented in the spec, but it matches the behavior of the
             // reference implementation: https://github.com/BLAKE2/BLAKE2/blob/320c325437539ae91091ce62efec1913cd8093c2/ref/blake2bp-ref.c#L55
             .inner_hash_length(OUTBYTES);
-        let leaf_state = |worker_index| {
-            let mut state = base_params
+        let leaf_words = |worker_index| {
+            base_params
                 .clone()
                 .node_offset(worker_index)
                 .node_depth(0)
-                .last_node(worker_index == 3)
-                .to_state();
-            // Force the output length to be OUTBYTES, matching the inner_hash_length parameter.
-            // Note that the regular hash_length parameter still contributes associated data to
-            // these instances.
-            state.hash_length = OUTBYTES as u8;
-            state
+                // Note that setting the last_node flag here has no effect,
+                // because it isn't included in the state words.
+                .to_state_words()
         };
-        let mut root_state = base_params
+        let transposed_leaf_words = implementation.transpose4(
+            &leaf_words(0),
+            &leaf_words(1),
+            &leaf_words(2),
+            &leaf_words(3),
+        );
+        let root_words = base_params
             .clone()
             .node_offset(0)
             .node_depth(1)
-            .last_node(true)
-            .to_state();
-        // Clear the keybytes from the root state buffer. Only the leaf nodes will hash the actual
-        // key bytes, though the key length still contributes associated data to the root node.
-        // Again this isn't documented in the spec, but it matches the behavior of the reference
-        // implementation: https://github.com/BLAKE2/BLAKE2/blob/320c325437539ae91091ce62efec1913cd8093c2/ref/blake2bp-ref.c#L128
-        // This particular behavior (though not the inner hash length behavior above) is also
-        // corroborated by the official test vectors; see tests/vector_tests.rs.
-        root_state.buflen = 0;
-        root_state.count = 0;
+            // Note that setting the last_node flag here has no effect, because
+            // it isn't included in the state words.
+            .to_state_words();
+
+        // If a key is set, initalize the buffer to contain the key bytes. Note
+        // that only the leaves hash key bytes. The root doesn't, even though
+        // the key length it still set in its parameters. Again this isn't
+        // documented in the spec, but it matches the behavior of the reference
+        // implementation:
+        // https://github.com/BLAKE2/BLAKE2/blob/320c325437539ae91091ce62efec1913cd8093c2/ref/blake2bp-ref.c#L128
+        // This particular behavior (though not the inner hash length behavior
+        // above) is also corroborated by the official test vectors; see
+        // tests/vector_tests.rs.
+        let mut buf = [0; 2 * DEGREE * BLOCKBYTES];
+        let mut buflen = 0;
+        if params.key_length > 0 {
+            for i in 0..DEGREE {
+                let keybytes = &params.key[..params.key_length as usize];
+                buf[i * BLOCKBYTES..][..keybytes.len()].copy_from_slice(keybytes);
+                buflen = BLOCKBYTES * DEGREE;
+            }
+        }
+
         Self {
-            leaf0: leaf_state(0),
-            leaf1: leaf_state(1),
-            leaf2: leaf_state(2),
-            leaf3: leaf_state(3),
-            root: root_state,
-            buf: [0; 8 * BLOCKBYTES],
-            buflen: 0,
-            compress4_fn: crate::default_compress_impl().1,
+            transposed_leaf_words,
+            root_words,
+            buf,
+            buflen: buflen as u16,
+            count: 0, // count gets updated in self.compress()
+            hash_length: params.hash_length,
+            implementation,
         }
     }
 
@@ -227,53 +237,30 @@ impl State {
         *input = &input[take..];
     }
 
-    fn compress4(
-        input: &[u8; 4 * BLOCKBYTES],
-        leaf0: &mut Blake2bState,
-        leaf1: &mut Blake2bState,
-        leaf2: &mut Blake2bState,
-        leaf3: &mut Blake2bState,
-        compress4_fn: Compress4Fn,
+    fn compress(
+        input: &[u8; DEGREE * BLOCKBYTES],
+        state: &mut [guts::u64x4; 8],
+        count: &mut u128,
+        implementation: guts::Implementation,
     ) {
-        // Note that this is reaching into the underlying state objects, so it assumes they don't
-        // get input through their normal update() interface. Also we can only call this when we're
-        // sure there's more input coming.
-        debug_assert_eq!(0, leaf0.buflen);
-        debug_assert_eq!(0, leaf1.buflen);
-        debug_assert_eq!(0, leaf2.buflen);
-        debug_assert_eq!(0, leaf3.buflen);
-        debug_assert_eq!(leaf0.count, leaf1.count);
-        debug_assert_eq!(leaf0.count, leaf2.count);
-        debug_assert_eq!(leaf0.count, leaf3.count);
-        leaf0.count += BLOCKBYTES as u128;
-        leaf1.count += BLOCKBYTES as u128;
-        leaf2.count += BLOCKBYTES as u128;
-        leaf3.count += BLOCKBYTES as u128;
         let msg_refs = array_refs!(input, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES);
-        unsafe {
-            (compress4_fn)(
-                &mut leaf0.h,
-                &mut leaf1.h,
-                &mut leaf2.h,
-                &mut leaf3.h,
-                msg_refs.0,
-                msg_refs.1,
-                msg_refs.2,
-                msg_refs.3,
-                leaf0.count,
-                leaf1.count,
-                leaf2.count,
-                leaf3.count,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            );
-        }
+        // Note that count is incremented by *one* block, not four.
+        *count += BLOCKBYTES as u128;
+        let count_low = guts::u64x4([*count as u64; 4]);
+        let count_high = guts::u64x4([(*count >> 64) as u64; 4]);
+        let lastblock = guts::u64x4([0; 4]);
+        let lastnode = guts::u64x4([0; 4]);
+        implementation.compress4(
+            state,
+            msg_refs.0,
+            msg_refs.1,
+            msg_refs.2,
+            msg_refs.3,
+            &count_low,
+            &count_high,
+            &lastblock,
+            &lastnode,
+        );
     }
 
     /// Add input to the hash. You can call `update` any number of times.
@@ -288,31 +275,27 @@ impl State {
                 // The buffer is large enough for two compressions. If it's full and there's more
                 // input coming, always do at least the first compression, on the left half of the
                 // buffer.
-                Self::compress4(
-                    array_ref!(self.buf, 0, 4 * BLOCKBYTES),
-                    &mut self.leaf0,
-                    &mut self.leaf1,
-                    &mut self.leaf2,
-                    &mut self.leaf3,
-                    self.compress4_fn,
+                Self::compress(
+                    array_ref!(self.buf, 0, DEGREE * BLOCKBYTES),
+                    &mut self.transposed_leaf_words,
+                    &mut self.count,
+                    self.implementation,
                 );
-                self.buflen -= 4 * BLOCKBYTES as u16;
+                self.buflen -= (DEGREE * BLOCKBYTES) as u16;
                 // Now, if there's enough input still coming that all four leaves are going to get
                 // more, we can do the second compression and clear the buffer. Otherwise, we have
                 // to shift the remainder of the buffer to the left (and we know in this case the
                 // direct-from-memory loop will get skipped too).
-                if input.len() > 3 * BLOCKBYTES {
-                    Self::compress4(
-                        array_ref!(self.buf, 4 * BLOCKBYTES, 4 * BLOCKBYTES),
-                        &mut self.leaf0,
-                        &mut self.leaf1,
-                        &mut self.leaf2,
-                        &mut self.leaf3,
-                        self.compress4_fn,
+                if input.len() > (DEGREE - 1) * BLOCKBYTES {
+                    Self::compress(
+                        array_ref!(self.buf, DEGREE * BLOCKBYTES, DEGREE * BLOCKBYTES),
+                        &mut self.transposed_leaf_words,
+                        &mut self.count,
+                        self.implementation,
                     );
                     self.buflen = 0;
                 } else {
-                    let (left, right) = self.buf.split_at_mut(4 * BLOCKBYTES);
+                    let (left, right) = self.buf.split_at_mut(DEGREE * BLOCKBYTES);
                     left[..self.buflen as usize].copy_from_slice(&right[..self.buflen as usize]);
                 }
             }
@@ -321,17 +304,16 @@ impl State {
         // While there are more than 7 input blocks coming, then we know that we can perform a
         // compression and still have more input coming for each leaf. (We also know that the
         // buffer must have been emptied above.)
-        while input.len() > 7 * BLOCKBYTES {
-            let block = array_ref!(input, 0, 4 * BLOCKBYTES);
-            Self::compress4(
+        while input.len() > ((2 * DEGREE) - 1) * BLOCKBYTES {
+            debug_assert_eq!(0, self.buflen);
+            let block = array_ref!(input, 0, DEGREE * BLOCKBYTES);
+            Self::compress(
                 block,
-                &mut self.leaf0,
-                &mut self.leaf1,
-                &mut self.leaf2,
-                &mut self.leaf3,
-                self.compress4_fn,
+                &mut self.transposed_leaf_words,
+                &mut self.count,
+                self.implementation,
             );
-            input = &input[4 * BLOCKBYTES..];
+            input = &input[DEGREE * BLOCKBYTES..];
         }
 
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
@@ -343,45 +325,143 @@ impl State {
     /// Finalize the state and return a `Hash`. This method is idempotent, and calling it multiple
     /// times will give the same result. It's also possible to `update` with more input in between.
     pub fn finalize(&mut self) -> Hash {
-        let mut leaf0 = self.leaf0.clone();
-        let mut leaf1 = self.leaf1.clone();
-        let mut leaf2 = self.leaf2.clone();
-        let mut leaf3 = self.leaf3.clone();
-        let chunks = array_refs!(
+        // Zero the buffer tail, since it might contain bytes from previous
+        // compressions.
+        let buflen = self.buflen as usize;
+        for i in buflen..self.buf.len() {
+            self.buf[i] = 0;
+        }
+
+        // Split the buffer into an array of blocks.
+        let blocks = array_refs!(
             &self.buf, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES,
             BLOCKBYTES, BLOCKBYTES
         );
-        let mut buflen = self.buflen as usize;
-        leaf0.update(&chunks.0[..cmp::min(buflen, BLOCKBYTES)]);
-        buflen = buflen.saturating_sub(BLOCKBYTES);
-        leaf1.update(&chunks.1[..cmp::min(buflen, BLOCKBYTES)]);
-        buflen = buflen.saturating_sub(BLOCKBYTES);
-        leaf2.update(&chunks.2[..cmp::min(buflen, BLOCKBYTES)]);
-        buflen = buflen.saturating_sub(BLOCKBYTES);
-        leaf3.update(&chunks.3[..cmp::min(buflen, BLOCKBYTES)]);
-        buflen = buflen.saturating_sub(BLOCKBYTES);
-        leaf0.update(&chunks.4[..cmp::min(buflen, BLOCKBYTES)]);
-        buflen = buflen.saturating_sub(BLOCKBYTES);
-        leaf1.update(&chunks.5[..cmp::min(buflen, BLOCKBYTES)]);
-        buflen = buflen.saturating_sub(BLOCKBYTES);
-        leaf2.update(&chunks.6[..cmp::min(buflen, BLOCKBYTES)]);
-        buflen = buflen.saturating_sub(BLOCKBYTES);
-        leaf3.update(&chunks.7[..cmp::min(buflen, BLOCKBYTES)]);
-        let mut root = self.root.clone();
-        root.update(leaf0.finalize().as_bytes());
-        root.update(leaf1.finalize().as_bytes());
-        root.update(leaf2.finalize().as_bytes());
-        root.update(leaf3.finalize().as_bytes());
-        root.finalize()
+        let blocks = [
+            blocks.0, blocks.1, blocks.2, blocks.3, blocks.4, blocks.5, blocks.6, blocks.7,
+        ];
+
+        // Clone the leaf words. That keeps this method idempotent.
+        let mut leaves_copy = self.transposed_leaf_words;
+
+        // Count how many bytes each leaf still needs to compress. Note that
+        // even if the number is zero, each leaf is going to get at least one
+        // more compression to finalize it.
+        let remaining_bytes_fn = |i: usize| {
+            let first_block_start = i * BLOCKBYTES;
+            let first_block_end = first_block_start + BLOCKBYTES;
+            let second_block_start = (DEGREE + i) * BLOCKBYTES;
+            let second_block_end = second_block_start + BLOCKBYTES;
+            if buflen < first_block_start {
+                0
+            } else if buflen < first_block_end {
+                buflen - first_block_start
+            } else if buflen < second_block_start {
+                BLOCKBYTES
+            } else if buflen < second_block_end {
+                BLOCKBYTES + buflen - second_block_start
+            } else {
+                2 * BLOCKBYTES
+            }
+        };
+        let mut remaining = [
+            remaining_bytes_fn(0),
+            remaining_bytes_fn(1),
+            remaining_bytes_fn(2),
+            remaining_bytes_fn(3),
+        ];
+
+        // While all leaves still have compressions remaining, run them in a
+        // batch. This might finalize some of the leaves. This loop will either
+        // run once (even if some leaves have no input) or twice (if all leaves
+        // have more than one block).
+        let mut blocks_handled = 0;
+        let mut count = self.count;
+        loop {
+            let mut count_low = guts::u64x4([count as u64; 4]);
+            for i in 0..DEGREE {
+                let take = cmp::min(BLOCKBYTES, remaining[i]);
+                count_low[i] += take as u64;
+                remaining[i] -= take;
+            }
+            let count_high = guts::u64x4([0; 4]);
+            let mut lastblock = guts::u64x4([0; 4]);
+            for i in 0..DEGREE {
+                lastblock[i] = if remaining[i] == 0 { !0 } else { 0 };
+            }
+            let lastnode = guts::u64x4([0, 0, 0, lastblock[DEGREE - 1]]);
+            self.implementation.compress4(
+                &mut leaves_copy,
+                &blocks[blocks_handled + 0],
+                &blocks[blocks_handled + 1],
+                &blocks[blocks_handled + 2],
+                &blocks[blocks_handled + 3],
+                &count_low,
+                &count_high,
+                &lastblock,
+                &lastnode,
+            );
+            blocks_handled += DEGREE;
+            // Note that at this point `count` only applies to leaves that
+            // haven't been finalized.
+            count += BLOCKBYTES as u128;
+            if remaining.iter().any(|&rem| rem == 0) {
+                break;
+            }
+        }
+
+        // We just finished all the batch compressions we could. Some of the
+        // leaves might have one more block left to finalize them. Untranspose
+        // the state and then finalize those leaves, if any.
+        let mut leaves_untransposed = [[0u64; 8]; 4];
+        let &mut [ref mut state0, ref mut state1, ref mut state2, ref mut state3] =
+            &mut leaves_untransposed;
+        self.implementation
+            .untranspose4(&leaves_copy, state0, state1, state2, state3);
+        for i in 0..DEGREE {
+            if remaining[i] > 0 {
+                self.implementation.compress(
+                    &mut leaves_untransposed[i],
+                    &blocks[blocks_handled + i],
+                    count + remaining[i] as u128,
+                    !0,
+                    if i == DEGREE - 1 { !0 } else { 0 },
+                );
+            }
+        }
+
+        // Compress each of the four untransposed, finalized hashes into the
+        // root words as input, using two compressions. Again we copy the words
+        // to keep this method idempotent. Note that this uses the full-length
+        // leaf hashes, not the shortened versions, even if the hash_length
+        // parameter is set to a short value. Note also that, as mentioned
+        // above, the root node doesn't hash any key bytes.
+        let mut root_words_copy = self.root_words;
+        for i in 0..DEGREE / 2 {
+            let mut block = [0; BLOCKBYTES];
+            LittleEndian::write_u64_into(&leaves_untransposed[2 * i], &mut block[0..OUTBYTES]);
+            LittleEndian::write_u64_into(
+                &leaves_untransposed[2 * i + 1],
+                &mut block[OUTBYTES..2 * OUTBYTES],
+            );
+            self.implementation.compress(
+                &mut root_words_copy,
+                &block,
+                ((i + 1) * BLOCKBYTES) as u128,
+                if i == DEGREE / 2 - 1 { !0 } else { 0 },
+                if i == DEGREE / 2 - 1 { !0 } else { 0 },
+            );
+        }
+
+        Hash {
+            bytes: crate::state_words_to_bytes(&root_words_copy),
+            len: self.hash_length,
+        }
     }
 
     /// Return the total number of bytes input so far.
     pub fn count(&self) -> u128 {
-        self.leaf0.count()
-            + self.leaf1.count()
-            + self.leaf2.count()
-            + self.leaf3.count()
-            + self.buflen as u128
+        4 * self.count + self.buflen as u128
     }
 }
 
@@ -401,14 +481,9 @@ impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "State {{ count: {}, root: {:?}, leaf0: {:?}, leaf1: {:?}, \
-             leaf2: {:?}, leaf3: {:?} }}",
+            "State {{ count: {}, hash_length: {} }}",
             self.count(),
-            self.root,
-            self.leaf0,
-            self.leaf1,
-            self.leaf2,
-            self.leaf3
+            self.hash_length,
         )
     }
 }
@@ -420,12 +495,7 @@ impl Default for State {
 }
 
 pub(crate) fn force_portable(state: &mut State) {
-    state.compress4_fn = crate::portable::compress4;
-    state.root.compress_fn = crate::portable::compress;
-    state.leaf0.compress_fn = crate::portable::compress;
-    state.leaf1.compress_fn = crate::portable::compress;
-    state.leaf2.compress_fn = crate::portable::compress;
-    state.leaf3.compress_fn = crate::portable::compress;
+    state.implementation = guts::Implementation::portable();
 }
 
 #[cfg(test)]
@@ -496,34 +566,39 @@ pub(crate) mod test {
     }
 
     #[test]
-    fn test_buffering() {
-        let mut buf = [0; 20 * BLOCKBYTES];
+    fn test_against_reference() {
+        let mut buf = [0; 21 * BLOCKBYTES];
         paint_input(&mut buf);
-        // - 8 chunks is just enought to fill the double buffer.
-        // - 9 chunks triggers the "perform one compression on the double buffer" case.
-        // - 11 chunks is the largest input where only one compression may be performed, on the
+        // - 8 blocks is just enought to fill the double buffer.
+        // - 9 blocks triggers the "perform one compression on the double buffer" case.
+        // - 11 blocks is the largest input where only one compression may be performed, on the
         //   first half of the buffer, because there's not enough input to avoid needing to
         //   finalize the second half.
-        // - 12 chunks triggers the "perform both compressions in the double buffer" case.
-        // - 15 chunks is the largest input where, after compressing 8 chunks from the buffer,
+        // - 12 blocks triggers the "perform both compressions in the double buffer" case.
+        // - 15 blocks is the largest input where, after compressing 8 blocks from the buffer,
         //   there's not enough input to hash directly from memory.
-        // - 16 chunks triggers "after emptying the buffer, hash directly from memory".
-        for num_chunks in 1..=20 {
-            // First hash the input all at once, as a sanity check.
-            let input = &buf[..num_chunks * BLOCKBYTES];
-            let expected = blake2bp_reference(&input);
-            let found = blake2bp(&input);
-            assert_eq!(expected, found);
+        // - 16 blocks triggers "after emptying the buffer, hash directly from memory".
+        for num_blocks in 0..=20 {
+            for &extra in &[0, 1, BLOCKBYTES - 1] {
+                // First hash the input all at once, as a sanity check.
+                let input = &buf[..num_blocks * BLOCKBYTES + extra];
+                let expected = blake2bp_reference(&input);
+                let found = blake2bp(&input);
+                assert_eq!(expected, found);
 
-            // Then, do it again, but buffer 1 byte of input first. That causes the buffering
-            // branch to trigger.
-            let mut state = State::new();
-            state.update(&input[..1]);
-            assert_eq!(1, state.count());
-            state.update(&input[1..]);
-            assert_eq!(input.len() as u128, state.count());
-            let found = state.finalize();
-            assert_eq!(expected, found);
+                // Then, do it again, but buffer 1 byte of input first. That causes the buffering
+                // branch to trigger.
+                let mut state = State::new();
+                let maybe_one = cmp::min(1, input.len());
+                state.update(&input[..maybe_one]);
+                assert_eq!(maybe_one as u128, state.count());
+                // Do a throwaway finalize here to check for idempotency.
+                state.finalize();
+                state.update(&input[maybe_one..]);
+                assert_eq!(input.len() as u128, state.count());
+                let found = state.finalize();
+                assert_eq!(expected, found);
+            }
         }
     }
 }

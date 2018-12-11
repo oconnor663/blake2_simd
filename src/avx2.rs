@@ -4,8 +4,8 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 use super::*;
+use crate::guts::u64x4;
 use core::mem;
-use guts::u64x4;
 
 #[inline(always)]
 unsafe fn load_256_unaligned(mem_addr: &[u64; 4]) -> __m256i {
@@ -404,11 +404,6 @@ unsafe fn load_256_from_u64(x: u64) -> __m256i {
     _mm256_set1_epi64x(x as i64)
 }
 
-#[inline(always)]
-unsafe fn load_256_from_4xu64(x1: u64, x2: u64, x3: u64, x4: u64) -> __m256i {
-    _mm256_setr_epi64x(x1 as i64, x2 as i64, x3 as i64, x4 as i64)
-}
-
 // Performance note: Factoring out a G function here doesn't hurt performance,
 // unlike in the case of BLAKE2s where it hurts substantially. In fact, on my
 // machine, it helps a tiny bit. But the difference it tiny, so I'm going to
@@ -531,86 +526,6 @@ unsafe fn blake2b_round_4x(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
     v[6] = rot63(v[6]);
     v[7] = rot63(v[7]);
     v[4] = rot63(v[4]);
-}
-
-#[target_feature(enable = "avx2")]
-pub unsafe fn compress4(
-    h0: &mut StateWords,
-    h1: &mut StateWords,
-    h2: &mut StateWords,
-    h3: &mut StateWords,
-    msg0: &Block,
-    msg1: &Block,
-    msg2: &Block,
-    msg3: &Block,
-    count0: u128,
-    count1: u128,
-    count2: u128,
-    count3: u128,
-    lastblock0: u64,
-    lastblock1: u64,
-    lastblock2: u64,
-    lastblock3: u64,
-    lastnode0: u64,
-    lastnode1: u64,
-    lastnode2: u64,
-    lastnode3: u64,
-) {
-    let h_vecs_lo = transpose_vecs(
-        _mm256_loadu_si256(&h0[0] as *const u64 as *const __m256i),
-        _mm256_loadu_si256(&h1[0] as *const u64 as *const __m256i),
-        _mm256_loadu_si256(&h2[0] as *const u64 as *const __m256i),
-        _mm256_loadu_si256(&h3[0] as *const u64 as *const __m256i),
-    );
-    let h_vecs_hi = transpose_vecs(
-        _mm256_loadu_si256(&h0[4] as *const u64 as *const __m256i),
-        _mm256_loadu_si256(&h1[4] as *const u64 as *const __m256i),
-        _mm256_loadu_si256(&h2[4] as *const u64 as *const __m256i),
-        _mm256_loadu_si256(&h3[4] as *const u64 as *const __m256i),
-    );
-    let mut h_vecs = [
-        h_vecs_lo[0],
-        h_vecs_lo[1],
-        h_vecs_lo[2],
-        h_vecs_lo[3],
-        h_vecs_hi[0],
-        h_vecs_hi[1],
-        h_vecs_hi[2],
-        h_vecs_hi[3],
-    ];
-    let count_low = load_256_from_4xu64(count0 as u64, count1 as u64, count2 as u64, count3 as u64);
-    let count_high = load_256_from_4xu64(
-        (count0 >> 64) as u64,
-        (count1 >> 64) as u64,
-        (count2 >> 64) as u64,
-        (count3 >> 64) as u64,
-    );
-    let lastblock = load_256_from_4xu64(
-        lastblock0 as u64,
-        lastblock1 as u64,
-        lastblock2 as u64,
-        lastblock3 as u64,
-    );
-    let lastnode = load_256_from_4xu64(
-        lastnode0 as u64,
-        lastnode1 as u64,
-        lastnode2 as u64,
-        lastnode3 as u64,
-    );
-
-    let m = transpose_message_blocks(msg0, msg1, msg2, msg3);
-    compress4_transposed_inline(&mut h_vecs, &m, count_low, count_high, lastblock, lastnode);
-
-    let out_vecs_lo = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
-    _mm256_storeu_si256(&mut h0[0] as *mut u64 as *mut __m256i, out_vecs_lo[0]);
-    _mm256_storeu_si256(&mut h1[0] as *mut u64 as *mut __m256i, out_vecs_lo[1]);
-    _mm256_storeu_si256(&mut h2[0] as *mut u64 as *mut __m256i, out_vecs_lo[2]);
-    _mm256_storeu_si256(&mut h3[0] as *mut u64 as *mut __m256i, out_vecs_lo[3]);
-    let out_vecs_hi = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
-    _mm256_storeu_si256(&mut h0[4] as *mut u64 as *mut __m256i, out_vecs_hi[0]);
-    _mm256_storeu_si256(&mut h1[4] as *mut u64 as *mut __m256i, out_vecs_hi[1]);
-    _mm256_storeu_si256(&mut h2[4] as *mut u64 as *mut __m256i, out_vecs_hi[2]);
-    _mm256_storeu_si256(&mut h3[4] as *mut u64 as *mut __m256i, out_vecs_hi[3]);
 }
 
 #[inline(always)]
@@ -799,19 +714,6 @@ unsafe fn compress4_transposed_inline(
 
 // Currently just for benchmarking.
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress4_transposed_all(
-    h_vecs: &mut [__m256i; 8],
-    msg_vecs: &[__m256i; 16],
-    count_low: __m256i,
-    count_high: __m256i,
-    lastblock: __m256i,
-    lastnode: __m256i,
-) {
-    compress4_transposed_inline(h_vecs, msg_vecs, count_low, count_high, lastblock, lastnode);
-}
-
-// Currently just for benchmarking.
-#[target_feature(enable = "avx2")]
 pub unsafe fn compress4_transposed(
     h_vecs: &mut [u64x4; 8],
     msg0: &Block,
@@ -832,96 +734,4 @@ pub unsafe fn compress4_transposed(
         mem::transmute(*lastblock),
         mem::transmute(*lastnode),
     );
-}
-
-#[inline(always)]
-unsafe fn export_hashes(h_vecs: &[__m256i; 8], hash_length: u8) -> [Hash; 4] {
-    let mut bytes0 = [0; OUTBYTES];
-    let mut bytes1 = [0; OUTBYTES];
-    let mut bytes2 = [0; OUTBYTES];
-    let mut bytes3 = [0; OUTBYTES];
-    // Transpose is its own inverse.
-    let deinterleaved_lo = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
-    _mm256_storeu_si256(&mut bytes0[0] as *mut u8 as *mut _, deinterleaved_lo[0]);
-    _mm256_storeu_si256(&mut bytes1[0] as *mut u8 as *mut _, deinterleaved_lo[1]);
-    _mm256_storeu_si256(&mut bytes2[0] as *mut u8 as *mut _, deinterleaved_lo[2]);
-    _mm256_storeu_si256(&mut bytes3[0] as *mut u8 as *mut _, deinterleaved_lo[3]);
-    let deinterleaved_hi = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
-    _mm256_storeu_si256(&mut bytes0[32] as *mut u8 as *mut _, deinterleaved_hi[0]);
-    _mm256_storeu_si256(&mut bytes1[32] as *mut u8 as *mut _, deinterleaved_hi[1]);
-    _mm256_storeu_si256(&mut bytes2[32] as *mut u8 as *mut _, deinterleaved_hi[2]);
-    _mm256_storeu_si256(&mut bytes3[32] as *mut u8 as *mut _, deinterleaved_hi[3]);
-    // BLAKE2 and AVX2 both use little-endian representation, so we can just transmute the word
-    // bytes out of each de-interleaved vector.
-    [
-        Hash {
-            len: hash_length,
-            bytes: bytes0,
-        },
-        Hash {
-            len: hash_length,
-            bytes: bytes1,
-        },
-        Hash {
-            len: hash_length,
-            bytes: bytes2,
-        },
-        Hash {
-            len: hash_length,
-            bytes: bytes3,
-        },
-    ]
-}
-
-#[target_feature(enable = "avx2")]
-pub unsafe fn hash4_exact(
-    params: &Params,
-    input0: &[u8],
-    input1: &[u8],
-    input2: &[u8],
-    input3: &[u8],
-) -> [Hash; 4] {
-    // INVARIANTS! The caller must assert:
-    //   1. The inputs are the same length.
-    //   2. The inputs are a multiple of the block size.
-    //   3. The inputs aren't empty.
-
-    let param_words = params.to_state_words();
-    // This creates word vectors in an aready-transposed position.
-    let mut h_vecs = [
-        load_256_from_u64(param_words[0]),
-        load_256_from_u64(param_words[1]),
-        load_256_from_u64(param_words[2]),
-        load_256_from_u64(param_words[3]),
-        load_256_from_u64(param_words[4]),
-        load_256_from_u64(param_words[5]),
-        load_256_from_u64(param_words[6]),
-        load_256_from_u64(param_words[7]),
-    ];
-    let len = input0.len();
-    let mut count = 0;
-
-    loop {
-        // Use pointer casts to avoid bounds checks here. The caller has to assert that these exact
-        // bounds are valid. Note that if these bounds were wrong, we'd get the wrong hash in any
-        // case, because count is an input to the compression function.
-        let msg0 = &*(input0.as_ptr().add(count) as *const Block);
-        let msg1 = &*(input1.as_ptr().add(count) as *const Block);
-        let msg2 = &*(input2.as_ptr().add(count) as *const Block);
-        let msg3 = &*(input3.as_ptr().add(count) as *const Block);
-        count += BLOCKBYTES;
-        let count_low = load_256_from_u64(count as u64);
-        let count_high = load_256_from_u64(0);
-        let lastblock = load_256_from_u64(if count == len { !0 } else { 0 });
-        let lastnode = load_256_from_u64(if params.last_node && count == len {
-            !0
-        } else {
-            0
-        });
-        let m = transpose_message_blocks(msg0, msg1, msg2, msg3);
-        compress4_transposed_inline(&mut h_vecs, &m, count_low, count_high, lastblock, lastnode);
-        if count == len {
-            return export_hashes(&h_vecs, params.hash_length);
-        }
-    }
 }

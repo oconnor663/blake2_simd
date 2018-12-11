@@ -178,51 +178,6 @@ const SIGMA: [[u8; 16]; 12] = [
     [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
 ];
 
-// Safety note: The implementation interfaces are unsafe in general, even though the portable
-// implementation is safe, because calling the AVX2 implementation on a platform that doesn't
-// support AVX2 is undefined behavior.
-type CompressFn = unsafe fn(&mut StateWords, &Block, count: u128, lastblock: u64, lastnode: u64);
-type Compress2Fn = unsafe fn(
-    state0: &mut StateWords,
-    state1: &mut StateWords,
-    block0: &Block,
-    block1: &Block,
-    count0: u128,
-    count1: u128,
-    lastblock0: u64,
-    lastblock1: u64,
-    lastnode0: u64,
-    lastnode1: u64,
-);
-type Compress4Fn = unsafe fn(
-    state0: &mut StateWords,
-    state1: &mut StateWords,
-    state2: &mut StateWords,
-    state3: &mut StateWords,
-    block0: &Block,
-    block1: &Block,
-    block2: &Block,
-    block3: &Block,
-    count0: u128,
-    count1: u128,
-    count2: u128,
-    count3: u128,
-    lastblock0: u64,
-    lastblock1: u64,
-    lastblock2: u64,
-    lastblock3: u64,
-    lastnode0: u64,
-    lastnode1: u64,
-    lastnode2: u64,
-    lastnode3: u64,
-);
-type Hash4ExactFn = unsafe fn(
-    params: &Params,
-    input0: &[u8],
-    input1: &[u8],
-    input2: &[u8],
-    input3: &[u8],
-) -> [Hash; 4];
 type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
 type HexString = arrayvec::ArrayString<[u8; 2 * OUTBYTES]>;
@@ -469,9 +424,9 @@ pub struct State {
     buf: Block,
     buflen: u8,
     count: u128,
-    compress_fn: CompressFn,
     last_node: bool,
     hash_length: u8,
+    implementation: guts::Implementation,
 }
 
 impl State {
@@ -483,12 +438,12 @@ impl State {
     fn with_params(params: &Params) -> Self {
         let mut state = Self {
             h: params.to_state_words(),
-            compress_fn: default_compress_impl().0,
             buf: [0; BLOCKBYTES],
             buflen: 0,
             count: 0,
             last_node: params.last_node,
             hash_length: params.hash_length,
+            implementation: guts::Implementation::detect(),
         };
         if params.key_length > 0 {
             let mut key_block = [0; BLOCKBYTES];
@@ -513,9 +468,8 @@ impl State {
         if self.buflen > 0 {
             self.fill_buf(input);
             if !input.is_empty() {
-                unsafe {
-                    (self.compress_fn)(&mut self.h, &self.buf, self.count, 0, 0);
-                }
+                self.implementation
+                    .compress(&mut self.h, &self.buf, self.count, 0, 0);
                 self.buflen = 0;
             }
         }
@@ -530,9 +484,8 @@ impl State {
         while input.len() > BLOCKBYTES {
             self.count += BLOCKBYTES as u128;
             let block = array_ref!(input, 0, BLOCKBYTES);
-            unsafe {
-                (self.compress_fn)(&mut self.h, block, self.count, 0, 0);
-            }
+            self.implementation
+                .compress(&mut self.h, block, self.count, 0, 0);
             input = &input[BLOCKBYTES..];
         }
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
@@ -552,9 +505,8 @@ impl State {
         }
         let last_node = if self.last_node { !0 } else { 0 };
         let mut h_copy = self.h;
-        unsafe {
-            (self.compress_fn)(&mut h_copy, &self.buf, self.count, !0, last_node);
-        }
+        self.implementation
+            .compress(&mut h_copy, &self.buf, self.count, !0, last_node);
         Hash {
             bytes: state_words_to_bytes(&h_copy),
             len: self.hash_length,
@@ -749,55 +701,80 @@ pub fn update4(
     mut input2: &[u8],
     mut input3: &[u8],
 ) {
+    let implementation = guts::Implementation::detect();
+
     // First we need to make sure all the buffers are clear.
     state0.compress_buffer_if_possible(&mut input0);
     state1.compress_buffer_if_possible(&mut input1);
     state2.compress_buffer_if_possible(&mut input2);
     state3.compress_buffer_if_possible(&mut input3);
-    // Now, as long as all of the states have more than a block of input coming (so that we know we
-    // don't need to finalize any of them), compress in parallel directly into their state words.
-    let compress4_fn = default_compress_impl().1;
-    while input0.len() > BLOCKBYTES
-        && input1.len() > BLOCKBYTES
-        && input2.len() > BLOCKBYTES
-        && input3.len() > BLOCKBYTES
-    {
-        state0.count += BLOCKBYTES as u128;
-        state1.count += BLOCKBYTES as u128;
-        state2.count += BLOCKBYTES as u128;
-        state3.count += BLOCKBYTES as u128;
-        unsafe {
-            compress4_fn(
-                &mut state0.h,
-                &mut state1.h,
-                &mut state2.h,
-                &mut state3.h,
+
+    // Compute the number of full chunks we can compress in parallel. Remember
+    // that we can only compress chunks here if we're certain there's more
+    // input coming, because we're not finalizing here. Thus the minus-one.
+    let min_len = cmp::min(
+        cmp::min(input0.len(), input1.len()),
+        cmp::min(input2.len(), input3.len()),
+    );
+    let full_chunks = min_len.saturating_sub(1) / BLOCKBYTES;
+
+    // Now the main loop, compress as many chunks as we can in parallel. To
+    // avoid transposition overhead in the hot loop, we transpose only once at
+    // the beginning and end. But skip this entire section if the loop isn't
+    // going to run, to avoid paying the cost of transposition at all.
+    if full_chunks > 0 {
+        // Transpose the four separate state words arrays into vectorized form.
+        let mut transposed_state =
+            implementation.transpose4(&state0.h, &state1.h, &state2.h, &state3.h);
+
+        for _ in 0..full_chunks {
+            state0.count += BLOCKBYTES as u128;
+            state1.count += BLOCKBYTES as u128;
+            state2.count += BLOCKBYTES as u128;
+            state3.count += BLOCKBYTES as u128;
+            let count_low = guts::u64x4([
+                state0.count as u64,
+                state1.count as u64,
+                state2.count as u64,
+                state3.count as u64,
+            ]);
+            let count_high = guts::u64x4([
+                (state0.count >> 64) as u64,
+                (state1.count >> 64) as u64,
+                (state2.count >> 64) as u64,
+                (state3.count >> 64) as u64,
+            ]);
+            implementation.compress4(
+                &mut transposed_state,
                 array_ref!(input0, 0, BLOCKBYTES),
                 array_ref!(input1, 0, BLOCKBYTES),
                 array_ref!(input2, 0, BLOCKBYTES),
                 array_ref!(input3, 0, BLOCKBYTES),
-                state0.count as u128,
-                state1.count as u128,
-                state2.count as u128,
-                state3.count as u128,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
+                &count_low,
+                &count_high,
+                &guts::u64x4([0, 0, 0, 0]),
+                &guts::u64x4([0, 0, 0, 0]),
             );
+            input0 = &input0[BLOCKBYTES..];
+            input1 = &input1[BLOCKBYTES..];
+            input2 = &input2[BLOCKBYTES..];
+            input3 = &input3[BLOCKBYTES..];
         }
-        input0 = &input0[BLOCKBYTES..];
-        input1 = &input1[BLOCKBYTES..];
-        input2 = &input2[BLOCKBYTES..];
-        input3 = &input3[BLOCKBYTES..];
+
+        // With the main loop finished, untranspose the states back out.
+        implementation.untranspose4(
+            &transposed_state,
+            &mut state0.h,
+            &mut state1.h,
+            &mut state2.h,
+            &mut state3.h,
+        );
     }
-    // Finally, if there's any remaining input, add it into the state the usual way. Note that if
-    // one of the inputs is short, this could actually be more work than the loop above. The caller
-    // should hopefully arrange for that not to happen.
+
+    // Finally, buffer/hash any remaining input the usual one-at-a-time way.
+    // Note that if one of the inputs is short, this could actually be more
+    // work than the loop above. The caller should hopefully arrange for that
+    // not to happen.
     state0.update(input0);
     state1.update(input1);
     state2.update(input2);
@@ -850,6 +827,8 @@ pub fn finalize4(
     state2: &mut State,
     state3: &mut State,
 ) -> [Hash; 4] {
+    let implementation = guts::Implementation::detect();
+
     // Zero out the buffer tails, which might contain bytes from previous blocks.
     for i in state0.buflen as usize..BLOCKBYTES {
         state0.buf[i] = 0;
@@ -863,58 +842,72 @@ pub fn finalize4(
     for i in state3.buflen as usize..BLOCKBYTES {
         state3.buf[i] = 0;
     }
+
     // Translate the last node flag of each state into the u64 that BLAKE2 uses.
-    let last_node0: u64 = if state0.last_node { !0 } else { 0 };
-    let last_node1: u64 = if state1.last_node { !0 } else { 0 };
-    let last_node2: u64 = if state2.last_node { !0 } else { 0 };
-    let last_node3: u64 = if state3.last_node { !0 } else { 0 };
-    // Make copies of all the state words. This step is what makes finalize idempotent.
-    let mut h_copy0 = state0.h;
-    let mut h_copy1 = state1.h;
-    let mut h_copy2 = state2.h;
-    let mut h_copy3 = state3.h;
+
+    // Transpose the state words into vectorized form. We won't write these
+    // words back into the State object, which makes finalize idempotent.
+    let mut transposed_state =
+        implementation.transpose4(&state0.h, &state1.h, &state2.h, &state3.h);
+
     // Do the final parallel compression step.
-    let compress4_fn = default_compress_impl().1;
-    unsafe {
-        compress4_fn(
-            &mut h_copy0,
-            &mut h_copy1,
-            &mut h_copy2,
-            &mut h_copy3,
-            &state0.buf,
-            &state1.buf,
-            &state2.buf,
-            &state3.buf,
-            state0.count,
-            state1.count,
-            state2.count,
-            state3.count,
-            !0,
-            !0,
-            !0,
-            !0,
-            last_node0,
-            last_node1,
-            last_node2,
-            last_node3,
-        );
-    }
+    let count_low = guts::u64x4([
+        state0.count as u64,
+        state1.count as u64,
+        state2.count as u64,
+        state3.count as u64,
+    ]);
+    let count_high = guts::u64x4([
+        (state0.count >> 64) as u64,
+        (state1.count >> 64) as u64,
+        (state2.count >> 64) as u64,
+        (state3.count >> 64) as u64,
+    ]);
+    let lastnode = guts::u64x4([
+        if state0.last_node { !0 } else { 0 },
+        if state1.last_node { !0 } else { 0 },
+        if state2.last_node { !0 } else { 0 },
+        if state3.last_node { !0 } else { 0 },
+    ]);
+    implementation.compress4(
+        &mut transposed_state,
+        &state0.buf,
+        &state1.buf,
+        &state2.buf,
+        &state3.buf,
+        &count_low,
+        &count_high,
+        &guts::u64x4([!0, !0, !0, !0]),
+        &lastnode,
+    );
+
     // Extract the resulting hashes.
+    let mut bytes0 = [0; 8];
+    let mut bytes1 = [0; 8];
+    let mut bytes2 = [0; 8];
+    let mut bytes3 = [0; 8];
+    implementation.untranspose4(
+        &transposed_state,
+        &mut bytes0,
+        &mut bytes1,
+        &mut bytes2,
+        &mut bytes3,
+    );
     [
         Hash {
-            bytes: state_words_to_bytes(&h_copy0),
+            bytes: state_words_to_bytes(&bytes0),
             len: state0.hash_length,
         },
         Hash {
-            bytes: state_words_to_bytes(&h_copy1),
+            bytes: state_words_to_bytes(&bytes1),
             len: state1.hash_length,
         },
         Hash {
-            bytes: state_words_to_bytes(&h_copy2),
+            bytes: state_words_to_bytes(&bytes2),
             len: state2.hash_length,
         },
         Hash {
-            bytes: state_words_to_bytes(&h_copy3),
+            bytes: state_words_to_bytes(&bytes3),
             len: state3.hash_length,
         },
     ]
@@ -928,7 +921,6 @@ pub fn hash4_exact(
     input2: &[u8],
     input3: &[u8],
 ) -> [Hash; 4] {
-    // These asserts are safety invariants for the AVX2 implementation.
     let len = input0.len();
     let same_length = (input1.len() == len) && (input2.len() == len) && (input3.len() == len);
     let even_length = len % BLOCKBYTES == 0;
@@ -938,76 +930,79 @@ pub fn hash4_exact(
         "invalid hash4_exact inputs"
     );
 
-    let hash4_exact_fn = default_compress_impl().2;
-    unsafe { hash4_exact_fn(params, input0, input1, input2, input3) }
-}
+    let implementation = guts::Implementation::detect();
+    let state_words = params.to_state_words();
+    let mut transposed_state =
+        implementation.transpose4(&state_words, &state_words, &state_words, &state_words);
 
-// Safety: The unsafe blocks above rely on this function to never return avx2::compress except on
-// platforms where it's safe to call.
-#[allow(unreachable_code)]
-fn default_compress_impl() -> (CompressFn, Compress4Fn, Hash4ExactFn, Compress2Fn) {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    {
-        // If AVX2 is enabled at the top level for the whole build (using something like
-        // RUSTFLAGS="-C target-cpu=native"), return the AVX2 implementation without doing dynamic
-        // feature detection. This isn't common, but it's the only way to use AVX2 with no_std, at
-        // least until more features get stabilized in the future.
-        #[cfg(target_feature = "avx2")]
-        {
-            return (
-                avx2::compress,
-                avx2::compress4,
-                avx2::hash4_exact,
-                sse41::compress2,
-            );
-        }
-        // Do dynamic feature detection at runtime, and use AVX2 if the current CPU supports it.
-        // This is what the default build does. Note that no_std doesn't currently support dynamic
-        // detection.
-        #[cfg(feature = "std")]
-        {
-            if is_x86_feature_detected!("avx2") {
-                return (
-                    avx2::compress,
-                    avx2::compress4,
-                    avx2::hash4_exact,
-                    sse41::compress2,
-                );
-            }
-        }
+    let mut offset = 0;
+    while offset < len {
+        let block0 = array_ref!(input0, offset, BLOCKBYTES);
+        let block1 = array_ref!(input1, offset, BLOCKBYTES);
+        let block2 = array_ref!(input2, offset, BLOCKBYTES);
+        let block3 = array_ref!(input3, offset, BLOCKBYTES);
+        offset += BLOCKBYTES;
+        let count_low = guts::u64x4([offset as u64; 4]);
+        let count_high = guts::u64x4([0; 4]);
+        let lastblock = guts::u64x4([if offset == len { !0 } else { 0 }; 4]);
+        let lastnode = guts::u64x4(
+            [if offset == len && params.last_node {
+                !0
+            } else {
+                0
+            }; 4],
+        );
+        implementation.compress4(
+            &mut transposed_state,
+            block0,
+            block1,
+            block2,
+            block3,
+            &count_low,
+            &count_high,
+            &lastblock,
+            &lastnode,
+        );
     }
-    // On other platforms (non-x86 or pre-AVX2) use the portable implementation.
-    (
-        portable::compress,
-        portable::compress4,
-        portable::hash4_exact,
-        portable::compress2,
-    )
+
+    let mut bytes0 = [0; 8];
+    let mut bytes1 = [0; 8];
+    let mut bytes2 = [0; 8];
+    let mut bytes3 = [0; 8];
+    implementation.untranspose4(
+        &transposed_state,
+        &mut bytes0,
+        &mut bytes1,
+        &mut bytes2,
+        &mut bytes3,
+    );
+    [
+        Hash {
+            bytes: state_words_to_bytes(&bytes0),
+            len: params.hash_length,
+        },
+        Hash {
+            bytes: state_words_to_bytes(&bytes1),
+            len: params.hash_length,
+        },
+        Hash {
+            bytes: state_words_to_bytes(&bytes2),
+            len: params.hash_length,
+        },
+        Hash {
+            bytes: state_words_to_bytes(&bytes3),
+            len: params.hash_length,
+        },
+    ]
 }
 
 // This module is pub for internal benchmarks only. Please don't use it.
 #[doc(hidden)]
 pub mod benchmarks {
-    pub use crate::portable::compress as compress_portable;
-    pub use crate::portable::compress4 as compress4_portable;
-
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use crate::avx2::compress as compress_avx2;
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use crate::avx2::compress4 as compress4_avx2;
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use crate::avx2::compress4_transposed as compress4_transposed_avx2;
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use crate::avx2::compress4_transposed_all as compress4_transposed_all_avx2;
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use crate::sse41::compress2 as compress2_sse41;
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use crate::sse41::compress2_transposed as compress2_transposed_sse41;
-
-    // Safety: The portable implementation should be safe to call on any platform.
     pub fn force_portable(state: &mut crate::State) {
-        state.compress_fn = compress_portable;
+        state.implementation = crate::guts::Implementation::portable();
     }
+
     pub fn force_portable_blake2bp(state: &mut crate::blake2bp::State) {
         crate::blake2bp::force_portable(state);
     }

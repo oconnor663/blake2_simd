@@ -4,10 +4,10 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 use super::*;
+use crate::guts::u64x2;
+use crate::guts::u64x4;
 use core::mem;
 use core::ptr;
-use guts::u64x2;
-use guts::u64x4;
 
 #[inline(always)]
 unsafe fn add(a: __m128i, b: __m128i) -> __m128i {
@@ -233,64 +233,6 @@ unsafe fn transpose_message_blocks(msg0: &Block, msg1: &Block) -> [__m128i; 16] 
             ptr::read_unaligned(msg0.as_ptr().add(15 * 8) as *const i64),
         ),
     ]
-}
-
-#[target_feature(enable = "sse4.1")]
-pub unsafe fn compress2(
-    h0: &mut StateWords,
-    h1: &mut StateWords,
-    msg0: &Block,
-    msg1: &Block,
-    count0: u128,
-    count1: u128,
-    lastblock0: u64,
-    lastblock1: u64,
-    lastnode0: u64,
-    lastnode1: u64,
-) {
-    let mut h_vecs = [
-        _mm_set_epi64x(h1[0] as i64, h0[0] as i64),
-        _mm_set_epi64x(h1[1] as i64, h0[1] as i64),
-        _mm_set_epi64x(h1[2] as i64, h0[2] as i64),
-        _mm_set_epi64x(h1[3] as i64, h0[3] as i64),
-        _mm_set_epi64x(h1[4] as i64, h0[4] as i64),
-        _mm_set_epi64x(h1[5] as i64, h0[5] as i64),
-        _mm_set_epi64x(h1[6] as i64, h0[6] as i64),
-        _mm_set_epi64x(h1[7] as i64, h0[7] as i64),
-    ];
-    let count_low = _mm_set_epi64x(count1 as i64, count0 as i64);
-    let count_high = _mm_set_epi64x((count1 >> 64) as i64, (count0 >> 64) as i64);
-    let lastblock = _mm_set_epi64x(lastblock1 as i64, lastblock0 as i64);
-    let lastnode = _mm_set_epi64x(lastnode1 as i64, lastnode0 as i64);
-
-    let m = transpose_message_blocks(msg0, msg1);
-
-    compress2_transposed_inline(&mut h_vecs, &m, count_low, count_high, lastblock, lastnode);
-
-    let words: [u64; 2] = mem::transmute(h_vecs[0]);
-    h0[0] = words[0];
-    h1[0] = words[1];
-    let words: [u64; 2] = mem::transmute(h_vecs[1]);
-    h0[1] = words[0];
-    h1[1] = words[1];
-    let words: [u64; 2] = mem::transmute(h_vecs[2]);
-    h0[2] = words[0];
-    h1[2] = words[1];
-    let words: [u64; 2] = mem::transmute(h_vecs[3]);
-    h0[3] = words[0];
-    h1[3] = words[1];
-    let words: [u64; 2] = mem::transmute(h_vecs[4]);
-    h0[4] = words[0];
-    h1[4] = words[1];
-    let words: [u64; 2] = mem::transmute(h_vecs[5]);
-    h0[5] = words[0];
-    h1[5] = words[1];
-    let words: [u64; 2] = mem::transmute(h_vecs[6]);
-    h0[6] = words[0];
-    h1[6] = words[1];
-    let words: [u64; 2] = mem::transmute(h_vecs[7]);
-    h0[7] = words[0];
-    h1[7] = words[1];
 }
 
 #[inline(always)]
