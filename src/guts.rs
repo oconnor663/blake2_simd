@@ -1,6 +1,10 @@
 use crate::*;
 use core::mem;
 
+// Variants other than Portable are unreachable in no_std, unless CPU features
+// are explicitly enabled for the build with e.g. RUSTFLAGS="-C target-feature=avx2".
+// This might change in the future if is_x86_feature_detected moves into libcore.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Platform {
     Portable,
