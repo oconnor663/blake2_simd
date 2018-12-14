@@ -5,21 +5,22 @@ extern crate blake2b_simd;
 extern crate openssl;
 extern crate test;
 
-use std::mem;
-
 const TOTAL_BYTES_PER_TYPE: usize = 1 << 30; // 1 gigabyte
 
 fn blake2b_compression_avx2() -> (u64, usize) {
+    let avx2 = if let Some(avx2) = blake2b_simd::guts::Implementation::avx2_if_supported() {
+        avx2
+    } else {
+        panic!("No AVX2 support.");
+    };
     const SIZE: usize = 128;
     let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
     let mut total_ticks = 0;
-    let input = &[0; 128];
-    let mut h = [0; 8];
+    let input = &[1; 128];
+    let mut h = [1; 8];
     for _ in 0..iterations {
         let start = amd64_timer::ticks_modern();
-        unsafe {
-            blake2b_simd::benchmarks::compress_avx2(&mut h, input, 0, 0, 0);
-        }
+        avx2.compress(&mut h, input, 0, 0, 0);
         let end = amd64_timer::ticks_modern();
         total_ticks += end - start;
     }
@@ -27,14 +28,15 @@ fn blake2b_compression_avx2() -> (u64, usize) {
 }
 
 fn blake2b_compression_portable() -> (u64, usize) {
+    let portable = blake2b_simd::guts::Implementation::portable();
     const SIZE: usize = 128;
     let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
     let mut total_ticks = 0;
-    let input = &[0; 128];
-    let mut h = [0; 8];
+    let input = &[1; 128];
+    let mut h = [1; 8];
     for _ in 0..iterations {
         let start = amd64_timer::ticks_modern();
-        blake2b_simd::benchmarks::compress_portable(&mut h, input, 0, 0, 0);
+        portable.compress(&mut h, input, 0, 0, 0);
         let end = amd64_timer::ticks_modern();
         total_ticks += end - start;
     }
@@ -42,62 +44,40 @@ fn blake2b_compression_portable() -> (u64, usize) {
 }
 
 fn blake2b_compression_4x() -> (u64, usize) {
+    let avx2 = if let Some(avx2) = blake2b_simd::guts::Implementation::avx2_if_supported() {
+        avx2
+    } else {
+        panic!("No AVX2 support.");
+    };
     const SIZE: usize = 4 * 128;
     let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
     let mut total_ticks = 0;
-    let msg0 = &[0; 128];
-    let msg1 = &[0; 128];
-    let msg2 = &[0; 128];
-    let msg3 = &[0; 128];
-    let h0 = &mut [0; 8];
-    let h1 = &mut [0; 8];
-    let h2 = &mut [0; 8];
-    let h3 = &mut [0; 8];
+    let msg0 = &[1; 128];
+    let msg1 = &[1; 128];
+    let msg2 = &[1; 128];
+    let msg3 = &[1; 128];
+    let mut state = [blake2b_simd::guts::u64x4([1; 4]); 8];
+    let count_low = blake2b_simd::guts::u64x4([1; 4]);
+    let count_high = blake2b_simd::guts::u64x4([1; 4]);
+    let lastblock = blake2b_simd::guts::u64x4([1; 4]);
+    let lastnode = blake2b_simd::guts::u64x4([1; 4]);
     for _ in 0..iterations {
         let start = amd64_timer::ticks_modern();
-        unsafe {
-            blake2b_simd::benchmarks::compress4_avx2(
-                h0, h1, h2, h3, msg0, msg1, msg2, msg3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            );
-        }
+        avx2.compress4(
+            &mut state,
+            msg0,
+            msg1,
+            msg2,
+            msg3,
+            &count_low,
+            &count_high,
+            &lastblock,
+            &lastnode,
+        );
         let end = amd64_timer::ticks_modern();
         total_ticks += end - start;
     }
     (total_ticks, iterations * SIZE)
-}
-
-fn blake2b_compression_4x_transposed() -> (u64, usize) {
-    unsafe {
-        const SIZE: usize = 4 * 128;
-        let iterations = TOTAL_BYTES_PER_TYPE / SIZE;
-        let mut total_ticks = 0;
-        let mut h_vecs = mem::zeroed();
-        let msg0 = &[1; 128];
-        let msg1 = &[2; 128];
-        let msg2 = &[3; 128];
-        let msg3 = &[4; 128];
-        let count_low = mem::zeroed();
-        let count_high = mem::zeroed();
-        let lastblock = mem::zeroed();
-        let lastnode = mem::zeroed();
-        for _ in 0..iterations {
-            let start = amd64_timer::ticks_modern();
-            blake2b_simd::benchmarks::compress4_transposed_avx2(
-                &mut h_vecs,
-                &msg0,
-                &msg1,
-                &msg2,
-                &msg3,
-                count_low,
-                count_high,
-                lastblock,
-                lastnode,
-            );
-            let end = amd64_timer::ticks_modern();
-            total_ticks += end - start;
-        }
-        (total_ticks, iterations * SIZE)
-    }
 }
 
 fn blake2b_one_mb() -> (u64, usize) {
@@ -196,10 +176,6 @@ fn main() {
         ("BLAKE2b portable compression", blake2b_compression_portable),
         ("BLAKE2b AVX2 compression", blake2b_compression_avx2),
         ("BLAKE2b 4-way AVX2 compression", blake2b_compression_4x),
-        (
-            "BLAKE2b 4-way transposed AVX2 compression",
-            blake2b_compression_4x_transposed,
-        ),
         ("BLAKE2b 1 MB", blake2b_one_mb),
         ("BLAKE2bp 1 MB", blake2bp_one_mb),
         ("BLAKE2b update4 1 MB", blake2b_update4_one_mb),
