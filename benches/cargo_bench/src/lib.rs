@@ -97,41 +97,6 @@ fn bench_blake2b_update4_one_mb(b: &mut Bencher) {
     });
 }
 
-#[bench]
-fn bench_blake2b_hash4_one_block(b: &mut Bencher) {
-    b.bytes = 4 * BLOCKBYTES as u64;
-    let block0 = [0xf0; BLOCKBYTES];
-    let block1 = [0xf1; BLOCKBYTES];
-    let block2 = [0xf2; BLOCKBYTES];
-    let block3 = [0xf3; BLOCKBYTES];
-    let params = Params::new();
-    b.iter(|| hash4_exact(&params, &block0, &block1, &block2, &block3));
-}
-
-#[bench]
-fn bench_blake2b_hash4_4096(b: &mut Bencher) {
-    const CHUNK: usize = 4096;
-    b.bytes = 4 * CHUNK as u64;
-    let chunk0 = [0xf0; CHUNK];
-    let chunk1 = [0xf1; CHUNK];
-    let chunk2 = [0xf2; CHUNK];
-    let chunk3 = [0xf3; CHUNK];
-    let params = Params::new();
-    b.iter(|| hash4_exact(&params, &chunk0, &chunk1, &chunk2, &chunk3));
-}
-
-#[bench]
-fn bench_blake2b_hash4_one_mb(b: &mut Bencher) {
-    const MB: usize = 1 << 20;
-    b.bytes = 4 * MB as u64;
-    let mb0 = [0xf0; MB];
-    let mb1 = [0xf1; MB];
-    let mb2 = [0xf2; MB];
-    let mb3 = [0xf3; MB];
-    let params = Params::new();
-    b.iter(|| hash4_exact(&params, &mb0, &mb1, &mb2, &mb3));
-}
-
 #[cfg(feature = "libsodium-ffi")]
 #[bench]
 fn bench_libsodium_one_mb(b: &mut Bencher) {
