@@ -916,6 +916,9 @@ pub fn finalize4(
 // This module is pub for internal benchmarks only. Please don't use it.
 #[doc(hidden)]
 pub mod benchmarks {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub use crate::avx2::compress4_loop as compress4_loop_avx2;
+
     pub fn force_portable(state: &mut crate::State) {
         state.implementation = crate::guts::Implementation::portable();
     }

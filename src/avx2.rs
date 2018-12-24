@@ -5,6 +5,7 @@ use core::arch::x86_64::*;
 
 use super::*;
 use crate::guts::u64x4;
+use crate::guts::u64x8;
 use core::mem;
 
 #[inline(always)]
@@ -734,4 +735,132 @@ pub unsafe fn compress4_transposed(
         mem::transmute(*lastblock),
         mem::transmute(*lastnode),
     );
+}
+
+#[target_feature(enable = "avx2")]
+pub unsafe fn compress4_loop(
+    state0: &mut u64x8,
+    state1: &mut u64x8,
+    state2: &mut u64x8,
+    state3: &mut u64x8,
+    input0: *const u8,
+    input1: *const u8,
+    input2: *const u8,
+    input3: *const u8,
+    count_low: &u64x4,
+    count_high: &u64x4,
+    last_block: &u64x4,
+    last_node: &u64x4,
+    mut blocks: usize,
+    stride: usize,
+) {
+    // Load all the state words into transposed vectors, where the first vector
+    // has the first word of each state, etc. This is the form that 4-way
+    // compression operates on, and transposing once at the beginning and once
+    // at the end is more efficient that repeating it for each block. Note that
+    // these loads are aligned, because u64x4 and u64x8 guarantee alignment.
+    let [h0, h1, h2, h3] = transpose_vecs(
+        _mm256_load_si256(state0.split()[0].as_ptr() as *const __m256i),
+        _mm256_load_si256(state1.split()[0].as_ptr() as *const __m256i),
+        _mm256_load_si256(state2.split()[0].as_ptr() as *const __m256i),
+        _mm256_load_si256(state3.split()[0].as_ptr() as *const __m256i),
+    );
+    let [h4, h5, h6, h7] = transpose_vecs(
+        _mm256_load_si256(state0.split()[1].as_ptr() as *const __m256i),
+        _mm256_load_si256(state1.split()[1].as_ptr() as *const __m256i),
+        _mm256_load_si256(state2.split()[1].as_ptr() as *const __m256i),
+        _mm256_load_si256(state3.split()[1].as_ptr() as *const __m256i),
+    );
+    let mut h_vecs = [h0, h1, h2, h3, h4, h5, h6, h7];
+    let mut count_low_vec = _mm256_load_si256(count_low.as_ptr() as *const __m256i);
+    let mut count_high_vec = _mm256_load_si256(count_high.as_ptr() as *const __m256i);
+    let mut offset = 0;
+
+    while blocks > 0 {
+        // Load all the message words into transposed vectors also. Message
+        // loads are unaligned, because these are arbitrary byte pointers from
+        // the caller. On modern chips though, there's not much of a
+        // performance penalty for unaligned loads.
+        let block0 = input0.add(offset) as *const __m256i;
+        let block1 = input1.add(offset) as *const __m256i;
+        let block2 = input2.add(offset) as *const __m256i;
+        let block3 = input3.add(offset) as *const __m256i;
+        let [m0, m1, m2, m3] = transpose_vecs(
+            _mm256_loadu_si256(block0.add(0)),
+            _mm256_loadu_si256(block1.add(0)),
+            _mm256_loadu_si256(block2.add(0)),
+            _mm256_loadu_si256(block3.add(0)),
+        );
+        let [m4, m5, m6, m7] = transpose_vecs(
+            _mm256_loadu_si256(block0.add(1)),
+            _mm256_loadu_si256(block1.add(1)),
+            _mm256_loadu_si256(block2.add(1)),
+            _mm256_loadu_si256(block3.add(1)),
+        );
+        let [m8, m9, m10, m11] = transpose_vecs(
+            _mm256_loadu_si256(block0.add(2)),
+            _mm256_loadu_si256(block1.add(2)),
+            _mm256_loadu_si256(block2.add(2)),
+            _mm256_loadu_si256(block3.add(2)),
+        );
+        let [m12, m13, m14, m15] = transpose_vecs(
+            _mm256_loadu_si256(block0.add(3)),
+            _mm256_loadu_si256(block1.add(3)),
+            _mm256_loadu_si256(block2.add(3)),
+            _mm256_loadu_si256(block3.add(3)),
+        );
+        let m_vecs = [
+            m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15,
+        ];
+
+        // Add BLOCKBYTES to the low count bits, and if they wrap around, carry
+        // a 1 to the high bits.
+        let old_count_low_vec = count_low_vec;
+        count_low_vec = add(count_low_vec, _mm256_set1_epi64x(BLOCKBYTES as i64));
+        count_high_vec = add(
+            count_high_vec,
+            _mm256_and_si256(
+                _mm256_cmpgt_epi64(old_count_low_vec, count_low_vec),
+                _mm256_set1_epi64x(1),
+            ),
+        );
+
+        // Compressions before the last one always use zero for the
+        // finalization flags. The last one will use what the caller supplied,
+        // which could also be zero if the input isn't finished.
+        let (last_block_vec, last_node_vec) = if blocks == 1 {
+            (
+                // Again, u64x4 guarantees alignment, so we do an aligned load.
+                _mm256_load_si256(last_block.as_ptr() as *const __m256i),
+                _mm256_load_si256(last_node.as_ptr() as *const __m256i),
+            )
+        } else {
+            (_mm256_set1_epi64x(0), _mm256_set1_epi64x(0))
+        };
+
+        compress4_transposed_inline(
+            &mut h_vecs,
+            &m_vecs,
+            count_low_vec,
+            count_high_vec,
+            last_block_vec,
+            last_node_vec,
+        );
+
+        offset += BLOCKBYTES * stride;
+        blocks -= 1;
+    }
+
+    // Un-transpose the updated state vectors back into the caller's arrays.
+    // These are aligned stores.
+    let low_words = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
+    _mm256_store_si256(state0.split_mut()[0].as_mut_ptr() as _, low_words[0]);
+    _mm256_store_si256(state1.split_mut()[0].as_mut_ptr() as _, low_words[1]);
+    _mm256_store_si256(state2.split_mut()[0].as_mut_ptr() as _, low_words[2]);
+    _mm256_store_si256(state3.split_mut()[0].as_mut_ptr() as _, low_words[3]);
+    let high_words = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
+    _mm256_store_si256(state0.split_mut()[1].as_mut_ptr() as _, high_words[0]);
+    _mm256_store_si256(state1.split_mut()[1].as_mut_ptr() as _, high_words[1]);
+    _mm256_store_si256(state2.split_mut()[1].as_mut_ptr() as _, high_words[2]);
+    _mm256_store_si256(state3.split_mut()[1].as_mut_ptr() as _, high_words[3]);
 }

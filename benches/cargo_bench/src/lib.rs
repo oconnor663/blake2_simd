@@ -11,51 +11,61 @@ use blake2b_simd::*;
 use test::Bencher;
 
 const BLOCK: &[u8; BLOCKBYTES] = &[0; BLOCKBYTES];
-const MB: &[u8; 1_000_000] = &[0; 1_000_000];
+const MB: usize = 1000000;
+
+fn make_input(b: &mut Bencher, len: usize) -> Vec<u8> {
+    // Fill the vec with something other than zero, to avoid optimizations
+    // using zeroed memory pages.
+    b.bytes += len as u64;
+    vec![0b01010101; len]
+}
 
 #[bench]
 fn bench_blake2b_avx2_one_block(b: &mut Bencher) {
-    b.bytes = BLOCK.len() as u64;
-    b.iter(|| blake2b(BLOCK));
+    let input = make_input(b, BLOCKBYTES);
+    b.iter(|| blake2b(&input));
 }
 
 #[bench]
 fn bench_blake2b_avx2_one_mb(b: &mut Bencher) {
-    b.bytes = MB.len() as u64;
-    b.iter(|| blake2b(MB));
+    let input = make_input(b, MB);
+    b.iter(|| blake2b(&input));
 }
 
 #[bench]
 fn bench_blake2b_portable_one_block(b: &mut Bencher) {
-    b.bytes = BLOCK.len() as u64;
+    let input = make_input(b, BLOCKBYTES);
     b.iter(|| {
         let mut state = State::new();
         benchmarks::force_portable(&mut state);
-        state.update(BLOCK);
+        state.update(&input);
         state.finalize()
     });
 }
 
 #[bench]
 fn bench_blake2b_portable_one_mb(b: &mut Bencher) {
-    b.bytes = MB.len() as u64;
+    let input = make_input(b, MB);
     b.iter(|| {
         let mut state = State::new();
         benchmarks::force_portable(&mut state);
-        state.update(MB);
+        state.update(&input);
         state.finalize()
     });
 }
 
 #[bench]
 fn bench_blake2bp_one_mb(b: &mut Bencher) {
-    b.bytes = MB.len() as u64;
-    b.iter(|| blake2bp::blake2bp(MB));
+    let input = make_input(b, MB);
+    b.iter(|| blake2bp::blake2bp(&input));
 }
 
 #[bench]
 fn bench_blake2b_update4_one_block(b: &mut Bencher) {
-    b.bytes = 4 * BLOCK.len() as u64;
+    let input0 = make_input(b, BLOCKBYTES);
+    let input1 = make_input(b, BLOCKBYTES);
+    let input2 = make_input(b, BLOCKBYTES);
+    let input3 = make_input(b, BLOCKBYTES);
     b.iter(|| {
         let mut state0 = State::new();
         let mut state1 = State::new();
@@ -66,10 +76,10 @@ fn bench_blake2b_update4_one_block(b: &mut Bencher) {
             &mut state1,
             &mut state2,
             &mut state3,
-            BLOCK,
-            BLOCK,
-            BLOCK,
-            BLOCK,
+            &input0,
+            &input1,
+            &input2,
+            &input3,
         );
         finalize4(&mut state0, &mut state1, &mut state2, &mut state3)
     });
@@ -77,7 +87,11 @@ fn bench_blake2b_update4_one_block(b: &mut Bencher) {
 
 #[bench]
 fn bench_blake2b_update4_one_mb(b: &mut Bencher) {
-    b.bytes = 4 * MB.len() as u64;
+    let len = MB / 4;
+    let input0 = make_input(b, len);
+    let input1 = make_input(b, len);
+    let input2 = make_input(b, len);
+    let input3 = make_input(b, len);
     b.iter(|| {
         let mut state0 = State::new();
         let mut state1 = State::new();
@@ -88,10 +102,10 @@ fn bench_blake2b_update4_one_mb(b: &mut Bencher) {
             &mut state1,
             &mut state2,
             &mut state3,
-            MB,
-            MB,
-            MB,
-            MB,
+            &input0,
+            &input1,
+            &input2,
+            &input3,
         );
         finalize4(&mut state0, &mut state1, &mut state2, &mut state3)
     });
@@ -100,7 +114,7 @@ fn bench_blake2b_update4_one_mb(b: &mut Bencher) {
 #[cfg(feature = "libsodium-ffi")]
 #[bench]
 fn bench_libsodium_one_mb(b: &mut Bencher) {
-    b.bytes = MB.len() as u64;
+    let input = make_input(b, MB);
     let mut out = [0; 64];
     unsafe {
         let init_ret = libsodium_ffi::sodium_init();
@@ -110,8 +124,8 @@ fn bench_libsodium_one_mb(b: &mut Bencher) {
         libsodium_ffi::crypto_generichash(
             out.as_mut_ptr(),
             out.len(),
-            MB.as_ptr(),
-            MB.len() as u64,
+            input.as_ptr(),
+            input.len() as u64,
             std::ptr::null(),
             0,
         );
@@ -121,22 +135,22 @@ fn bench_libsodium_one_mb(b: &mut Bencher) {
 #[cfg(feature = "openssl")]
 #[bench]
 fn bench_openssl_md5_one_mb(b: &mut Bencher) {
-    b.bytes = MB.len() as u64;
-    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::md5(), MB));
+    let input = make_input(b, MB);
+    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::md5(), &input));
 }
 
 #[cfg(feature = "openssl")]
 #[bench]
 fn bench_openssl_sha1_one_mb(b: &mut Bencher) {
-    b.bytes = MB.len() as u64;
-    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha1(), MB));
+    let input = make_input(b, MB);
+    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha1(), &input));
 }
 
 #[cfg(feature = "openssl")]
 #[bench]
 fn bench_openssl_sha512_one_mb(b: &mut Bencher) {
-    b.bytes = MB.len() as u64;
-    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), MB));
+    let input = make_input(b, MB);
+    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), &input));
 }
 
 #[bench]
@@ -391,4 +405,87 @@ fn bench_guts_untranspose4_avx2(b: &mut Bencher) {
         test::black_box(&mut state2);
         test::black_box(&mut state3);
     });
+}
+
+#[bench]
+fn bench_compress4_loop_avx2_one_block(b: &mut Bencher) {
+    if guts::Implementation::avx2_if_supported().is_none() {
+        return;
+    }
+    let input0 = make_input(b, BLOCKBYTES);
+    let input1 = make_input(b, BLOCKBYTES);
+    let input2 = make_input(b, BLOCKBYTES);
+    let input3 = make_input(b, BLOCKBYTES);
+    let mut state0 = guts::u64x8([1; 8]);
+    let mut state1 = guts::u64x8([2; 8]);
+    let mut state2 = guts::u64x8([3; 8]);
+    let mut state3 = guts::u64x8([4; 8]);
+    let count_low = guts::u64x4([0; 4]);
+    let count_high = guts::u64x4([0; 4]);
+    let last_block = guts::u64x4([0; 4]);
+    let last_node = guts::u64x4([0; 4]);
+    b.iter(|| unsafe {
+        benchmarks::compress4_loop_avx2(
+            &mut state0,
+            &mut state1,
+            &mut state2,
+            &mut state3,
+            input0.as_ptr(),
+            input1.as_ptr(),
+            input2.as_ptr(),
+            input3.as_ptr(),
+            &count_low,
+            &count_high,
+            &last_block,
+            &last_node,
+            1,
+            1,
+        );
+    });
+    test::black_box(&mut state0);
+    test::black_box(&mut state1);
+    test::black_box(&mut state2);
+    test::black_box(&mut state3);
+}
+
+#[bench]
+fn bench_compress4_loop_avx2_one_mb(b: &mut Bencher) {
+    if guts::Implementation::avx2_if_supported().is_none() {
+        return;
+    }
+    let len = (1 << 20) / 4;
+    let input0 = make_input(b, len);
+    let input1 = make_input(b, len);
+    let input2 = make_input(b, len);
+    let input3 = make_input(b, len);
+    let mut state0 = guts::u64x8([1; 8]);
+    let mut state1 = guts::u64x8([2; 8]);
+    let mut state2 = guts::u64x8([3; 8]);
+    let mut state3 = guts::u64x8([4; 8]);
+    let count_low = guts::u64x4([0; 4]);
+    let count_high = guts::u64x4([0; 4]);
+    let last_block = guts::u64x4([0; 4]);
+    let last_node = guts::u64x4([0; 4]);
+    b.iter(|| unsafe {
+        benchmarks::compress4_loop_avx2(
+            &mut state0,
+            &mut state1,
+            &mut state2,
+            &mut state3,
+            input0.as_ptr(),
+            input1.as_ptr(),
+            input2.as_ptr(),
+            input3.as_ptr(),
+            &count_low,
+            &count_high,
+            &last_block,
+            &last_node,
+            len / BLOCKBYTES,
+            1,
+        );
+    });
+    test::black_box(&mut state0);
+    test::black_box(&mut state1);
+    test::black_box(&mut state2);
+    test::black_box(&mut state3);
 }

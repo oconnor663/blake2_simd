@@ -244,7 +244,7 @@ impl Implementation {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(C, align(16))]
 pub struct u64x2(pub [u64; 2]);
 
@@ -262,7 +262,7 @@ impl core::ops::DerefMut for u64x2 {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(C, align(32))]
 pub struct u64x4(pub [u64; 4]);
 
@@ -293,6 +293,42 @@ impl core::ops::Deref for u64x4 {
 }
 
 impl core::ops::DerefMut for u64x4 {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(C, align(64))]
+pub struct u64x8(pub [u64; 8]);
+
+impl u64x8 {
+    #[inline(always)]
+    pub(crate) fn split(&self) -> &[u64x4; 2] {
+        // Safety note: The 64-byte alignment of u64x8 guarantees that each
+        // half of it will be 32-byte aligned, and the C repr guarantees that
+        // the layout is exactly eight packed u64's.
+        unsafe { mem::transmute(self) }
+    }
+
+    #[inline(always)]
+    pub(crate) fn split_mut(&mut self) -> &mut [u64x4; 2] {
+        // Safety note: The 64-byte alignment of u64x8 guarantees that each
+        // half of it will be 32-byte aligned, and the C repr guarantees that
+        // the layout is exactly eight packed u64's.
+        unsafe { mem::transmute(self) }
+    }
+}
+
+impl core::ops::Deref for u64x8 {
+    type Target = [u64; 8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl core::ops::DerefMut for u64x8 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -480,5 +516,67 @@ mod test {
         assert_eq!(exercise_1(portable, 0), exercise_1(avx2, 0));
         assert_eq!(exercise_2(portable, 0), exercise_2(avx2, 0));
         assert_eq!(exercise_4(portable, 0), exercise_4(avx2, 0));
+    }
+
+    #[test]
+    fn test_compress4_loop() {
+        if Implementation::avx2_if_supported().is_none() {
+            return;
+        }
+
+        let mut inputs = [[0; BLOCKBYTES * 4]; 4];
+        for i in 0..4 {
+            for j in 0..BLOCKBYTES * 4 {
+                inputs[i][j] = (i + j) as u8;
+            }
+        }
+
+        // First compute expected;
+        let mut expected = [
+            u64x8(input_state_words(0)),
+            u64x8(input_state_words(1)),
+            u64x8(input_state_words(2)),
+            u64x8(input_state_words(3)),
+        ];
+        for i in 0..4 {
+            for block in 0..4 {
+                portable::compress(
+                    &mut expected[i],
+                    array_ref!(inputs[i], block * BLOCKBYTES, BLOCKBYTES),
+                    ((block + 1) * BLOCKBYTES) as u128,
+                    if block == 3 { !0 } else { 0 },
+                    if block == 3 { !0 } else { 0 },
+                );
+            }
+        }
+
+        // Now do the loop implementation.
+        let mut loop_state0 = u64x8(input_state_words(0));
+        let mut loop_state1 = u64x8(input_state_words(1));
+        let mut loop_state2 = u64x8(input_state_words(2));
+        let mut loop_state3 = u64x8(input_state_words(3));
+        unsafe {
+            avx2::compress4_loop(
+                &mut loop_state0,
+                &mut loop_state1,
+                &mut loop_state2,
+                &mut loop_state3,
+                inputs[0].as_ptr(),
+                inputs[1].as_ptr(),
+                inputs[2].as_ptr(),
+                inputs[3].as_ptr(),
+                &u64x4([0; 4]),
+                &u64x4([0; 4]),
+                &u64x4([!0; 4]),
+                &u64x4([!0; 4]),
+                4,
+                1,
+            );
+        }
+
+        assert_eq!(expected[0], loop_state0);
+        assert_eq!(expected[1], loop_state1);
+        assert_eq!(expected[2], loop_state2);
+        assert_eq!(expected[3], loop_state3);
     }
 }
