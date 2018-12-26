@@ -422,15 +422,15 @@ fn bench_compress4_loop_avx2_one_block(b: &mut Bencher) {
     let input1 = make_input(b, BLOCKBYTES);
     let input2 = make_input(b, BLOCKBYTES);
     let input3 = make_input(b, BLOCKBYTES);
-    let mut state0 = guts::u64x8([1; 8]);
-    let mut state1 = guts::u64x8([2; 8]);
-    let mut state2 = guts::u64x8([3; 8]);
-    let mut state3 = guts::u64x8([4; 8]);
     let count_low = guts::u64x4([0; 4]);
     let count_high = guts::u64x4([0; 4]);
     let last_block = guts::u64x4([0; 4]);
     let last_node = guts::u64x4([0; 4]);
     b.iter(|| unsafe {
+        let mut state0 = guts::u64x8([1; 8]);
+        let mut state1 = guts::u64x8([2; 8]);
+        let mut state2 = guts::u64x8([3; 8]);
+        let mut state3 = guts::u64x8([4; 8]);
         benchmarks::compress4_loop_avx2(
             &mut state0,
             &mut state1,
@@ -447,11 +447,11 @@ fn bench_compress4_loop_avx2_one_block(b: &mut Bencher) {
             1,
             1,
         );
+        test::black_box(&mut state0);
+        test::black_box(&mut state1);
+        test::black_box(&mut state2);
+        test::black_box(&mut state3);
     });
-    test::black_box(&mut state0);
-    test::black_box(&mut state1);
-    test::black_box(&mut state2);
-    test::black_box(&mut state3);
 }
 
 #[bench]
@@ -464,15 +464,15 @@ fn bench_compress4_loop_avx2_one_mb(b: &mut Bencher) {
     let input1 = make_input(b, len);
     let input2 = make_input(b, len);
     let input3 = make_input(b, len);
-    let mut state0 = guts::u64x8([1; 8]);
-    let mut state1 = guts::u64x8([2; 8]);
-    let mut state2 = guts::u64x8([3; 8]);
-    let mut state3 = guts::u64x8([4; 8]);
     let count_low = guts::u64x4([0; 4]);
     let count_high = guts::u64x4([0; 4]);
     let last_block = guts::u64x4([0; 4]);
     let last_node = guts::u64x4([0; 4]);
     b.iter(|| unsafe {
+        let mut state0 = guts::u64x8([1; 8]);
+        let mut state1 = guts::u64x8([2; 8]);
+        let mut state2 = guts::u64x8([3; 8]);
+        let mut state3 = guts::u64x8([4; 8]);
         benchmarks::compress4_loop_avx2(
             &mut state0,
             &mut state1,
@@ -489,11 +489,11 @@ fn bench_compress4_loop_avx2_one_mb(b: &mut Bencher) {
             len / BLOCKBYTES,
             1,
         );
+        test::black_box(&mut state0);
+        test::black_box(&mut state1);
+        test::black_box(&mut state2);
+        test::black_box(&mut state3);
     });
-    test::black_box(&mut state0);
-    test::black_box(&mut state1);
-    test::black_box(&mut state2);
-    test::black_box(&mut state3);
 }
 
 #[bench]
@@ -502,15 +502,15 @@ fn bench_compress4_loop_avx2_one_mb_striped(b: &mut Bencher) {
         return;
     }
     let input = make_input(b, MB);
-    let mut state0 = guts::u64x8([1; 8]);
-    let mut state1 = guts::u64x8([2; 8]);
-    let mut state2 = guts::u64x8([3; 8]);
-    let mut state3 = guts::u64x8([4; 8]);
     let count_low = guts::u64x4([0; 4]);
     let count_high = guts::u64x4([0; 4]);
     let last_block = guts::u64x4([0; 4]);
     let last_node = guts::u64x4([0; 4]);
     b.iter(|| unsafe {
+        let mut state0 = guts::u64x8([1; 8]);
+        let mut state1 = guts::u64x8([2; 8]);
+        let mut state2 = guts::u64x8([3; 8]);
+        let mut state3 = guts::u64x8([4; 8]);
         benchmarks::compress4_loop_avx2(
             &mut state0,
             &mut state1,
@@ -527,9 +527,9 @@ fn bench_compress4_loop_avx2_one_mb_striped(b: &mut Bencher) {
             MB / (BLOCKBYTES * 4),
             4,
         );
+        test::black_box(&mut state0);
+        test::black_box(&mut state1);
+        test::black_box(&mut state2);
+        test::black_box(&mut state3);
     });
-    test::black_box(&mut state0);
-    test::black_box(&mut state1);
-    test::black_box(&mut state2);
-    test::black_box(&mut state3);
 }
