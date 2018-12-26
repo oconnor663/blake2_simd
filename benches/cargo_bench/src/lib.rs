@@ -11,7 +11,7 @@ use blake2b_simd::*;
 use test::Bencher;
 
 const BLOCK: &[u8; BLOCKBYTES] = &[0; BLOCKBYTES];
-const MB: usize = 1000000;
+const MB: usize = 1 << 20;
 
 fn make_input(b: &mut Bencher, len: usize) -> Vec<u8> {
     // Fill the vec with something other than zero, to avoid optimizations
@@ -58,6 +58,12 @@ fn bench_blake2b_portable_one_mb(b: &mut Bencher) {
 fn bench_blake2bp_one_mb(b: &mut Bencher) {
     let input = make_input(b, MB);
     b.iter(|| blake2bp::blake2bp(&input));
+}
+
+#[bench]
+fn bench_blake2bp_loop_one_mb(b: &mut Bencher) {
+    let input = make_input(b, MB);
+    b.iter(|| benchmarks::blake2bp_loop_avx2(&input));
 }
 
 #[bench]
@@ -482,6 +488,44 @@ fn bench_compress4_loop_avx2_one_mb(b: &mut Bencher) {
             &last_node,
             len / BLOCKBYTES,
             1,
+        );
+    });
+    test::black_box(&mut state0);
+    test::black_box(&mut state1);
+    test::black_box(&mut state2);
+    test::black_box(&mut state3);
+}
+
+#[bench]
+fn bench_compress4_loop_avx2_one_mb_striped(b: &mut Bencher) {
+    if guts::Implementation::avx2_if_supported().is_none() {
+        return;
+    }
+    let input = make_input(b, MB);
+    let mut state0 = guts::u64x8([1; 8]);
+    let mut state1 = guts::u64x8([2; 8]);
+    let mut state2 = guts::u64x8([3; 8]);
+    let mut state3 = guts::u64x8([4; 8]);
+    let count_low = guts::u64x4([0; 4]);
+    let count_high = guts::u64x4([0; 4]);
+    let last_block = guts::u64x4([0; 4]);
+    let last_node = guts::u64x4([0; 4]);
+    b.iter(|| unsafe {
+        benchmarks::compress4_loop_avx2(
+            &mut state0,
+            &mut state1,
+            &mut state2,
+            &mut state3,
+            input.as_ptr().add(0 * BLOCKBYTES),
+            input.as_ptr().add(1 * BLOCKBYTES),
+            input.as_ptr().add(2 * BLOCKBYTES),
+            input.as_ptr().add(3 * BLOCKBYTES),
+            &count_low,
+            &count_high,
+            &last_block,
+            &last_node,
+            MB / (BLOCKBYTES * 4),
+            4,
         );
     });
     test::black_box(&mut state0);

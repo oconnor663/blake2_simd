@@ -864,3 +864,68 @@ pub unsafe fn compress4_loop(
     _mm256_store_si256(state2.split_mut()[1].as_mut_ptr() as _, high_words[2]);
     _mm256_store_si256(state3.split_mut()[1].as_mut_ptr() as _, high_words[3]);
 }
+
+pub fn blake2bp_loop(input: &[u8]) -> Hash {
+    let mut params = Params::new();
+    params.fanout(4).max_depth(2).inner_hash_length(OUTBYTES);
+    let mut state0 = u64x8(params.clone().node_offset(0).to_state_words());
+    let mut state1 = u64x8(params.clone().node_offset(1).to_state_words());
+    let mut state2 = u64x8(params.clone().node_offset(2).to_state_words());
+    let mut state3 = u64x8(params.clone().node_offset(3).to_state_words());
+
+    assert_eq!(0, input.len() % (4 * BLOCKBYTES));
+    let blocks = input.len() / (4 * BLOCKBYTES);
+
+    let count_low = u64x4([0; 4]);
+    let count_high = u64x4([0; 4]);
+    let last_block = u64x4([!0; 4]);
+    let last_node = u64x4([0, 0, 0, !0]);
+
+    unsafe {
+        compress4_loop(
+            &mut state0,
+            &mut state1,
+            &mut state2,
+            &mut state3,
+            input.as_ptr().add(0 * BLOCKBYTES),
+            input.as_ptr().add(1 * BLOCKBYTES),
+            input.as_ptr().add(2 * BLOCKBYTES),
+            input.as_ptr().add(3 * BLOCKBYTES),
+            &count_low,
+            &count_high,
+            &last_block,
+            &last_node,
+            blocks,
+            4,
+        );
+    }
+
+    let mut root_state = Params::new()
+        .fanout(4)
+        .max_depth(2)
+        .inner_hash_length(OUTBYTES)
+        .node_depth(1)
+        .last_node(true)
+        .to_state();
+    let mut state_bytes = [0; 64];
+    LittleEndian::write_u64_into(&state0[..], &mut state_bytes);
+    root_state.update(&state_bytes);
+    LittleEndian::write_u64_into(&state1[..], &mut state_bytes);
+    root_state.update(&state_bytes);
+    LittleEndian::write_u64_into(&state2[..], &mut state_bytes);
+    root_state.update(&state_bytes);
+    LittleEndian::write_u64_into(&state3[..], &mut state_bytes);
+    root_state.update(&state_bytes);
+    root_state.finalize()
+}
+
+#[test]
+fn test_blake2bp_loop() {
+    let mut input = [0u8; 20 * BLOCKBYTES];
+    for i in 0..input.len() {
+        input[i] = (7 * i) as u8;
+    }
+    let expected = blake2bp::blake2bp(&input);
+    let found = blake2bp_loop(&input);
+    assert_eq!(expected, found);
+}
