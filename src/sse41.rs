@@ -6,6 +6,7 @@ use core::arch::x86_64::*;
 use super::*;
 use crate::guts::u64x2;
 use crate::guts::u64x4;
+use crate::guts::u64x8;
 use core::mem;
 use core::ptr;
 
@@ -368,4 +369,150 @@ pub unsafe fn compress4_transposed(
         &lastnode.split()[1],
     );
     store_to_4(h_vecs, &state1, 1);
+}
+
+#[inline(always)]
+unsafe fn transpose_vecs(a: __m128i, b: __m128i) -> [__m128i; 2] {
+    let a_words: [i64; 2] = mem::transmute(a);
+    let b_words: [i64; 2] = mem::transmute(b);
+    [
+        _mm_set_epi64x(b_words[0], a_words[0]),
+        _mm_set_epi64x(b_words[1], a_words[1]),
+    ]
+}
+
+#[target_feature(enable = "sse4.1")]
+pub unsafe fn compress2_loop(
+    state0: &mut u64x8,
+    state1: &mut u64x8,
+    input0: *const u8,
+    input1: *const u8,
+    count_low: &u64x2,
+    count_high: &u64x2,
+    last_block: &u64x2,
+    last_node: &u64x2,
+    mut blocks: usize,
+    stride: usize,
+) {
+    // Load all the state words into transposed vectors, where the first vector
+    // has the first word of each state, etc. This is the form that 2-way
+    // compression operates on, and transposing once at the beginning and once
+    // at the end is more efficient that repeating it for each block. Note that
+    // these loads are aligned, because u64x2 and u64x8 guarantee alignment.
+    let [h0, h1] = transpose_vecs(
+        _mm_load_si128((state0.as_ptr() as *const __m128i).add(0)),
+        _mm_load_si128((state1.as_ptr() as *const __m128i).add(0)),
+    );
+    let [h2, h3] = transpose_vecs(
+        _mm_load_si128((state0.as_ptr() as *const __m128i).add(1)),
+        _mm_load_si128((state1.as_ptr() as *const __m128i).add(1)),
+    );
+    let [h4, h5] = transpose_vecs(
+        _mm_load_si128((state0.as_ptr() as *const __m128i).add(2)),
+        _mm_load_si128((state1.as_ptr() as *const __m128i).add(2)),
+    );
+    let [h6, h7] = transpose_vecs(
+        _mm_load_si128((state0.as_ptr() as *const __m128i).add(3)),
+        _mm_load_si128((state1.as_ptr() as *const __m128i).add(3)),
+    );
+    let mut h_vecs = [h0, h1, h2, h3, h4, h5, h6, h7];
+    let mut count_low_vec = _mm_load_si128(count_low.as_ptr() as *const __m128i);
+    let mut count_high_vec = _mm_load_si128(count_high.as_ptr() as *const __m128i);
+    let mut offset = 0;
+
+    while blocks > 0 {
+        // Load all the message words into transposed vectors also. Message
+        // loads are unaligned, because these are arbitrary byte pointers from
+        // the caller. On modern chips though, there's not much of a
+        // performance penalty for unaligned loads.
+        let block0 = input0.add(offset) as *const __m128i;
+        let block1 = input1.add(offset) as *const __m128i;
+        let [m0, m1] = transpose_vecs(
+            _mm_loadu_si128(block0.add(0)),
+            _mm_loadu_si128(block1.add(0)),
+        );
+        let [m2, m3] = transpose_vecs(
+            _mm_loadu_si128(block0.add(1)),
+            _mm_loadu_si128(block1.add(1)),
+        );
+        let [m4, m5] = transpose_vecs(
+            _mm_loadu_si128(block0.add(2)),
+            _mm_loadu_si128(block1.add(2)),
+        );
+        let [m6, m7] = transpose_vecs(
+            _mm_loadu_si128(block0.add(3)),
+            _mm_loadu_si128(block1.add(3)),
+        );
+        let [m8, m9] = transpose_vecs(
+            _mm_loadu_si128(block0.add(4)),
+            _mm_loadu_si128(block1.add(4)),
+        );
+        let [m10, m11] = transpose_vecs(
+            _mm_loadu_si128(block0.add(5)),
+            _mm_loadu_si128(block1.add(5)),
+        );
+        let [m12, m13] = transpose_vecs(
+            _mm_loadu_si128(block0.add(6)),
+            _mm_loadu_si128(block1.add(6)),
+        );
+        let [m14, m15] = transpose_vecs(
+            _mm_loadu_si128(block0.add(7)),
+            _mm_loadu_si128(block1.add(7)),
+        );
+        let m_vecs = [
+            m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15,
+        ];
+
+        // Add BLOCKBYTES to the low count bits, and if they wrap around, carry
+        // a 1 to the high bits.
+        let old_count_low_vec = count_low_vec;
+        count_low_vec = add(count_low_vec, _mm_set1_epi64x(BLOCKBYTES as i64));
+        count_high_vec = add(
+            count_high_vec,
+            _mm_and_si128(
+                _mm_cmpgt_epi64(old_count_low_vec, count_low_vec),
+                _mm_set1_epi64x(1),
+            ),
+        );
+
+        // Compressions before the last one always use zero for the
+        // finalization flags. The last one will use what the caller supplied,
+        // which could also be zero if the input isn't finished.
+        let (last_block_vec, last_node_vec) = if blocks == 1 {
+            (
+                // Again, u64x4 guarantees alignment, so we do an aligned load.
+                _mm_load_si128(last_block.as_ptr() as *const __m128i),
+                _mm_load_si128(last_node.as_ptr() as *const __m128i),
+            )
+        } else {
+            (_mm_set1_epi64x(0), _mm_set1_epi64x(0))
+        };
+
+        compress2_transposed_inline(
+            &mut h_vecs,
+            &m_vecs,
+            count_low_vec,
+            count_high_vec,
+            last_block_vec,
+            last_node_vec,
+        );
+
+        offset += BLOCKBYTES * stride;
+        blocks -= 1;
+    }
+
+    // Un-transpose the updated state vectors back into the caller's arrays.
+    // These are aligned stores.
+    let words = transpose_vecs(h_vecs[0], h_vecs[1]);
+    _mm_store_si128((state0.as_mut_ptr() as *mut __m128i).add(0), words[0]);
+    _mm_store_si128((state1.as_mut_ptr() as *mut __m128i).add(0), words[1]);
+    let words = transpose_vecs(h_vecs[2], h_vecs[3]);
+    _mm_store_si128((state0.as_mut_ptr() as *mut __m128i).add(1), words[0]);
+    _mm_store_si128((state1.as_mut_ptr() as *mut __m128i).add(1), words[1]);
+    let words = transpose_vecs(h_vecs[4], h_vecs[5]);
+    _mm_store_si128((state0.as_mut_ptr() as *mut __m128i).add(2), words[0]);
+    _mm_store_si128((state1.as_mut_ptr() as *mut __m128i).add(2), words[1]);
+    let words = transpose_vecs(h_vecs[6], h_vecs[7]);
+    _mm_store_si128((state0.as_mut_ptr() as *mut __m128i).add(3), words[0]);
+    _mm_store_si128((state1.as_mut_ptr() as *mut __m128i).add(3), words[1]);
 }

@@ -760,16 +760,16 @@ pub unsafe fn compress4_loop(
     // at the end is more efficient that repeating it for each block. Note that
     // these loads are aligned, because u64x4 and u64x8 guarantee alignment.
     let [h0, h1, h2, h3] = transpose_vecs(
-        _mm256_load_si256(state0.split()[0].as_ptr() as *const __m256i),
-        _mm256_load_si256(state1.split()[0].as_ptr() as *const __m256i),
-        _mm256_load_si256(state2.split()[0].as_ptr() as *const __m256i),
-        _mm256_load_si256(state3.split()[0].as_ptr() as *const __m256i),
+        _mm256_load_si256((state0.as_ptr() as *const __m256i).add(0)),
+        _mm256_load_si256((state1.as_ptr() as *const __m256i).add(0)),
+        _mm256_load_si256((state2.as_ptr() as *const __m256i).add(0)),
+        _mm256_load_si256((state3.as_ptr() as *const __m256i).add(0)),
     );
     let [h4, h5, h6, h7] = transpose_vecs(
-        _mm256_load_si256(state0.split()[1].as_ptr() as *const __m256i),
-        _mm256_load_si256(state1.split()[1].as_ptr() as *const __m256i),
-        _mm256_load_si256(state2.split()[1].as_ptr() as *const __m256i),
-        _mm256_load_si256(state3.split()[1].as_ptr() as *const __m256i),
+        _mm256_load_si256((state0.as_ptr() as *const __m256i).add(1)),
+        _mm256_load_si256((state1.as_ptr() as *const __m256i).add(1)),
+        _mm256_load_si256((state2.as_ptr() as *const __m256i).add(1)),
+        _mm256_load_si256((state3.as_ptr() as *const __m256i).add(1)),
     );
     let mut h_vecs = [h0, h1, h2, h3, h4, h5, h6, h7];
     let mut count_low_vec = _mm256_load_si256(count_low.as_ptr() as *const __m256i);
@@ -854,15 +854,15 @@ pub unsafe fn compress4_loop(
     // Un-transpose the updated state vectors back into the caller's arrays.
     // These are aligned stores.
     let low_words = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
-    _mm256_store_si256(state0.split_mut()[0].as_mut_ptr() as _, low_words[0]);
-    _mm256_store_si256(state1.split_mut()[0].as_mut_ptr() as _, low_words[1]);
-    _mm256_store_si256(state2.split_mut()[0].as_mut_ptr() as _, low_words[2]);
-    _mm256_store_si256(state3.split_mut()[0].as_mut_ptr() as _, low_words[3]);
+    _mm256_store_si256((state0.as_mut_ptr() as *mut __m256i).add(0), low_words[0]);
+    _mm256_store_si256((state1.as_mut_ptr() as *mut __m256i).add(0), low_words[1]);
+    _mm256_store_si256((state2.as_mut_ptr() as *mut __m256i).add(0), low_words[2]);
+    _mm256_store_si256((state3.as_mut_ptr() as *mut __m256i).add(0), low_words[3]);
     let high_words = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
-    _mm256_store_si256(state0.split_mut()[1].as_mut_ptr() as _, high_words[0]);
-    _mm256_store_si256(state1.split_mut()[1].as_mut_ptr() as _, high_words[1]);
-    _mm256_store_si256(state2.split_mut()[1].as_mut_ptr() as _, high_words[2]);
-    _mm256_store_si256(state3.split_mut()[1].as_mut_ptr() as _, high_words[3]);
+    _mm256_store_si256((state0.as_mut_ptr() as *mut __m256i).add(1), high_words[0]);
+    _mm256_store_si256((state1.as_mut_ptr() as *mut __m256i).add(1), high_words[1]);
+    _mm256_store_si256((state2.as_mut_ptr() as *mut __m256i).add(1), high_words[2]);
+    _mm256_store_si256((state3.as_mut_ptr() as *mut __m256i).add(1), high_words[3]);
 }
 
 pub fn blake2bp_loop(input: &[u8]) -> Hash {
