@@ -753,20 +753,20 @@ pub unsafe fn compress4_loop(
     // at the end is more efficient that repeating it for each block. Note that
     // these loads are aligned, because u64x4 and u64x8 guarantee alignment.
     let [h0, h1, h2, h3] = transpose_vecs(
-        _mm256_load_si256((state0.as_ptr() as *const __m256i).add(0)),
-        _mm256_load_si256((state1.as_ptr() as *const __m256i).add(0)),
-        _mm256_load_si256((state2.as_ptr() as *const __m256i).add(0)),
-        _mm256_load_si256((state3.as_ptr() as *const __m256i).add(0)),
+        load_u64x4(&state0.split()[0]),
+        load_u64x4(&state1.split()[0]),
+        load_u64x4(&state2.split()[0]),
+        load_u64x4(&state3.split()[0]),
     );
     let [h4, h5, h6, h7] = transpose_vecs(
-        _mm256_load_si256((state0.as_ptr() as *const __m256i).add(1)),
-        _mm256_load_si256((state1.as_ptr() as *const __m256i).add(1)),
-        _mm256_load_si256((state2.as_ptr() as *const __m256i).add(1)),
-        _mm256_load_si256((state3.as_ptr() as *const __m256i).add(1)),
+        load_u64x4(&state0.split()[1]),
+        load_u64x4(&state1.split()[1]),
+        load_u64x4(&state2.split()[1]),
+        load_u64x4(&state3.split()[1]),
     );
     let mut h_vecs = [h0, h1, h2, h3, h4, h5, h6, h7];
-    let mut count_low_vec = _mm256_load_si256(count_low.as_ptr() as *const __m256i);
-    let mut count_high_vec = _mm256_load_si256(count_high.as_ptr() as *const __m256i);
+    let mut count_low_vec = load_u64x4(count_low);
+    let mut count_high_vec = load_u64x4(count_high);
     let mut offset = 0;
 
     while blocks > 0 {
@@ -822,11 +822,7 @@ pub unsafe fn compress4_loop(
         // finalization flags. The last one will use what the caller supplied,
         // which could also be zero if the input isn't finished.
         let (last_block_vec, last_node_vec) = if blocks == 1 {
-            (
-                // Again, u64x4 guarantees alignment, so we do an aligned load.
-                _mm256_load_si256(last_block.as_ptr() as *const __m256i),
-                _mm256_load_si256(last_node.as_ptr() as *const __m256i),
-            )
+            (load_u64x4(last_block), load_u64x4(last_node))
         } else {
             (_mm256_set1_epi64x(0), _mm256_set1_epi64x(0))
         };
@@ -847,15 +843,15 @@ pub unsafe fn compress4_loop(
     // Un-transpose the updated state vectors back into the caller's arrays.
     // These are aligned stores.
     let low_words = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
-    _mm256_store_si256((state0.as_mut_ptr() as *mut __m256i).add(0), low_words[0]);
-    _mm256_store_si256((state1.as_mut_ptr() as *mut __m256i).add(0), low_words[1]);
-    _mm256_store_si256((state2.as_mut_ptr() as *mut __m256i).add(0), low_words[2]);
-    _mm256_store_si256((state3.as_mut_ptr() as *mut __m256i).add(0), low_words[3]);
+    store_u64x4(low_words[0], &mut state0.split_mut()[0]);
+    store_u64x4(low_words[1], &mut state1.split_mut()[0]);
+    store_u64x4(low_words[2], &mut state2.split_mut()[0]);
+    store_u64x4(low_words[3], &mut state3.split_mut()[0]);
     let high_words = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
-    _mm256_store_si256((state0.as_mut_ptr() as *mut __m256i).add(1), high_words[0]);
-    _mm256_store_si256((state1.as_mut_ptr() as *mut __m256i).add(1), high_words[1]);
-    _mm256_store_si256((state2.as_mut_ptr() as *mut __m256i).add(1), high_words[2]);
-    _mm256_store_si256((state3.as_mut_ptr() as *mut __m256i).add(1), high_words[3]);
+    store_u64x4(high_words[0], &mut state0.split_mut()[1]);
+    store_u64x4(high_words[1], &mut state1.split_mut()[1]);
+    store_u64x4(high_words[2], &mut state2.split_mut()[1]);
+    store_u64x4(high_words[3], &mut state3.split_mut()[1]);
 }
 
 pub fn blake2bp_loop(input: &[u8]) -> Hash {
