@@ -35,6 +35,28 @@ impl Implementation {
     }
 
     #[allow(unreachable_code)]
+    pub fn sse41_if_supported() -> Option<Self> {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            // As with AVX2, check whether SSE4.1 is assumed by the
+            // build.
+            #[cfg(target_feature = "sse4.1")]
+            {
+                return Some(Implementation(Platform::SSE41));
+            }
+            // As with AVX2, if support isn't assumed, dynamically check for
+            // it.
+            #[cfg(feature = "std")]
+            {
+                if is_x86_feature_detected!("sse4.1") {
+                    return Some(Implementation(Platform::SSE41));
+                }
+            }
+        }
+        None
+    }
+
+    #[allow(unreachable_code)]
     pub fn avx2_if_supported() -> Option<Self> {
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
@@ -59,31 +81,9 @@ impl Implementation {
         None
     }
 
-    #[allow(unreachable_code)]
-    pub fn sse41_if_supported() -> Option<Self> {
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        {
-            // As with AVX2, check whether SSE4.1 is assumed by the
-            // build.
-            #[cfg(target_feature = "sse4.1")]
-            {
-                return Some(Implementation(Platform::SSE41));
-            }
-            // As with AVX2, if support isn't assumed, dynamically check for
-            // it.
-            #[cfg(feature = "std")]
-            {
-                if is_x86_feature_detected!("sse4.1") {
-                    return Some(Implementation(Platform::SSE41));
-                }
-            }
-        }
-        None
-    }
-
     pub fn compress(
         &self,
-        state_words: &mut [u64; 8],
+        state_words: &mut u64x8,
         msg: &[u8; BLOCKBYTES],
         count: u128,
         lastblock: u64,
@@ -387,7 +387,7 @@ mod test {
     }
 
     fn exercise_1(imp: Implementation, i: u64) -> [u64; 8] {
-        let mut state = input_state_words(i);
+        let mut state = u64x8(input_state_words(i));
         let block = input_msg_block(0x10 + i);
         let count_low = 0x20 + i;
         let count_high = 0x30 + i;
@@ -395,7 +395,7 @@ mod test {
         let lastblock = 0x40 + i;
         let lastnode = 0x50 + i;
         imp.compress(&mut state, &block, count, lastblock, lastnode);
-        state
+        state.0
     }
 
     fn exercise_2(imp: Implementation, i: u64) -> [[u64; 8]; 2] {

@@ -148,7 +148,7 @@ impl fmt::Debug for Params {
 #[derive(Clone)]
 pub struct State {
     transposed_leaf_words: [guts::u64x4; 8],
-    root_words: [u64; 8],
+    root_words: guts::u64x8,
     // Note that this buffer is twice as large as what compress4 needs. That guarantees that we
     // have enough input when we compress to know we don't need to finalize any of the leaves.
     buf: [u8; 8 * BLOCKBYTES],
@@ -413,7 +413,7 @@ impl State {
         // We just finished all the batch compressions we could. Some of the
         // leaves might have one more block left to finalize them. Untranspose
         // the state and then finalize those leaves, if any.
-        let mut leaves_untransposed = [[0u64; 8]; 4];
+        let mut leaves_untransposed = [guts::u64x8([0u64; 8]); 4];
         let &mut [ref mut state0, ref mut state1, ref mut state2, ref mut state3] =
             &mut leaves_untransposed;
         self.implementation
@@ -439,9 +439,9 @@ impl State {
         let mut root_words_copy = self.root_words;
         for i in 0..DEGREE / 2 {
             let mut block = [0; BLOCKBYTES];
-            LittleEndian::write_u64_into(&leaves_untransposed[2 * i], &mut block[0..OUTBYTES]);
+            LittleEndian::write_u64_into(&leaves_untransposed[2 * i][..], &mut block[0..OUTBYTES]);
             LittleEndian::write_u64_into(
-                &leaves_untransposed[2 * i + 1],
+                &leaves_untransposed[2 * i + 1][..],
                 &mut block[OUTBYTES..2 * OUTBYTES],
             );
             self.implementation.compress(

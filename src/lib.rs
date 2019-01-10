@@ -152,7 +152,7 @@ pub const PERSONALBYTES: usize = 16;
 /// to use an even multiple of `BLOCKBYTES`, or else their apparent throughput will be low.
 pub const BLOCKBYTES: usize = 128;
 
-const IV: [u64; 8] = [
+const IV: guts::u64x8 = guts::u64x8([
     0x6A09E667F3BCC908,
     0xBB67AE8584CAA73B,
     0x3C6EF372FE94F82B,
@@ -161,7 +161,7 @@ const IV: [u64; 8] = [
     0x9B05688C2B3E6C1F,
     0x1F83D9ABFB41BD6B,
     0x5BE0CD19137E2179,
-];
+]);
 
 const SIGMA: [[u8; 16]; 12] = [
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
@@ -178,7 +178,6 @@ const SIGMA: [[u8; 16]; 12] = [
     [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
 ];
 
-type StateWords = [u64; 8];
 type Block = [u8; BLOCKBYTES];
 type HexString = arrayvec::ArrayString<[u8; 2 * OUTBYTES]>;
 
@@ -234,10 +233,10 @@ impl Params {
         Self::default()
     }
 
-    fn to_state_words(&self) -> StateWords {
+    fn to_state_words(&self) -> guts::u64x8 {
         let (salt_left, salt_right) = array_refs!(&self.salt, 8, 8);
         let (personal_left, personal_right) = array_refs!(&self.personal, 8, 8);
-        [
+        guts::u64x8([
             IV[0]
                 ^ self.hash_length as u64
                 ^ (self.key_length as u64) << 8
@@ -251,7 +250,7 @@ impl Params {
             IV[5] ^ LittleEndian::read_u64(salt_right),
             IV[6] ^ LittleEndian::read_u64(personal_left),
             IV[7] ^ LittleEndian::read_u64(personal_right),
-        ]
+        ])
     }
 
     /// Construct a `State` object based on these parameters.
@@ -420,7 +419,7 @@ impl fmt::Debug for Params {
 /// ```
 #[derive(Clone)]
 pub struct State {
-    h: StateWords,
+    h: guts::u64x8,
     buf: Block,
     buflen: u8,
     count: u128,
@@ -532,7 +531,7 @@ impl State {
     }
 }
 
-fn state_words_to_bytes(state_words: &StateWords) -> [u8; OUTBYTES] {
+fn state_words_to_bytes(state_words: &[u64; 8]) -> [u8; OUTBYTES] {
     let mut bytes = [0; OUTBYTES];
     {
         let refs = mut_array_refs!(&mut bytes, 8, 8, 8, 8, 8, 8, 8, 8);

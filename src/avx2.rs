@@ -9,13 +9,15 @@ use crate::guts::u64x8;
 use core::mem;
 
 #[inline(always)]
-unsafe fn load_256_unaligned(mem_addr: &[u64; 4]) -> __m256i {
-    _mm256_loadu_si256(mem_addr.as_ptr() as *const __m256i)
+unsafe fn load_u64x4(a: &u64x4) -> __m256i {
+    // u64x4 is fully aligned, so this load is safe.
+    _mm256_load_si256(a.as_ptr() as *const __m256i)
 }
 
 #[inline(always)]
-unsafe fn store_256_unaligned(mem_addr: &mut [u64; 4], a: __m256i) {
-    _mm256_storeu_si256(mem_addr.as_mut_ptr() as *mut __m256i, a);
+unsafe fn store_u64x4(a: __m256i, dest: &mut u64x4) {
+    // u64x4 is fully aligned, so this store is safe.
+    _mm256_store_si256(dest.as_mut_ptr() as *mut __m256i, a)
 }
 
 #[inline(always)]
@@ -117,25 +119,16 @@ unsafe fn blake2b_undiag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, 
 }
 
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress(
-    h: &mut StateWords,
-    msg: &Block,
-    count: u128,
-    lastblock: u64,
-    lastnode: u64,
-) {
-    let (h_low, h_high) = mut_array_refs!(h, 4, 4);
-    let (iv_low, iv_high) = array_refs!(&IV, 4, 4);
+pub unsafe fn compress(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, lastnode: u64) {
+    let mut a = load_u64x4(&h.split()[0]);
+    let mut b = load_u64x4(&h.split()[1]);
+    let mut c = load_u64x4(&IV.split()[0]);
     let count_low = count as i64;
     let count_high = (count >> 64) as i64;
-    let msg_chunks = array_refs!(msg, 16, 16, 16, 16, 16, 16, 16, 16);
-
-    let mut a = load_256_unaligned(h_low);
-    let mut b = load_256_unaligned(h_high);
-    let mut c = load_256_unaligned(iv_low);
     let flags = _mm256_set_epi64x(lastnode as i64, lastblock as i64, count_high, count_low);
-    let mut d = xor(load_256_unaligned(iv_high), flags);
+    let mut d = xor(load_u64x4(&IV.split()[1]), flags);
 
+    let msg_chunks = array_refs!(msg, 16, 16, 16, 16, 16, 16, 16, 16);
     let m0 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.0));
     let m1 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.1));
     let m2 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.2));
@@ -396,8 +389,8 @@ pub unsafe fn compress(
     a = xor(a, iv0);
     b = xor(b, iv1);
 
-    store_256_unaligned(h_low, a);
-    store_256_unaligned(h_high, b);
+    store_u64x4(a, &mut h.split_mut()[0]);
+    store_u64x4(b, &mut h.split_mut()[1]);
 }
 
 #[inline(always)]
@@ -868,10 +861,10 @@ pub unsafe fn compress4_loop(
 pub fn blake2bp_loop(input: &[u8]) -> Hash {
     let mut params = Params::new();
     params.fanout(4).max_depth(2).inner_hash_length(OUTBYTES);
-    let mut state0 = u64x8(params.clone().node_offset(0).to_state_words());
-    let mut state1 = u64x8(params.clone().node_offset(1).to_state_words());
-    let mut state2 = u64x8(params.clone().node_offset(2).to_state_words());
-    let mut state3 = u64x8(params.clone().node_offset(3).to_state_words());
+    let mut state0 = params.clone().node_offset(0).to_state_words();
+    let mut state1 = params.clone().node_offset(1).to_state_words();
+    let mut state2 = params.clone().node_offset(2).to_state_words();
+    let mut state3 = params.clone().node_offset(3).to_state_words();
 
     assert_eq!(0, input.len() % (4 * BLOCKBYTES));
     let blocks = input.len() / (4 * BLOCKBYTES);

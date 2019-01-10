@@ -44,7 +44,7 @@ fn round(r: usize, m: &[u64; 16], v: &mut [u64; 16]) {
 // with zero bytes in the final block. `count` is the number of bytes fed so
 // far, including in this call, though not including padding in the final call.
 // `finalize` is set to true only in the final call.
-pub fn compress(h: &mut StateWords, msg: &Block, count: u128, lastblock: u64, lastnode: u64) {
+pub fn compress(h: &mut [u64; 8], msg: &Block, count: u128, lastblock: u64, lastnode: u64) {
     // Initialize the compression state.
     let mut v = [
         h[0],
