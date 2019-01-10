@@ -231,6 +231,146 @@ impl Implementation {
             }
         }
     }
+
+    pub fn compress1_loop(
+        &self,
+        state: &mut u64x8,
+        input: &[u8],
+        count_low: u64,
+        count_high: u64,
+        last_block: u64,
+        last_node: u64,
+        mut blocks: usize,
+        stride: usize,
+    ) {
+        let mut offset = 0;
+        while blocks > 0 {
+            let block = array_ref!(input, offset, BLOCKBYTES);
+            let (maybe_last_block, maybe_last_node) = if blocks == 1 {
+                (last_block, last_node)
+            } else {
+                (0, 0)
+            };
+            self.compress(
+                state,
+                block,
+                count_low as u128 + (count_high << 64) as u128,
+                maybe_last_block,
+                maybe_last_node,
+            );
+            offset += stride * BLOCKBYTES;
+            blocks -= 1;
+        }
+    }
+
+    pub fn compress2_loop(
+        &self,
+        state0: &mut u64x8,
+        state1: &mut u64x8,
+        input0: &[u8],
+        input1: &[u8],
+        count_low: &u64x2,
+        count_high: &u64x2,
+        last_block: &u64x2,
+        last_node: &u64x2,
+        blocks: usize,
+        stride: usize,
+    ) {
+        match self.0 {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::AVX2 | Platform::SSE41 => unsafe {
+                sse41::compress2_loop(
+                    state0, state1, input0, input1, count_low, count_high, last_block, last_node,
+                    blocks, stride,
+                );
+            },
+            Platform::Portable => {
+                self.compress1_loop(
+                    state0,
+                    input0,
+                    count_low[0],
+                    count_high[0],
+                    last_block[0],
+                    last_node[0],
+                    blocks,
+                    stride,
+                );
+                self.compress1_loop(
+                    state1,
+                    input1,
+                    count_low[1],
+                    count_high[1],
+                    last_block[1],
+                    last_node[1],
+                    blocks,
+                    stride,
+                );
+            }
+        }
+    }
+
+    pub fn compress4_loop(
+        &self,
+        state0: &mut u64x8,
+        state1: &mut u64x8,
+        state2: &mut u64x8,
+        state3: &mut u64x8,
+        input0: &[u8],
+        input1: &[u8],
+        input2: &[u8],
+        input3: &[u8],
+        count_low: &u64x4,
+        count_high: &u64x4,
+        last_block: &u64x4,
+        last_node: &u64x4,
+        blocks: usize,
+        stride: usize,
+    ) {
+        match self.0 {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::AVX2 => unsafe {
+                avx2::compress4_loop(
+                    state0, state1, state2, state3, input0, input1, input2, input3, count_low,
+                    count_high, last_block, last_node, blocks, stride,
+                );
+            },
+            _ => {
+                // Performance note: Would it be faster to add a compress4_loop
+                // interface to the sse41 implementation, which used a single
+                // loop to process the inputs together instead of one after the
+                // other? For BLAKE2bp it probably would be, because you'll get
+                // better cache performance by traversing the input once
+                // instead of twice. But for tree hashes probably not, since
+                // the inputs are usually adjacent or nearly-adjacent rather
+                // than overlapping. Tree hash performance is our priority
+                // here, and also doing things this way is simpler.
+                self.compress2_loop(
+                    state0,
+                    state1,
+                    input0,
+                    input1,
+                    &count_low.split()[0],
+                    &count_high.split()[0],
+                    &last_block.split()[0],
+                    &last_node.split()[0],
+                    blocks,
+                    stride,
+                );
+                self.compress2_loop(
+                    state2,
+                    state3,
+                    input2,
+                    input3,
+                    &count_low.split()[1],
+                    &count_high.split()[1],
+                    &last_block.split()[1],
+                    &last_node.split()[1],
+                    blocks,
+                    stride,
+                );
+            }
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
