@@ -34,48 +34,37 @@ impl Implementation {
         Implementation(Platform::Portable)
     }
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[allow(unreachable_code)]
     pub fn sse41_if_supported() -> Option<Self> {
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        // Check whether SSE4.1 support is assumed by the build.
+        #[cfg(target_feature = "sse4.1")]
         {
-            // As with AVX2, check whether SSE4.1 is assumed by the
-            // build.
-            #[cfg(target_feature = "sse4.1")]
-            {
+            return Some(Implementation(Platform::SSE41));
+        }
+        // Otherwise dynamically check for support if we can.
+        #[cfg(feature = "std")]
+        {
+            if is_x86_feature_detected!("sse4.1") {
                 return Some(Implementation(Platform::SSE41));
-            }
-            // As with AVX2, if support isn't assumed, dynamically check for
-            // it.
-            #[cfg(feature = "std")]
-            {
-                if is_x86_feature_detected!("sse4.1") {
-                    return Some(Implementation(Platform::SSE41));
-                }
             }
         }
         None
     }
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[allow(unreachable_code)]
     pub fn avx2_if_supported() -> Option<Self> {
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        // Check whether AVX2 support is assumed by the build.
+        #[cfg(target_feature = "avx2")]
         {
-            // Check whether AVX2 support is assumed by the build (using
-            // something like RUSTFLAGS="-C target-feature=avx2" or
-            // RUSTFLAGS="-C target-cpu=native"). This isn't the common case,
-            // but it's the only way to use AVX2 with no_std, at least until
-            // more features get stabilized in the future.
-            #[cfg(target_feature = "avx2")]
-            {
+            return Some(Implementation(Platform::AVX2));
+        }
+        // Otherwise dynamically check for support if we can.
+        #[cfg(feature = "std")]
+        {
+            if is_x86_feature_detected!("avx2") {
                 return Some(Implementation(Platform::AVX2));
-            }
-            // If AVX2 support isn't assumed (it's usually not), do dynamic
-            // feature detection to see if we can use it on the current system.
-            #[cfg(feature = "std")]
-            {
-                if is_x86_feature_detected!("avx2") {
-                    return Some(Implementation(Platform::AVX2));
-                }
             }
         }
         None
@@ -519,7 +508,8 @@ mod test {
     }
 
     #[test]
-    fn test_compress4_loop() {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_avx2_compress4_loop() {
         if Implementation::avx2_if_supported().is_none() {
             return;
         }
