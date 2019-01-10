@@ -736,10 +736,10 @@ pub unsafe fn compress4_loop(
     state1: &mut u64x8,
     state2: &mut u64x8,
     state3: &mut u64x8,
-    input0: *const u8,
-    input1: *const u8,
-    input2: *const u8,
-    input3: *const u8,
+    input0: &[u8],
+    input1: &[u8],
+    input2: &[u8],
+    input3: &[u8],
     count_low: &u64x4,
     count_high: &u64x4,
     last_block: &u64x4,
@@ -747,6 +747,13 @@ pub unsafe fn compress4_loop(
     mut blocks: usize,
     stride: usize,
 ) {
+    // Check the input slice lengths once here. The main loop will do unaligned
+    // loads without any further bounds checks.
+    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input0.len());
+    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input1.len());
+    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input2.len());
+    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input3.len());
+
     // Load all the state words into transposed vectors, where the first vector
     // has the first word of each state, etc. This is the form that 4-way
     // compression operates on, and transposing once at the beginning and once
@@ -774,10 +781,10 @@ pub unsafe fn compress4_loop(
         // loads are unaligned, because these are arbitrary byte pointers from
         // the caller. On modern chips though, there's not much of a
         // performance penalty for unaligned loads.
-        let block0 = input0.add(offset) as *const __m256i;
-        let block1 = input1.add(offset) as *const __m256i;
-        let block2 = input2.add(offset) as *const __m256i;
-        let block3 = input3.add(offset) as *const __m256i;
+        let block0 = input0.as_ptr().add(offset) as *const __m256i;
+        let block1 = input1.as_ptr().add(offset) as *const __m256i;
+        let block2 = input2.as_ptr().add(offset) as *const __m256i;
+        let block3 = input3.as_ptr().add(offset) as *const __m256i;
         let [m0, m1, m2, m3] = transpose_vecs(
             _mm256_loadu_si256(block0.add(0)),
             _mm256_loadu_si256(block1.add(0)),
@@ -876,10 +883,10 @@ pub fn blake2bp_loop(input: &[u8]) -> Hash {
             &mut state1,
             &mut state2,
             &mut state3,
-            input.as_ptr().add(0 * BLOCKBYTES),
-            input.as_ptr().add(1 * BLOCKBYTES),
-            input.as_ptr().add(2 * BLOCKBYTES),
-            input.as_ptr().add(3 * BLOCKBYTES),
+            &input[0 * BLOCKBYTES..],
+            &input[1 * BLOCKBYTES..],
+            &input[2 * BLOCKBYTES..],
+            &input[3 * BLOCKBYTES..],
             &count_low,
             &count_high,
             &last_block,

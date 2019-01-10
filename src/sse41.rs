@@ -397,8 +397,8 @@ unsafe fn transpose_vecs(a: __m128i, b: __m128i) -> [__m128i; 2] {
 pub unsafe fn compress2_loop(
     state0: &mut u64x8,
     state1: &mut u64x8,
-    input0: *const u8,
-    input1: *const u8,
+    input0: &[u8],
+    input1: &[u8],
     count_low: &u64x2,
     count_high: &u64x2,
     last_block: &u64x2,
@@ -406,6 +406,11 @@ pub unsafe fn compress2_loop(
     mut blocks: usize,
     stride: usize,
 ) {
+    // Check the input slice lengths once here. The main loop will do unaligned
+    // loads without any further bounds checks.
+    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input0.len());
+    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input1.len());
+
     // Load all the state words into transposed vectors, where the first vector
     // has the first word of each state, etc. This is the form that 2-way
     // compression operates on, and transposing once at the beginning and once
@@ -437,8 +442,8 @@ pub unsafe fn compress2_loop(
         // loads are unaligned, because these are arbitrary byte pointers from
         // the caller. On modern chips though, there's not much of a
         // performance penalty for unaligned loads.
-        let block0 = input0.add(offset) as *const __m128i;
-        let block1 = input1.add(offset) as *const __m128i;
+        let block0 = input0.as_ptr().add(offset) as *const __m128i;
+        let block1 = input1.as_ptr().add(offset) as *const __m128i;
         let [m0, m1] = transpose_vecs(
             _mm_loadu_si128(block0.add(0)),
             _mm_loadu_si128(block1.add(0)),
