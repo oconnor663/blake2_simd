@@ -243,21 +243,17 @@ impl Implementation {
         mut blocks: usize,
         stride: usize,
     ) {
+        let mut count = count_low as u128 + ((count_high as u128) << 64);
         let mut offset = 0;
         while blocks > 0 {
             let block = array_ref!(input, offset, BLOCKBYTES);
+            count += BLOCKBYTES as u128;
             let (maybe_last_block, maybe_last_node) = if blocks == 1 {
                 (last_block, last_node)
             } else {
                 (0, 0)
             };
-            self.compress(
-                state,
-                block,
-                count_low as u128 + (count_high << 64) as u128,
-                maybe_last_block,
-                maybe_last_node,
-            );
+            self.compress(state, block, count, maybe_last_block, maybe_last_node);
             offset += stride * BLOCKBYTES;
             blocks -= 1;
         }
@@ -691,10 +687,10 @@ mod test {
                 &mut loop_state1,
                 &mut loop_state2,
                 &mut loop_state3,
-                inputs[0].as_ptr(),
-                inputs[1].as_ptr(),
-                inputs[2].as_ptr(),
-                inputs[3].as_ptr(),
+                &inputs[0],
+                &inputs[1],
+                &inputs[2],
+                &inputs[3],
                 &u64x4([0; 4]),
                 &u64x4([0; 4]),
                 &u64x4([!0; 4]),

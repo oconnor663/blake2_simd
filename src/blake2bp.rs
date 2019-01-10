@@ -461,7 +461,7 @@ impl State {
 
     /// Return the total number of bytes input so far.
     pub fn count(&self) -> u128 {
-        4 * self.count + self.buflen as u128
+        DEGREE as u128 * self.count + self.buflen as u128
     }
 }
 
@@ -524,25 +524,25 @@ pub(crate) mod test {
     fn blake2bp_reference(input: &[u8]) -> Hash {
         let mut leaves = [
             Blake2bParams::new()
-                .fanout(4)
+                .fanout(DEGREE as u8)
                 .max_depth(2)
                 .node_offset(0)
                 .inner_hash_length(OUTBYTES)
                 .to_state(),
             Blake2bParams::new()
-                .fanout(4)
+                .fanout(DEGREE as u8)
                 .max_depth(2)
                 .node_offset(1)
                 .inner_hash_length(OUTBYTES)
                 .to_state(),
             Blake2bParams::new()
-                .fanout(4)
+                .fanout(DEGREE as u8)
                 .max_depth(2)
                 .node_offset(2)
                 .inner_hash_length(OUTBYTES)
                 .to_state(),
             Blake2bParams::new()
-                .fanout(4)
+                .fanout(DEGREE as u8)
                 .max_depth(2)
                 .node_offset(3)
                 .inner_hash_length(OUTBYTES)
@@ -550,10 +550,10 @@ pub(crate) mod test {
                 .to_state(),
         ];
         for (i, chunk) in input.chunks(BLOCKBYTES).enumerate() {
-            leaves[i % 4].update(chunk);
+            leaves[i % DEGREE].update(chunk);
         }
         let mut root = Blake2bParams::new()
-            .fanout(4)
+            .fanout(DEGREE as u8)
             .max_depth(2)
             .node_depth(1)
             .inner_hash_length(OUTBYTES)
