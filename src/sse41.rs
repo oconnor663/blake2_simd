@@ -28,6 +28,11 @@ unsafe fn add(a: __m128i, b: __m128i) -> __m128i {
 }
 
 #[inline(always)]
+unsafe fn sub(a: __m128i, b: __m128i) -> __m128i {
+    _mm_sub_epi64(a, b)
+}
+
+#[inline(always)]
 unsafe fn xor(a: __m128i, b: __m128i) -> __m128i {
     _mm_xor_si128(a, b)
 }
@@ -405,6 +410,7 @@ pub unsafe fn compress2_loop(
     last_node: &u64x2,
     mut blocks: usize,
     stride: usize,
+    buffer_tail: &u64x2,
 ) {
     // Check the input slice lengths once here. The main loop will do unaligned
     // loads without any further bounds checks.
@@ -484,6 +490,23 @@ pub unsafe fn compress2_loop(
         // a 1 to the high bits.
         let old_count_low_vec = count_low_vec;
         count_low_vec = add(count_low_vec, _mm_set1_epi64x(BLOCKBYTES as i64));
+        count_high_vec = add(
+            count_high_vec,
+            _mm_and_si128(
+                _mm_cmpgt_epi64(old_count_low_vec, count_low_vec),
+                _mm_set1_epi64x(1),
+            ),
+        );
+
+        // Add BLOCKBYTES to the low count bits.
+        let old_count_low_vec = count_low_vec;
+        count_low_vec = add(count_low_vec, _mm_set1_epi64x(BLOCKBYTES as i64));
+        // If this is the last block, subtract the buffer tails.
+        if blocks == 1 {
+            count_low_vec = sub(count_low_vec, load_u64x2(buffer_tail));
+        }
+        // Finally if any of the low counts overflowed (after accounting for
+        // the buffer tails), increment the correspinding high counts.
         count_high_vec = add(
             count_high_vec,
             _mm_and_si128(

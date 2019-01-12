@@ -147,12 +147,12 @@ impl fmt::Debug for Params {
 /// ```
 #[derive(Clone)]
 pub struct State {
-    transposed_leaf_words: [guts::u64x4; 8],
+    leaf_words: [guts::u64x8; DEGREE],
     root_words: guts::u64x8,
     // Note that this buffer is twice as large as what compress4 needs. That guarantees that we
     // have enough input when we compress to know we don't need to finalize any of the leaves.
     buf: [u8; 8 * BLOCKBYTES],
-    buflen: u16,
+    buf_len: u16,
     count: u128,
     hash_length: u8,
     implementation: guts::Implementation,
@@ -186,12 +186,7 @@ impl State {
                 // because it isn't included in the state words.
                 .to_state_words()
         };
-        let transposed_leaf_words = implementation.transpose4(
-            &leaf_words(0),
-            &leaf_words(1),
-            &leaf_words(2),
-            &leaf_words(3),
-        );
+        let leaf_words = [leaf_words(0), leaf_words(1), leaf_words(2), leaf_words(3)];
         let root_words = base_params
             .clone()
             .node_offset(0)
@@ -210,20 +205,20 @@ impl State {
         // above) is also corroborated by the official test vectors; see
         // tests/vector_tests.rs.
         let mut buf = [0; 2 * DEGREE * BLOCKBYTES];
-        let mut buflen = 0;
+        let mut buf_len = 0;
         if params.key_length > 0 {
             for i in 0..DEGREE {
                 let keybytes = &params.key[..params.key_length as usize];
                 buf[i * BLOCKBYTES..][..keybytes.len()].copy_from_slice(keybytes);
-                buflen = BLOCKBYTES * DEGREE;
+                buf_len = BLOCKBYTES * DEGREE;
             }
         }
 
         Self {
-            transposed_leaf_words,
+            leaf_words,
             root_words,
             buf,
-            buflen: buflen as u16,
+            buf_len: buf_len as u16,
             count: 0, // count gets updated in self.compress()
             hash_length: params.hash_length,
             implementation,
@@ -231,36 +226,49 @@ impl State {
     }
 
     fn fill_buf(&mut self, input: &mut &[u8]) {
-        let take = cmp::min(self.buf.len() - self.buflen as usize, input.len());
-        self.buf[self.buflen as usize..self.buflen as usize + take].copy_from_slice(&input[..take]);
-        self.buflen += take as u16;
+        let take = cmp::min(self.buf.len() - self.buf_len as usize, input.len());
+        self.buf[self.buf_len as usize..][..take].copy_from_slice(&input[..take]);
+        self.buf_len += take as u16;
         *input = &input[take..];
     }
 
-    fn compress(
-        input: &[u8; DEGREE * BLOCKBYTES],
-        state: &mut [guts::u64x4; 8],
+    fn compress_to_leaves(
+        leaves: &mut [guts::u64x8; DEGREE],
+        input: &[u8],
         count: &mut u128,
+        iterations: usize,
         implementation: guts::Implementation,
     ) {
-        let msg_refs = array_refs!(input, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES);
-        // Note that count is incremented by *one* block, not four.
-        *count += BLOCKBYTES as u128;
+        // Short circuit if there are no iterations, to avoid panicking on the
+        // slices below.
+        if iterations == 0 {
+            return;
+        }
+        let &mut [ref mut state0, ref mut state1, ref mut state2, ref mut state3] = leaves;
         let count_low = guts::u64x4([*count as u64; 4]);
         let count_high = guts::u64x4([(*count >> 64) as u64; 4]);
-        let lastblock = guts::u64x4([0; 4]);
-        let lastnode = guts::u64x4([0; 4]);
-        implementation.compress4(
-            state,
-            msg_refs.0,
-            msg_refs.1,
-            msg_refs.2,
-            msg_refs.3,
+        let last_block = guts::u64x4([0; 4]);
+        let last_node = guts::u64x4([0; 4]);
+        let buffer_tail = guts::u64x4([0; 4]);
+        implementation.compress4_loop(
+            state0,
+            state1,
+            state2,
+            state3,
+            &input[0 * BLOCKBYTES..],
+            &input[1 * BLOCKBYTES..],
+            &input[2 * BLOCKBYTES..],
+            &input[3 * BLOCKBYTES..],
             &count_low,
             &count_high,
-            &lastblock,
-            &lastnode,
+            &last_block,
+            &last_node,
+            iterations, /* blocks */
+            DEGREE,     /* stride */
+            &buffer_tail,
         );
+        // Note that count is incremented by *one* block, not four.
+        *count += iterations as u128 * BLOCKBYTES as u128;
     }
 
     /// Add input to the hash. You can call `update` any number of times.
@@ -269,52 +277,55 @@ impl State {
         // input waiting, we need to compress to make more room. However, because we need to be
         // sure that *none* of the leaves would need to be finalized as part of this round of
         // compression, we need to buffer more than we would for BLAKE2b.
-        if self.buflen > 0 {
+        if self.buf_len > 0 {
             self.fill_buf(&mut input);
+            // The buffer is large enough for two compressions. If we've filled
+            // the buffer and there's still more input coming, then we have to
+            // do at least one compression. If there's enough input still
+            // coming that all the leaves are guaranteed to get more, do both
+            // compressions in the buffer. Otherwise, do just one and shift the
+            // back half of the buffer to the front.
             if !input.is_empty() {
-                // The buffer is large enough for two compressions. If it's full and there's more
-                // input coming, always do at least the first compression, on the left half of the
-                // buffer.
-                Self::compress(
-                    array_ref!(self.buf, 0, DEGREE * BLOCKBYTES),
-                    &mut self.transposed_leaf_words,
-                    &mut self.count,
-                    self.implementation,
-                );
-                self.buflen -= (DEGREE * BLOCKBYTES) as u16;
-                // Now, if there's enough input still coming that all four leaves are going to get
-                // more, we can do the second compression and clear the buffer. Otherwise, we have
-                // to shift the remainder of the buffer to the left (and we know in this case the
-                // direct-from-memory loop will get skipped too).
                 if input.len() > (DEGREE - 1) * BLOCKBYTES {
-                    Self::compress(
-                        array_ref!(self.buf, DEGREE * BLOCKBYTES, DEGREE * BLOCKBYTES),
-                        &mut self.transposed_leaf_words,
+                    // Enough input coming to do both compressions.
+                    Self::compress_to_leaves(
+                        &mut self.leaf_words,
+                        &self.buf,
                         &mut self.count,
+                        2,
                         self.implementation,
                     );
-                    self.buflen = 0;
+                    self.buf_len = 0;
                 } else {
-                    let (left, right) = self.buf.split_at_mut(DEGREE * BLOCKBYTES);
-                    left[..self.buflen as usize].copy_from_slice(&right[..self.buflen as usize]);
+                    // Only enough input coming for one compression.
+                    Self::compress_to_leaves(
+                        &mut self.leaf_words,
+                        &self.buf,
+                        &mut self.count,
+                        1,
+                        self.implementation,
+                    );
+                    self.buf_len = (DEGREE * BLOCKBYTES) as u16;
+                    let (buf_front, buf_back) = self.buf.split_at_mut(DEGREE * BLOCKBYTES);
+                    buf_front.copy_from_slice(buf_back);
                 }
             }
         }
 
-        // While there are more than 7 input blocks coming, then we know that we can perform a
-        // compression and still have more input coming for each leaf. (We also know that the
-        // buffer must have been emptied above.)
-        while input.len() > ((2 * DEGREE) - 1) * BLOCKBYTES {
-            debug_assert_eq!(0, self.buflen);
-            let block = array_ref!(input, 0, DEGREE * BLOCKBYTES);
-            Self::compress(
-                block,
-                &mut self.transposed_leaf_words,
-                &mut self.count,
-                self.implementation,
-            );
-            input = &input[DEGREE * BLOCKBYTES..];
-        }
+        // Now we directly compress as much input as possible, without copying
+        // it into the buffer. We need to make sure we buffer at least one byte
+        // for each of the leaves, so that we know we don't need to finalize
+        // them.
+        let direct_compress_bytes = input.len().saturating_sub((DEGREE - 1) * BLOCKBYTES + 1);
+        let direct_compress_blocks = direct_compress_bytes / (DEGREE * BLOCKBYTES);
+        Self::compress_to_leaves(
+            &mut self.leaf_words,
+            input,
+            &mut self.count,
+            direct_compress_blocks,
+            self.implementation,
+        );
+        input = &input[direct_compress_blocks * DEGREE * BLOCKBYTES..];
 
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
         self.fill_buf(&mut input);
@@ -327,121 +338,115 @@ impl State {
     pub fn finalize(&mut self) -> Hash {
         // Zero the buffer tail, since it might contain bytes from previous
         // compressions.
-        let buflen = self.buflen as usize;
-        for i in buflen..self.buf.len() {
+        let buf_len = self.buf_len as usize;
+        for i in buf_len..self.buf.len() {
             self.buf[i] = 0;
         }
 
-        // Split the buffer into an array of blocks.
-        let blocks = array_refs!(
-            &self.buf, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES, BLOCKBYTES,
-            BLOCKBYTES, BLOCKBYTES
-        );
-        let blocks = [
-            blocks.0, blocks.1, blocks.2, blocks.3, blocks.4, blocks.5, blocks.6, blocks.7,
-        ];
-
         // Clone the leaf words. That keeps this method idempotent.
-        let mut leaves_copy = self.transposed_leaf_words;
+        let mut leaves_copy = self.leaf_words;
 
-        // Count how many bytes each leaf still needs to compress. Note that
-        // even if the number is zero, each leaf is going to get at least one
-        // more compression to finalize it.
-        let remaining_bytes_fn = |i: usize| {
-            let first_block_start = i * BLOCKBYTES;
-            let first_block_end = first_block_start + BLOCKBYTES;
-            let second_block_start = (DEGREE + i) * BLOCKBYTES;
-            let second_block_end = second_block_start + BLOCKBYTES;
-            if buflen < first_block_start {
-                0
-            } else if buflen < first_block_end {
-                buflen - first_block_start
-            } else if buflen < second_block_start {
-                BLOCKBYTES
-            } else if buflen < second_block_end {
-                BLOCKBYTES + buflen - second_block_start
-            } else {
-                2 * BLOCKBYTES
-            }
+        // Figure out how many batch compressions we can do, either 1 or 2. If
+        // we do two batch compressions, then no extra finalization needs to be
+        // done afterwards, but if we do only one then some of the leaves might
+        // need an extra individual finalization, and the flags will need to
+        // reflect that.
+        let last_block;
+        let buffer_tail;
+        let batches;
+        if buf_len > (2 * DEGREE - 1) * BLOCKBYTES {
+            // Two batch compressions.
+            batches = 2;
+            last_block = guts::u64x4([!0; DEGREE]);
+            buffer_tail = guts::u64x4([0, 0, 0, (self.buf.len() - buf_len) as u64]);
+        } else {
+            // One batch compression.
+            batches = 1;
+            let last_block_fn = |leaf| {
+                if buf_len > (DEGREE + leaf) * BLOCKBYTES {
+                    0
+                } else {
+                    !0
+                }
+            };
+            last_block = guts::u64x4([
+                last_block_fn(0),
+                last_block_fn(1),
+                last_block_fn(2),
+                last_block_fn(3),
+            ]);
+            let buffer_tail_fn =
+                |leaf| BLOCKBYTES.saturating_sub(buf_len.saturating_sub(leaf * BLOCKBYTES)) as u64;
+            buffer_tail = guts::u64x4([
+                buffer_tail_fn(0),
+                buffer_tail_fn(1),
+                buffer_tail_fn(2),
+                buffer_tail_fn(3),
+            ]);
         };
-        let mut remaining = [
-            remaining_bytes_fn(0),
-            remaining_bytes_fn(1),
-            remaining_bytes_fn(2),
-            remaining_bytes_fn(3),
-        ];
+        let mut last_node = guts::u64x4([0; DEGREE]);
+        last_node[DEGREE - 1] = last_block[DEGREE - 1];
+        let count_low = guts::u64x4([self.count as u64; DEGREE]);
+        let count_high = guts::u64x4([(self.count >> 64) as u64; DEGREE]);
 
-        // While all leaves still have compressions remaining, run them in a
-        // batch. This might finalize some of the leaves. This loop will either
-        // run once (even if some leaves have no input) or twice (if all leaves
-        // have more than one block).
-        let mut blocks_handled = 0;
-        let mut count = self.count;
-        loop {
-            let mut count_low = guts::u64x4([count as u64; 4]);
-            for i in 0..DEGREE {
-                let take = cmp::min(BLOCKBYTES, remaining[i]);
-                count_low[i] += take as u64;
-                remaining[i] -= take;
-            }
-            let count_high = guts::u64x4([0; 4]);
-            let mut lastblock = guts::u64x4([0; 4]);
-            for i in 0..DEGREE {
-                lastblock[i] = if remaining[i] == 0 { !0 } else { 0 };
-            }
-            let lastnode = guts::u64x4([0, 0, 0, lastblock[DEGREE - 1]]);
-            self.implementation.compress4(
-                &mut leaves_copy,
-                &blocks[blocks_handled + 0],
-                &blocks[blocks_handled + 1],
-                &blocks[blocks_handled + 2],
-                &blocks[blocks_handled + 3],
-                &count_low,
-                &count_high,
-                &lastblock,
-                &lastnode,
-            );
-            blocks_handled += DEGREE;
-            // Note that at this point `count` only applies to leaves that
-            // haven't been finalized.
-            count += BLOCKBYTES as u128;
-            if remaining.iter().any(|&rem| rem == 0) {
-                break;
-            }
-        }
+        // Do the batch compressions.
+        let &mut [ref mut leaf0, ref mut leaf1, ref mut leaf2, ref mut leaf3] = &mut leaves_copy;
+        self.implementation.compress4_loop(
+            leaf0,
+            leaf1,
+            leaf2,
+            leaf3,
+            &self.buf[0 * BLOCKBYTES..],
+            &self.buf[1 * BLOCKBYTES..],
+            &self.buf[2 * BLOCKBYTES..],
+            &self.buf[3 * BLOCKBYTES..],
+            &count_low,
+            &count_high,
+            &last_block,
+            &last_node,
+            batches, /* blocks */
+            DEGREE,  /* stride */
+            &buffer_tail,
+        );
+        let count = self.count + (batches * BLOCKBYTES) as u128;
 
         // We just finished all the batch compressions we could. Some of the
-        // leaves might have one more block left to finalize them. Untranspose
-        // the state and then finalize those leaves, if any.
-        let mut leaves_untransposed = [guts::u64x8([0u64; 8]); 4];
-        let &mut [ref mut state0, ref mut state1, ref mut state2, ref mut state3] =
-            &mut leaves_untransposed;
-        self.implementation
-            .untranspose4(&leaves_copy, state0, state1, state2, state3);
-        for i in 0..DEGREE {
-            if remaining[i] > 0 {
+        // leaves (though note, never the last one) might have one more block
+        // left to finalize them.
+        debug_assert_eq!(!0, last_node[DEGREE - 1]);
+        for leaf in 0..DEGREE - 1 {
+            if last_block[leaf] == 0 {
+                let block_start = (DEGREE + leaf) * BLOCKBYTES;
+                debug_assert!(buf_len > block_start);
+                let block_len = cmp::min(BLOCKBYTES, buf_len - block_start);
+                // Note that the buffer tail was zeroed at the start of this
+                // function, so we can take a partial block directly from there
+                // without copying it again. Note also that the single
+                // compression takes an already-updated value of count, unlike
+                // the loop compression.
                 self.implementation.compress(
-                    &mut leaves_untransposed[i],
-                    &blocks[blocks_handled + i],
-                    count + remaining[i] as u128,
-                    !0,
-                    if i == DEGREE - 1 { !0 } else { 0 },
+                    &mut leaves_copy[leaf],
+                    array_ref!(self.buf, block_start, BLOCKBYTES),
+                    count + block_len as u128,
+                    !0, /* last_block */
+                    0,  /* last_node */
                 );
             }
         }
 
-        // Compress each of the four untransposed, finalized hashes into the
-        // root words as input, using two compressions. Again we copy the words
-        // to keep this method idempotent. Note that this uses the full-length
-        // leaf hashes, not the shortened versions, even if the hash_length
-        // parameter is set to a short value. Note also that, as mentioned
-        // above, the root node doesn't hash any key bytes.
+        // Compress each of the four finalized hashes into the root words as
+        // input, using two compressions. Again we copy the words to keep this
+        // method idempotent. Note that even if a future version of this
+        // implementation supports the hash_length parameter and sets it as
+        // associated data for all nodes, this step must still use the
+        // untruncated output of each leaf. Note also that, as mentioned above,
+        // the root node doesn't hash any key bytes.
         let mut root_words_copy = self.root_words;
         for i in 0..DEGREE / 2 {
             let mut block = [0; BLOCKBYTES];
-            LittleEndian::write_u64_into(&leaves_untransposed[2 * i][..], &mut block[0..OUTBYTES]);
+            LittleEndian::write_u64_into(&leaves_copy[2 * i][..], &mut block[0..OUTBYTES]);
             LittleEndian::write_u64_into(
-                &leaves_untransposed[2 * i + 1][..],
+                &leaves_copy[2 * i + 1][..],
                 &mut block[OUTBYTES..2 * OUTBYTES],
             );
             self.implementation.compress(
@@ -461,7 +466,7 @@ impl State {
 
     /// Return the total number of bytes input so far.
     pub fn count(&self) -> u128 {
-        DEGREE as u128 * self.count + self.buflen as u128
+        DEGREE as u128 * self.count + self.buf_len as u128
     }
 }
 

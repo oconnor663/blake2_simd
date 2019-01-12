@@ -242,12 +242,16 @@ impl Implementation {
         last_node: u64,
         mut blocks: usize,
         stride: usize,
+        buffer_tail: u64,
     ) {
         let mut count = count_low as u128 + ((count_high as u128) << 64);
         let mut offset = 0;
         while blocks > 0 {
             let block = array_ref!(input, offset, BLOCKBYTES);
             count += BLOCKBYTES as u128;
+            if blocks == 1 {
+                count -= buffer_tail as u128;
+            }
             let (maybe_last_block, maybe_last_node) = if blocks == 1 {
                 (last_block, last_node)
             } else {
@@ -271,13 +275,23 @@ impl Implementation {
         last_node: &u64x2,
         blocks: usize,
         stride: usize,
+        buffer_tail: &u64x2,
     ) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 | Platform::SSE41 => unsafe {
                 sse41::compress2_loop(
-                    state0, state1, input0, input1, count_low, count_high, last_block, last_node,
-                    blocks, stride,
+                    state0,
+                    state1,
+                    input0,
+                    input1,
+                    count_low,
+                    count_high,
+                    last_block,
+                    last_node,
+                    blocks,
+                    stride,
+                    buffer_tail,
                 );
             },
             Platform::Portable => {
@@ -290,6 +304,7 @@ impl Implementation {
                     last_node[0],
                     blocks,
                     stride,
+                    buffer_tail[0],
                 );
                 self.compress1_loop(
                     state1,
@@ -300,6 +315,7 @@ impl Implementation {
                     last_node[1],
                     blocks,
                     stride,
+                    buffer_tail[1],
                 );
             }
         }
@@ -321,13 +337,27 @@ impl Implementation {
         last_node: &u64x4,
         blocks: usize,
         stride: usize,
+        buffer_tail: &u64x4,
     ) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => unsafe {
                 avx2::compress4_loop(
-                    state0, state1, state2, state3, input0, input1, input2, input3, count_low,
-                    count_high, last_block, last_node, blocks, stride,
+                    state0,
+                    state1,
+                    state2,
+                    state3,
+                    input0,
+                    input1,
+                    input2,
+                    input3,
+                    count_low,
+                    count_high,
+                    last_block,
+                    last_node,
+                    blocks,
+                    stride,
+                    buffer_tail,
                 );
             },
             _ => {
@@ -351,6 +381,7 @@ impl Implementation {
                     &last_node.split()[0],
                     blocks,
                     stride,
+                    &buffer_tail.split()[0],
                 );
                 self.compress2_loop(
                     state2,
@@ -363,6 +394,7 @@ impl Implementation {
                     &last_node.split()[1],
                     blocks,
                     stride,
+                    &buffer_tail.split()[1],
                 );
             }
         }
@@ -697,6 +729,7 @@ mod test {
                 &u64x4([!0; 4]),
                 4,
                 1,
+                &u64x4([0; 4]),
             );
         }
 
