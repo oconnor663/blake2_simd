@@ -1,6 +1,12 @@
 use crate::*;
 use core::mem;
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub const MAX_DEGREE: usize = 4;
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+pub const MAX_DEGREE: usize = 4;
+
 // Variants other than Portable are unreachable in no_std, unless CPU features
 // are explicitly enabled for the build with e.g. RUSTFLAGS="-C target-feature=avx2".
 // This might change in the future if is_x86_feature_detected moves into libcore.
@@ -68,6 +74,16 @@ impl Implementation {
             }
         }
         None
+    }
+
+    pub fn degree(&self) -> usize {
+        match self.0 {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::AVX2 => 4,
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::SSE41 => 2,
+            Platform::Portable => 1,
+        }
     }
 
     pub fn compress(
