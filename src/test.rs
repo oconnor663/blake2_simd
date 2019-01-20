@@ -1,4 +1,5 @@
 use super::*;
+use arrayvec::ArrayVec;
 
 const EMPTY_HASH: &str = "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419\
                           d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce";
@@ -296,5 +297,44 @@ fn test_update4() {
             input2,
             input3,
         );
+    }
+}
+
+#[test]
+fn test_hash_many() {
+    // Use a length of inputs that will exercise all of the power-of-two loops.
+    const LEN: usize = 2 * guts::MAX_DEGREE - 1;
+
+    let mut params: ArrayVec<[Params; LEN]> = ArrayVec::new();
+    for i in 0..LEN {
+        let mut param = Params::new();
+        param.node_offset(i as u64);
+        param.last_node(i % 2 == 1);
+        params.push(param);
+    }
+
+    // Rerun LEN inputs LEN different times, with the empty input starting in a
+    // different spot each time.
+    let mut input = [0; LEN * BLOCKBYTES];
+    blake2bp::test::paint_input(&mut input);
+    for start_offset in 0..LEN {
+        let mut inputs: [&[u8]; LEN] = [&[]; LEN];
+        for i in 0..LEN {
+            let chunks = (i + start_offset) % LEN;
+            inputs[i] = &input[..chunks * BLOCKBYTES];
+        }
+
+        let mut outputs: ArrayVec<[Hash; LEN]> = ArrayVec::new();
+        for _ in 0..LEN {
+            outputs.push(Hash::empty());
+        }
+
+        hash_many(&inputs, &mut outputs, &params);
+
+        // Check the outputs.
+        for i in 0..LEN {
+            let expected = params[i].to_state().update(inputs[i]).finalize();
+            assert_eq!(&expected, &outputs[i]);
+        }
     }
 }

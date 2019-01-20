@@ -252,15 +252,13 @@ impl Implementation {
         &self,
         state: &mut u64x8,
         input: &[u8],
-        count_low: u64,
-        count_high: u64,
+        mut count: u128,
         last_block: u64,
         last_node: u64,
         mut blocks: usize,
         stride: usize,
         buffer_tail: u64,
     ) {
-        let mut count = count_low as u128 + ((count_high as u128) << 64);
         let mut offset = 0;
         while blocks > 0 {
             let block = array_ref!(input, offset, BLOCKBYTES);
@@ -314,8 +312,7 @@ impl Implementation {
                 self.compress1_loop(
                     state0,
                     input0,
-                    count_low[0],
-                    count_high[0],
+                    count_low[0] as u128 + ((count_high[0] as u128) << 64),
                     last_block[0],
                     last_node[0],
                     blocks,
@@ -325,8 +322,7 @@ impl Implementation {
                 self.compress1_loop(
                     state1,
                     input1,
-                    count_low[1],
-                    count_high[1],
+                    count_low[1] as u128 + ((count_high[1] as u128) << 64),
                     last_block[1],
                     last_node[1],
                     blocks,
