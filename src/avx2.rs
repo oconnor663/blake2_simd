@@ -868,7 +868,7 @@ pub unsafe fn compress4_loop(
             count_low_vec = sub(count_low_vec, load_u64x4(buffer_tail));
         }
         // Finally if any of the low counts overflowed (after accounting for
-        // the buffer tails), increment the correspinding high counts.
+        // the buffer tails), increment the corresponding high counts.
         count_high_vec = add(
             count_high_vec,
             _mm256_and_si256(

@@ -486,18 +486,6 @@ pub unsafe fn compress2_loop(
             m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15,
         ];
 
-        // Add BLOCKBYTES to the low count bits, and if they wrap around, carry
-        // a 1 to the high bits.
-        let old_count_low_vec = count_low_vec;
-        count_low_vec = add(count_low_vec, _mm_set1_epi64x(BLOCKBYTES as i64));
-        count_high_vec = add(
-            count_high_vec,
-            _mm_and_si128(
-                _mm_cmpgt_epi64(old_count_low_vec, count_low_vec),
-                _mm_set1_epi64x(1),
-            ),
-        );
-
         // Add BLOCKBYTES to the low count bits.
         let old_count_low_vec = count_low_vec;
         count_low_vec = add(count_low_vec, _mm_set1_epi64x(BLOCKBYTES as i64));
@@ -506,7 +494,7 @@ pub unsafe fn compress2_loop(
             count_low_vec = sub(count_low_vec, load_u64x2(buffer_tail));
         }
         // Finally if any of the low counts overflowed (after accounting for
-        // the buffer tails), increment the correspinding high counts.
+        // the buffer tails), increment the corresponding high counts.
         count_high_vec = add(
             count_high_vec,
             _mm_and_si128(
