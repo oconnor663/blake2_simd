@@ -123,8 +123,8 @@ unsafe fn blake2b_undiag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, 
     *b = _mm256_permute4x64_epi64(*b, _MM_SHUFFLE!(2, 1, 0, 3));
 }
 
-#[target_feature(enable = "avx2")]
-pub unsafe fn compress(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, lastnode: u64) {
+#[inline(always)]
+unsafe fn compress_block(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, lastnode: u64) {
     let mut a = load_u64x4(&h.split()[0]);
     let mut b = load_u64x4(&h.split()[1]);
     let mut c = load_u64x4(&IV.split()[0]);
@@ -398,6 +398,47 @@ pub unsafe fn compress(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, 
     store_u64x4(b, &mut h.split_mut()[1]);
 }
 
+#[target_feature(enable = "avx2")]
+pub unsafe fn compress(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, lastnode: u64) {
+    compress_block(h, msg, count, lastblock, lastnode);
+}
+
+#[target_feature(enable = "avx2")]
+pub unsafe fn compress1_loop(
+    state: &mut u64x8,
+    input: &[u8],
+    mut count: u128,
+    last_block: u64,
+    last_node: u64,
+    mut blocks: usize,
+    stride: usize,
+    buffer_tail: usize,
+) {
+    // Check the input length once to avoid bounds checks in the loop below.
+    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input.len());
+
+    let mut offset = 0;
+    while blocks > 0 {
+        // An unchecked pointer deref, guarded by the assert above.
+        let block = &*(input.as_ptr().add(offset) as *const Block);
+
+        count += BLOCKBYTES as u128;
+        if blocks == 1 {
+            count -= buffer_tail as u128;
+        }
+        let (maybe_last_block, maybe_last_node) = if blocks == 1 {
+            (last_block, last_node)
+        } else {
+            (0, 0)
+        };
+
+        compress_block(state, block, count, maybe_last_block, maybe_last_node);
+
+        offset += stride * BLOCKBYTES;
+        blocks -= 1;
+    }
+}
+
 #[inline(always)]
 unsafe fn load_256_from_u64(x: u64) -> __m256i {
     _mm256_set1_epi64x(x as i64)
@@ -563,10 +604,10 @@ unsafe fn transpose_vecs(
 
 #[target_feature(enable = "avx2")]
 pub unsafe fn transpose4(
-    words0: &[u64; 8],
-    words1: &[u64; 8],
-    words2: &[u64; 8],
-    words3: &[u64; 8],
+    words0: &u64x8,
+    words1: &u64x8,
+    words2: &u64x8,
+    words3: &u64x8,
 ) -> [u64x4; 8] {
     let h_vecs_lo = transpose_vecs(
         _mm256_loadu_si256((words0.as_ptr() as *const __m256i).add(0)),
@@ -595,10 +636,10 @@ pub unsafe fn transpose4(
 #[target_feature(enable = "avx2")]
 pub unsafe fn untranspose4(
     transposed: &[u64x4; 8],
-    out0: &mut [u64; 8],
-    out1: &mut [u64; 8],
-    out2: &mut [u64; 8],
-    out3: &mut [u64; 8],
+    out0: &mut u64x8,
+    out1: &mut u64x8,
+    out2: &mut u64x8,
+    out3: &mut u64x8,
 ) {
     let h_vecs: &[__m256i; 8] = mem::transmute(transposed);
     let untransposed_low = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);

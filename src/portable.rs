@@ -1,8 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
-use crate::guts::u64x2;
-use crate::guts::u64x4;
+use crate::guts::{u64x2, u64x4, u64x8};
 
 // G is the mixing function, called eight times per round in the compression
 // function. V is the 16-word state vector of the compression function, usually
@@ -44,7 +43,8 @@ fn round(r: usize, m: &[u64; 16], v: &mut [u64; 16]) {
 // with zero bytes in the final block. `count` is the number of bytes fed so
 // far, including in this call, though not including padding in the final call.
 // `finalize` is set to true only in the final call.
-pub fn compress(h: &mut [u64; 8], msg: &Block, count: u128, lastblock: u64, lastnode: u64) {
+#[inline(always)]
+pub fn compress_block(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, lastnode: u64) {
     // Initialize the compression state.
     let mut v = [
         h[0],
@@ -109,7 +109,11 @@ pub fn compress(h: &mut [u64; 8], msg: &Block, count: u128, lastblock: u64, last
     h[7] ^= v[7] ^ v[15];
 }
 
-pub fn transpose2(words0: &[u64; 8], words1: &[u64; 8]) -> [u64x2; 8] {
+pub fn compress(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, lastnode: u64) {
+    compress_block(h, msg, count, lastblock, lastnode);
+}
+
+pub fn transpose2(words0: &u64x8, words1: &u64x8) -> [u64x2; 8] {
     [
         u64x2([words0[0], words1[0]]),
         u64x2([words0[1], words1[1]]),
@@ -122,8 +126,8 @@ pub fn transpose2(words0: &[u64; 8], words1: &[u64; 8]) -> [u64x2; 8] {
     ]
 }
 
-pub fn untranspose2(transposed: &[u64x2; 8], out0: &mut [u64; 8], out1: &mut [u64; 8]) {
-    *out0 = [
+pub fn untranspose2(transposed: &[u64x2; 8], out0: &mut u64x8, out1: &mut u64x8) {
+    *out0 = u64x8([
         transposed[0][0],
         transposed[1][0],
         transposed[2][0],
@@ -132,8 +136,8 @@ pub fn untranspose2(transposed: &[u64x2; 8], out0: &mut [u64; 8], out1: &mut [u6
         transposed[5][0],
         transposed[6][0],
         transposed[7][0],
-    ];
-    *out1 = [
+    ]);
+    *out1 = u64x8([
         transposed[0][1],
         transposed[1][1],
         transposed[2][1],
@@ -142,12 +146,12 @@ pub fn untranspose2(transposed: &[u64x2; 8], out0: &mut [u64; 8], out1: &mut [u6
         transposed[5][1],
         transposed[6][1],
         transposed[7][1],
-    ];
+    ]);
 }
 
 #[inline(always)]
-fn load_from_2(words: &[u64x2; 8], i: usize) -> [u64; 8] {
-    [
+fn load_from_2(words: &[u64x2; 8], i: usize) -> u64x8 {
+    u64x8([
         words[0][i],
         words[1][i],
         words[2][i],
@@ -156,11 +160,11 @@ fn load_from_2(words: &[u64x2; 8], i: usize) -> [u64; 8] {
         words[5][i],
         words[6][i],
         words[7][i],
-    ]
+    ])
 }
 
 #[inline(always)]
-fn store_to_2(whole: &mut [u64x2; 8], part: &[u64; 8], i: usize) {
+fn store_to_2(whole: &mut [u64x2; 8], part: &u64x8, i: usize) {
     whole[0][i] = part[0];
     whole[1][i] = part[1];
     whole[2][i] = part[2];
@@ -191,12 +195,7 @@ pub fn compress2_transposed(
     store_to_2(h_vecs, &state1, 1);
 }
 
-pub fn transpose4(
-    words0: &[u64; 8],
-    words1: &[u64; 8],
-    words2: &[u64; 8],
-    words3: &[u64; 8],
-) -> [u64x4; 8] {
+pub fn transpose4(words0: &u64x8, words1: &u64x8, words2: &u64x8, words3: &u64x8) -> [u64x4; 8] {
     [
         u64x4([words0[0], words1[0], words2[0], words3[0]]),
         u64x4([words0[1], words1[1], words2[1], words3[1]]),
@@ -211,12 +210,12 @@ pub fn transpose4(
 
 pub fn untranspose4(
     transposed: &[u64x4; 8],
-    out0: &mut [u64; 8],
-    out1: &mut [u64; 8],
-    out2: &mut [u64; 8],
-    out3: &mut [u64; 8],
+    out0: &mut u64x8,
+    out1: &mut u64x8,
+    out2: &mut u64x8,
+    out3: &mut u64x8,
 ) {
-    *out0 = [
+    *out0 = u64x8([
         transposed[0][0],
         transposed[1][0],
         transposed[2][0],
@@ -225,8 +224,8 @@ pub fn untranspose4(
         transposed[5][0],
         transposed[6][0],
         transposed[7][0],
-    ];
-    *out1 = [
+    ]);
+    *out1 = u64x8([
         transposed[0][1],
         transposed[1][1],
         transposed[2][1],
@@ -235,8 +234,8 @@ pub fn untranspose4(
         transposed[5][1],
         transposed[6][1],
         transposed[7][1],
-    ];
-    *out2 = [
+    ]);
+    *out2 = u64x8([
         transposed[0][2],
         transposed[1][2],
         transposed[2][2],
@@ -245,8 +244,8 @@ pub fn untranspose4(
         transposed[5][2],
         transposed[6][2],
         transposed[7][2],
-    ];
-    *out3 = [
+    ]);
+    *out3 = u64x8([
         transposed[0][3],
         transposed[1][3],
         transposed[2][3],
@@ -255,12 +254,12 @@ pub fn untranspose4(
         transposed[5][3],
         transposed[6][3],
         transposed[7][3],
-    ];
+    ]);
 }
 
 #[inline(always)]
-fn load_from_4(words: &[u64x4; 8], i: usize) -> [u64; 8] {
-    [
+fn load_from_4(words: &[u64x4; 8], i: usize) -> u64x8 {
+    u64x8([
         words[0][i],
         words[1][i],
         words[2][i],
@@ -269,11 +268,11 @@ fn load_from_4(words: &[u64x4; 8], i: usize) -> [u64; 8] {
         words[5][i],
         words[6][i],
         words[7][i],
-    ]
+    ])
 }
 
 #[inline(always)]
-fn store_to_4(whole: &mut [u64x4; 8], part: &[u64; 8], i: usize) {
+fn store_to_4(whole: &mut [u64x4; 8], part: &u64x8, i: usize) {
     whole[0][i] = part[0];
     whole[1][i] = part[1];
     whole[2][i] = part[2];
@@ -314,4 +313,35 @@ pub fn compress4_transposed(
     let count3 = count_low[3] as u128 + ((count_high[3] as u128) << 64);
     compress(&mut state3, msg3, count3, lastblock[3], lastnode[3]);
     store_to_4(h_vecs, &state3, 3);
+}
+
+pub fn compress1_loop(
+    state: &mut u64x8,
+    input: &[u8],
+    mut count: u128,
+    last_block: u64,
+    last_node: u64,
+    mut blocks: usize,
+    stride: usize,
+    buffer_tail: usize,
+) {
+    let mut offset = 0;
+    while blocks > 0 {
+        // This probably incurs a bounds check, but portable.rs is 100% safe,
+        // and that's more valuable than eeking out a little more performance
+        // here. The SIMD implementations do make this sort of optimization.
+        let block = array_ref!(input, offset, BLOCKBYTES);
+        count += BLOCKBYTES as u128;
+        if blocks == 1 {
+            count -= buffer_tail as u128;
+        }
+        let (maybe_last_block, maybe_last_node) = if blocks == 1 {
+            (last_block, last_node)
+        } else {
+            (0, 0)
+        };
+        compress_block(state, block, count, maybe_last_block, maybe_last_node);
+        offset += stride * BLOCKBYTES;
+        blocks -= 1;
+    }
 }

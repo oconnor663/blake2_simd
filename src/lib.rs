@@ -137,6 +137,8 @@ mod sse41;
 pub mod blake2bp;
 pub mod guts;
 
+use guts::{u64x2, u64x4, u64x8, Implementation};
+
 #[cfg(test)]
 mod test;
 
@@ -152,7 +154,7 @@ pub const PERSONALBYTES: usize = 16;
 /// to use an even multiple of `BLOCKBYTES`, or else their apparent throughput will be low.
 pub const BLOCKBYTES: usize = 128;
 
-const IV: guts::u64x8 = guts::u64x8([
+const IV: u64x8 = u64x8([
     0x6A09E667F3BCC908,
     0xBB67AE8584CAA73B,
     0x3C6EF372FE94F82B,
@@ -233,10 +235,10 @@ impl Params {
         Self::default()
     }
 
-    fn to_state_words(&self) -> guts::u64x8 {
+    fn to_state_words(&self) -> u64x8 {
         let (salt_left, salt_right) = array_refs!(&self.salt, 8, 8);
         let (personal_left, personal_right) = array_refs!(&self.personal, 8, 8);
-        guts::u64x8([
+        u64x8([
             IV[0]
                 ^ self.hash_length as u64
                 ^ (self.key_length as u64) << 8
@@ -419,13 +421,13 @@ impl fmt::Debug for Params {
 /// ```
 #[derive(Clone)]
 pub struct State {
-    h: guts::u64x8,
+    h: u64x8,
     buf: Block,
     buflen: u8,
     count: u128,
     last_node: bool,
     hash_length: u8,
-    implementation: guts::Implementation,
+    implementation: Implementation,
 }
 
 impl State {
@@ -442,7 +444,7 @@ impl State {
             count: 0,
             last_node: params.last_node,
             hash_length: params.hash_length,
-            implementation: guts::Implementation::detect(),
+            implementation: Implementation::detect(),
         };
         if params.key_length > 0 {
             let mut key_block = [0; BLOCKBYTES];
@@ -531,7 +533,7 @@ impl State {
     }
 }
 
-fn state_words_to_bytes(state_words: &[u64; 8]) -> [u8; OUTBYTES] {
+fn state_words_to_bytes(state_words: &u64x8) -> [u8; OUTBYTES] {
     let mut bytes = [0; OUTBYTES];
     {
         let refs = mut_array_refs!(&mut bytes, 8, 8, 8, 8, 8, 8, 8, 8);
@@ -709,7 +711,7 @@ pub fn update4(
     mut input2: &[u8],
     mut input3: &[u8],
 ) {
-    let implementation = guts::Implementation::detect();
+    let implementation = Implementation::detect();
 
     // First we need to make sure all the buffers are clear.
     state0.compress_buffer_if_possible(&mut input0);
@@ -740,13 +742,13 @@ pub fn update4(
             state1.count += BLOCKBYTES as u128;
             state2.count += BLOCKBYTES as u128;
             state3.count += BLOCKBYTES as u128;
-            let count_low = guts::u64x4([
+            let count_low = u64x4([
                 state0.count as u64,
                 state1.count as u64,
                 state2.count as u64,
                 state3.count as u64,
             ]);
-            let count_high = guts::u64x4([
+            let count_high = u64x4([
                 (state0.count >> 64) as u64,
                 (state1.count >> 64) as u64,
                 (state2.count >> 64) as u64,
@@ -760,8 +762,8 @@ pub fn update4(
                 array_ref!(input3, 0, BLOCKBYTES),
                 &count_low,
                 &count_high,
-                &guts::u64x4([0, 0, 0, 0]),
-                &guts::u64x4([0, 0, 0, 0]),
+                &u64x4([0, 0, 0, 0]),
+                &u64x4([0, 0, 0, 0]),
             );
             input0 = &input0[BLOCKBYTES..];
             input1 = &input1[BLOCKBYTES..];
@@ -835,7 +837,7 @@ pub fn finalize4(
     state2: &mut State,
     state3: &mut State,
 ) -> [Hash; 4] {
-    let implementation = guts::Implementation::detect();
+    let implementation = Implementation::detect();
 
     // Zero out the buffer tails, which might contain bytes from previous blocks.
     for i in state0.buflen as usize..BLOCKBYTES {
@@ -859,19 +861,19 @@ pub fn finalize4(
         implementation.transpose4(&state0.h, &state1.h, &state2.h, &state3.h);
 
     // Do the final parallel compression step.
-    let count_low = guts::u64x4([
+    let count_low = u64x4([
         state0.count as u64,
         state1.count as u64,
         state2.count as u64,
         state3.count as u64,
     ]);
-    let count_high = guts::u64x4([
+    let count_high = u64x4([
         (state0.count >> 64) as u64,
         (state1.count >> 64) as u64,
         (state2.count >> 64) as u64,
         (state3.count >> 64) as u64,
     ]);
-    let lastnode = guts::u64x4([
+    let lastnode = u64x4([
         if state0.last_node { !0 } else { 0 },
         if state1.last_node { !0 } else { 0 },
         if state2.last_node { !0 } else { 0 },
@@ -885,45 +887,45 @@ pub fn finalize4(
         &state3.buf,
         &count_low,
         &count_high,
-        &guts::u64x4([!0, !0, !0, !0]),
+        &u64x4([!0, !0, !0, !0]),
         &lastnode,
     );
 
     // Extract the resulting hashes.
-    let mut bytes0 = [0; 8];
-    let mut bytes1 = [0; 8];
-    let mut bytes2 = [0; 8];
-    let mut bytes3 = [0; 8];
+    let mut words0 = u64x8([0; 8]);
+    let mut words1 = u64x8([0; 8]);
+    let mut words2 = u64x8([0; 8]);
+    let mut words3 = u64x8([0; 8]);
     implementation.untranspose4(
         &transposed_state,
-        &mut bytes0,
-        &mut bytes1,
-        &mut bytes2,
-        &mut bytes3,
+        &mut words0,
+        &mut words1,
+        &mut words2,
+        &mut words3,
     );
     [
         Hash {
-            bytes: state_words_to_bytes(&bytes0),
+            bytes: state_words_to_bytes(&words0),
             len: state0.hash_length,
         },
         Hash {
-            bytes: state_words_to_bytes(&bytes1),
+            bytes: state_words_to_bytes(&words1),
             len: state1.hash_length,
         },
         Hash {
-            bytes: state_words_to_bytes(&bytes2),
+            bytes: state_words_to_bytes(&words2),
             len: state2.hash_length,
         },
         Hash {
-            bytes: state_words_to_bytes(&bytes3),
+            bytes: state_words_to_bytes(&words3),
             len: state3.hash_length,
         },
     ]
 }
 
 fn hash1(
-    implementation: guts::Implementation,
-    state: &mut guts::u64x8,
+    implementation: Implementation,
+    state: &mut u64x8,
     input: &[u8],
     last_node: u64,
     count: u128,
@@ -944,12 +946,12 @@ fn hash1(
 }
 
 fn hash2(
-    implementation: guts::Implementation,
-    state0: &mut guts::u64x8,
-    state1: &mut guts::u64x8,
+    implementation: Implementation,
+    state0: &mut u64x8,
+    state1: &mut u64x8,
     input0: &[u8],
     input1: &[u8],
-    last_node: &guts::u64x2,
+    last_node: &u64x2,
 ) {
     // Figure out how many blocks we can compress together. Skip this part
     // entirely if the answer is zero.
@@ -964,9 +966,8 @@ fn hash2(
                 0
             }
         };
-        let last_block = guts::u64x2([last_block_fn(input0), last_block_fn(input1)]);
-        let last_node_maybe =
-            guts::u64x2([last_block[0] & last_node[0], last_block[1] & last_node[1]]);
+        let last_block = u64x2([last_block_fn(input0), last_block_fn(input1)]);
+        let last_node_maybe = u64x2([last_block[0] & last_node[0], last_block[1] & last_node[1]]);
 
         // Do the main loop compression.
         implementation.compress2_loop(
@@ -974,13 +975,13 @@ fn hash2(
             state1,
             input0,
             input1,
-            &guts::u64x2([0; 2]),
-            &guts::u64x2([0; 2]),
+            &u64x2([0; 2]),
+            &u64x2([0; 2]),
             &last_block,
             &last_node_maybe,
             batch_blocks,
             1,
-            &guts::u64x2([0; 2]),
+            &u64x2([0; 2]),
         );
     }
 
@@ -1004,16 +1005,16 @@ fn hash2(
 }
 
 fn hash4(
-    implementation: guts::Implementation,
-    state0: &mut guts::u64x8,
-    state1: &mut guts::u64x8,
-    state2: &mut guts::u64x8,
-    state3: &mut guts::u64x8,
+    implementation: Implementation,
+    state0: &mut u64x8,
+    state1: &mut u64x8,
+    state2: &mut u64x8,
+    state3: &mut u64x8,
     input0: &[u8],
     input1: &[u8],
     input2: &[u8],
     input3: &[u8],
-    last_node: &guts::u64x4,
+    last_node: &u64x4,
 ) {
     // Figure out how many blocks we can compress together. Skip this part
     // entirely if the answer is zero.
@@ -1031,13 +1032,13 @@ fn hash4(
                 0
             }
         };
-        let last_block = guts::u64x4([
+        let last_block = u64x4([
             last_block_fn(input0),
             last_block_fn(input1),
             last_block_fn(input2),
             last_block_fn(input3),
         ]);
-        let last_node_maybe = guts::u64x4([
+        let last_node_maybe = u64x4([
             last_block[0] & last_node[0],
             last_block[1] & last_node[1],
             last_block[2] & last_node[2],
@@ -1054,13 +1055,13 @@ fn hash4(
             input1,
             input2,
             input3,
-            &guts::u64x4([0; 4]),
-            &guts::u64x4([0; 4]),
+            &u64x4([0; 4]),
+            &u64x4([0; 4]),
             &last_block,
             &last_node_maybe,
             batch_blocks,
             1,
-            &guts::u64x4([0; 4]),
+            &u64x4([0; 4]),
         );
     }
 
@@ -1086,7 +1087,7 @@ fn hash4(
 pub fn hash_many(inputs: &[&[u8]], outputs: &mut [Hash], params: &[Params]) {
     assert_eq!(inputs.len(), outputs.len());
     assert_eq!(inputs.len(), params.len());
-    let implementation = guts::Implementation::detect();
+    let implementation = Implementation::detect();
     let mut index = 0;
 
     while inputs.len() - index >= 4 {
@@ -1098,7 +1099,7 @@ pub fn hash_many(inputs: &[&[u8]], outputs: &mut [Hash], params: &[Params]) {
         let mut words1 = params1.to_state_words();
         let mut words2 = params2.to_state_words();
         let mut words3 = params3.to_state_words();
-        let last_node = guts::u64x4([
+        let last_node = u64x4([
             u64_flag(params0.last_node),
             u64_flag(params1.last_node),
             u64_flag(params2.last_node),
@@ -1140,7 +1141,7 @@ pub fn hash_many(inputs: &[&[u8]], outputs: &mut [Hash], params: &[Params]) {
         let params1 = &params[index + 1];
         let mut words0 = params0.to_state_words();
         let mut words1 = params1.to_state_words();
-        let last_node = guts::u64x2([u64_flag(params0.last_node), u64_flag(params1.last_node)]);
+        let last_node = u64x2([u64_flag(params0.last_node), u64_flag(params1.last_node)]);
         hash2(
             implementation,
             &mut words0,

@@ -108,12 +108,12 @@ impl Implementation {
         }
     }
 
-    pub fn transpose2(&self, words0: &[u64; 8], words1: &[u64; 8]) -> [u64x2; 8] {
+    pub fn transpose2(&self, words0: &u64x8, words1: &u64x8) -> [u64x2; 8] {
         // Currently there's only the portable implementation of transpose2.
         portable::transpose2(words0, words1)
     }
 
-    pub fn untranspose2(&self, transposed: &[u64x2; 8], out0: &mut [u64; 8], out1: &mut [u64; 8]) {
+    pub fn untranspose2(&self, transposed: &[u64x2; 8], out0: &mut u64x8, out1: &mut u64x8) {
         // Currently there's only the portable implementation of untranspose2.
         portable::untranspose2(transposed, out0, out1)
     }
@@ -158,10 +158,10 @@ impl Implementation {
 
     pub fn transpose4(
         &self,
-        words0: &[u64; 8],
-        words1: &[u64; 8],
-        words2: &[u64; 8],
-        words3: &[u64; 8],
+        words0: &u64x8,
+        words1: &u64x8,
+        words2: &u64x8,
+        words3: &u64x8,
     ) -> [u64x4; 8] {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -176,10 +176,10 @@ impl Implementation {
     pub fn untranspose4(
         &self,
         transposed: &[u64x4; 8],
-        out0: &mut [u64; 8],
-        out1: &mut [u64; 8],
-        out2: &mut [u64; 8],
-        out3: &mut [u64; 8],
+        out0: &mut u64x8,
+        out1: &mut u64x8,
+        out2: &mut u64x8,
+        out3: &mut u64x8,
     ) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -252,28 +252,41 @@ impl Implementation {
         &self,
         state: &mut u64x8,
         input: &[u8],
-        mut count: u128,
+        count: u128,
         last_block: u64,
         last_node: u64,
-        mut blocks: usize,
+        blocks: usize,
         stride: usize,
-        buffer_tail: u64,
+        buffer_tail: usize,
     ) {
-        let mut offset = 0;
-        while blocks > 0 {
-            let block = array_ref!(input, offset, BLOCKBYTES);
-            count += BLOCKBYTES as u128;
-            if blocks == 1 {
-                count -= buffer_tail as u128;
+        match self.0 {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::AVX2 => unsafe {
+                avx2::compress1_loop(
+                    state,
+                    input,
+                    count,
+                    last_block,
+                    last_node,
+                    blocks,
+                    stride,
+                    buffer_tail,
+                );
+            },
+            // Note that there's an SSE version of compress1 in the official C
+            // implementation, but I haven't ported it yet.
+            _ => {
+                portable::compress1_loop(
+                    state,
+                    input,
+                    count,
+                    last_block,
+                    last_node,
+                    blocks,
+                    stride,
+                    buffer_tail,
+                );
             }
-            let (maybe_last_block, maybe_last_node) = if blocks == 1 {
-                (last_block, last_node)
-            } else {
-                (0, 0)
-            };
-            self.compress(state, block, count, maybe_last_block, maybe_last_node);
-            offset += stride * BLOCKBYTES;
-            blocks -= 1;
         }
     }
 
@@ -317,7 +330,7 @@ impl Implementation {
                     last_node[0],
                     blocks,
                     stride,
-                    buffer_tail[0],
+                    buffer_tail[0] as usize,
                 );
                 self.compress1_loop(
                     state1,
@@ -327,7 +340,7 @@ impl Implementation {
                     last_node[1],
                     blocks,
                     stride,
-                    buffer_tail[1],
+                    buffer_tail[1] as usize,
                 );
             }
         }
@@ -539,8 +552,8 @@ mod test {
         }
     }
 
-    fn input_state_words(i: u64) -> [u64; 8] {
-        let mut words = [0; 8];
+    fn input_state_words(i: u64) -> u64x8 {
+        let mut words = u64x8([0; 8]);
         for j in 0..words.len() {
             words[j] = i + j as u64;
         }
@@ -555,8 +568,8 @@ mod test {
         block
     }
 
-    fn exercise_1(imp: Implementation, i: u64) -> [u64; 8] {
-        let mut state = u64x8(input_state_words(i));
+    fn exercise_1(imp: Implementation, i: u64) -> u64x8 {
+        let mut state = input_state_words(i);
         let block = input_msg_block(0x10 + i);
         let count_low = 0x20 + i;
         let count_high = 0x30 + i;
@@ -564,10 +577,10 @@ mod test {
         let lastblock = 0x40 + i;
         let lastnode = 0x50 + i;
         imp.compress(&mut state, &block, count, lastblock, lastnode);
-        state.0
+        state
     }
 
-    fn exercise_2(imp: Implementation, i: u64) -> [[u64; 8]; 2] {
+    fn exercise_2(imp: Implementation, i: u64) -> [u64x8; 2] {
         let mut state0 = input_state_words(i);
         let mut state1 = input_state_words(i + 1);
         let block0 = input_msg_block(0x10 + i);
@@ -590,7 +603,7 @@ mod test {
         [state0, state1]
     }
 
-    fn exercise_4(imp: Implementation, i: u64) -> [[u64; 8]; 4] {
+    fn exercise_4(imp: Implementation, i: u64) -> [u64x8; 4] {
         let mut state0 = input_state_words(i);
         let mut state1 = input_state_words(i + 1);
         let mut state2 = input_state_words(i + 2);
@@ -703,10 +716,10 @@ mod test {
 
         // First compute expected;
         let mut expected = [
-            u64x8(input_state_words(0)),
-            u64x8(input_state_words(1)),
-            u64x8(input_state_words(2)),
-            u64x8(input_state_words(3)),
+            input_state_words(0),
+            input_state_words(1),
+            input_state_words(2),
+            input_state_words(3),
         ];
         for i in 0..4 {
             for block in 0..4 {
@@ -721,10 +734,10 @@ mod test {
         }
 
         // Now do the loop implementation.
-        let mut loop_state0 = u64x8(input_state_words(0));
-        let mut loop_state1 = u64x8(input_state_words(1));
-        let mut loop_state2 = u64x8(input_state_words(2));
-        let mut loop_state3 = u64x8(input_state_words(3));
+        let mut loop_state0 = input_state_words(0);
+        let mut loop_state1 = input_state_words(1);
+        let mut loop_state2 = input_state_words(2);
+        let mut loop_state3 = input_state_words(3);
         unsafe {
             avx2::compress4_loop(
                 &mut loop_state0,
@@ -749,5 +762,91 @@ mod test {
         assert_eq!(expected[1], loop_state1);
         assert_eq!(expected[2], loop_state2);
         assert_eq!(expected[3], loop_state3);
+    }
+
+    fn exercise_compress1_loop(implementation: Implementation) {
+        // For various loop lengths and finalization parameters, make sure that
+        // the implementation gives the same answer as the portable
+        // implementation does when invoked one block at a time. (So even the
+        // portable implementation itself is being tested here, to make sure
+        // its loop is correct.) Note that this doesn't include any fixed test
+        // vectors; those are taken from the blake2-kat.json file (copied from
+        // upstream) and tested elsewhere.
+        let mut input = [0; 100 * BLOCKBYTES];
+        paint_test_input(&mut input);
+        for invocations in 1..=2 {
+            for blocks_per_invoc in 1..=3 {
+                for &last_block in &[true, false] {
+                    for &last_node in &[true, false] {
+                        for stride in 1..=3 {
+                            for &buffer_tail in &[0, 1, BLOCKBYTES - 1] {
+                                // Use the portable implementation, one block
+                                // at a time, to compute the final state that
+                                // we expect.
+                                let mut reference_state = input_state_words(0);
+                                for block in 0..invocations * blocks_per_invoc {
+                                    let input_block =
+                                        array_ref!(&input, block * stride * BLOCKBYTES, BLOCKBYTES);
+                                    let is_last_block = block == invocations * blocks_per_invoc - 1;
+                                    let maybe_tail = if is_last_block { buffer_tail } else { 0 };
+                                    portable::compress1_loop(
+                                        &mut reference_state,
+                                        input_block,
+                                        (block * BLOCKBYTES) as u128,
+                                        u64_flag(is_last_block && last_block),
+                                        u64_flag(is_last_block && last_node),
+                                        1, // blocks, one at a time
+                                        stride,
+                                        maybe_tail,
+                                    );
+                                }
+
+                                // Do the same thing with the implementation
+                                // under test, and make sure they're the same.
+                                let mut test_state = input_state_words(0);
+                                for invocation in 0..invocations {
+                                    let is_last_invoc = invocation == invocations - 1;
+                                    let maybe_tail = if is_last_invoc { buffer_tail } else { 0 };
+                                    implementation.compress1_loop(
+                                        &mut test_state,
+                                        &input
+                                            [invocation * blocks_per_invoc * stride * BLOCKBYTES..],
+                                        (invocation * blocks_per_invoc * BLOCKBYTES) as u128,
+                                        u64_flag(is_last_invoc && last_block),
+                                        u64_flag(is_last_invoc && last_node),
+                                        blocks_per_invoc,
+                                        stride,
+                                        maybe_tail,
+                                    );
+                                }
+                                assert_eq!(reference_state, test_state);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_compress1_loop_portable() {
+        exercise_compress1_loop(Implementation::portable());
+    }
+
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_compress1_loop_sse41() {
+        // Currently this just falls back to portable, but we test it anyway.
+        if let Some(imp) = Implementation::sse41_if_supported() {
+            exercise_compress1_loop(imp);
+        }
+    }
+
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_compress1_loop_avx2() {
+        if let Some(imp) = Implementation::avx2_if_supported() {
+            exercise_compress1_loop(imp);
+        }
     }
 }
