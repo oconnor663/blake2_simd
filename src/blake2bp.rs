@@ -506,22 +506,7 @@ pub(crate) fn force_portable(state: &mut State) {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use byteorder::{ByteOrder, LittleEndian};
-
-    // Paint a byte pattern that won't repeat, so that we don't accidentally miss buffer offset
-    // bugs. This is the same as what Bao uses in its tests.
-    pub(crate) fn paint_input(buf: &mut [u8]) {
-        let mut offset = 0;
-        let mut counter: u32 = 1;
-        while offset < buf.len() {
-            let mut bytes = [0; 4];
-            LittleEndian::write_u32(&mut bytes, counter);
-            let take = cmp::min(4, buf.len() - offset);
-            buf[offset..][..take].copy_from_slice(&bytes[..take]);
-            counter += 1;
-            offset += take;
-        }
-    }
+    use crate::paint_test_input;
 
     // This is a simple reference implementation without the complicated buffering or parameter
     // support of the real implementation. We need this because the official test vectors don't
@@ -573,7 +558,7 @@ pub(crate) mod test {
     #[test]
     fn test_against_reference() {
         let mut buf = [0; 21 * BLOCKBYTES];
-        paint_input(&mut buf);
+        paint_test_input(&mut buf);
         // - 8 blocks is just enought to fill the double buffer.
         // - 9 blocks triggers the "perform one compression on the double buffer" case.
         // - 11 blocks is the largest input where only one compression may be performed, on the

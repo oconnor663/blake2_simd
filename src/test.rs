@@ -242,7 +242,7 @@ fn test_update4() {
         .to_state();
 
     let mut input = [0; 35 * BLOCKBYTES];
-    blake2bp::test::paint_input(&mut input);
+    paint_test_input(&mut input);
     let input_e = &input[0_ * BLOCKBYTES..10 * BLOCKBYTES];
     let input_f = &input[10 * BLOCKBYTES..20 * BLOCKBYTES];
     let input_g = &input[20 * BLOCKBYTES..30 * BLOCKBYTES];
@@ -316,7 +316,7 @@ fn test_hash_many() {
     // Rerun LEN inputs LEN different times, with the empty input starting in a
     // different spot each time.
     let mut input = [0; LEN * BLOCKBYTES];
-    blake2bp::test::paint_input(&mut input);
+    paint_test_input(&mut input);
     for start_offset in 0..LEN {
         let mut inputs: [&[u8]; LEN] = [&[]; LEN];
         for i in 0..LEN {
