@@ -959,4 +959,101 @@ mod test {
             exercise_compress2_loop(imp);
         }
     }
+
+    // Similar to exercise_compress1_loop above.
+    fn exercise_compress4_loop(implementation: Implementation) {
+        let mut input_buffer = [0; 100 * BLOCKBYTES];
+        paint_test_input(&mut input_buffer);
+        let inputs = [
+            &input_buffer[0..],
+            &input_buffer[1..],
+            &input_buffer[2..],
+            &input_buffer[3..],
+        ];
+        exercise_cases(
+            |invocations, blocks_per_invoc, count, last_block, last_node, stride, buffer_tail| {
+                // Use the portable compress1_loop implementation to compute a
+                // reference state for each input separately.
+                let mut reference_states = [
+                    input_state_words(0),
+                    input_state_words(1),
+                    input_state_words(2),
+                    input_state_words(3),
+                ];
+                for i in 0..reference_states.len() {
+                    portable::compress1_loop(
+                        &mut reference_states[i],
+                        inputs[i],
+                        count,
+                        u64_flag(last_block),
+                        u64_flag(last_node),
+                        invocations * blocks_per_invoc,
+                        stride,
+                        buffer_tail,
+                    );
+                }
+
+                // Do the same thing in parallel with the
+                // implementation under test under test, and
+                // make sure the result is the same.
+                let mut test_state0 = input_state_words(0);
+                let mut test_state1 = input_state_words(1);
+                let mut test_state2 = input_state_words(2);
+                let mut test_state3 = input_state_words(3);
+                for invocation in 0..invocations {
+                    let is_last_invoc = invocation == invocations - 1;
+                    let invoc_count =
+                        count.wrapping_add((invocation * blocks_per_invoc * BLOCKBYTES) as u128);
+                    let count_low = u64x4([invoc_count as u64; 4]);
+                    let count_high = u64x4([(invoc_count >> 64) as u64; 4]);
+                    let last_block = u64x4([u64_flag(is_last_invoc && last_block); 4]);
+                    let last_node = u64x4([u64_flag(is_last_invoc && last_node); 4]);
+                    let maybe_tail = u64x4([if is_last_invoc { buffer_tail as u64 } else { 0 }; 4]);
+                    implementation.compress4_loop(
+                        &mut test_state0,
+                        &mut test_state1,
+                        &mut test_state2,
+                        &mut test_state3,
+                        &inputs[0][invocation * blocks_per_invoc * stride * BLOCKBYTES..],
+                        &inputs[1][invocation * blocks_per_invoc * stride * BLOCKBYTES..],
+                        &inputs[2][invocation * blocks_per_invoc * stride * BLOCKBYTES..],
+                        &inputs[3][invocation * blocks_per_invoc * stride * BLOCKBYTES..],
+                        &count_low,
+                        &count_high,
+                        &last_block,
+                        &last_node,
+                        blocks_per_invoc,
+                        stride,
+                        &maybe_tail,
+                    );
+                }
+                assert_eq!(reference_states[0], test_state0);
+                assert_eq!(reference_states[1], test_state1);
+                assert_eq!(reference_states[2], test_state2);
+                assert_eq!(reference_states[3], test_state3);
+            },
+        );
+    }
+
+    #[test]
+    fn test_compress4_loop_portable() {
+        exercise_compress4_loop(Implementation::portable());
+    }
+
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_compress4_loop_sse41() {
+        // Currently this just falls back to portable, but we test it anyway.
+        if let Some(imp) = Implementation::sse41_if_supported() {
+            exercise_compress4_loop(imp);
+        }
+    }
+
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_compress4_loop_avx2() {
+        if let Some(imp) = Implementation::avx2_if_supported() {
+            exercise_compress4_loop(imp);
+        }
+    }
 }
