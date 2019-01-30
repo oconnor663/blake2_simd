@@ -771,9 +771,8 @@ mod test {
         // Chose counts to hit the relevant overflow cases.
         let counts = &[
             0u128,
-            // These are failing...
-            // (1u128 << 64) - BLOCKBYTES as u128,
-            // 0u128.wrapping_sub(BLOCKBYTES as u128),
+            (1u128 << 64) - BLOCKBYTES as u128,
+            0u128.wrapping_sub(BLOCKBYTES as u128),
         ];
         for invocations in 1..=2 {
             for blocks_per_invoc in 1..=3 {
@@ -782,6 +781,7 @@ mod test {
                         for &last_node in &[true, false] {
                             for stride in 1..=3 {
                                 for &buffer_tail in &[0, 1, BLOCKBYTES - 1] {
+                                    eprintln!("\ncase -----");
                                     dbg!(invocations);
                                     dbg!(blocks_per_invoc);
                                     dbg!(count);

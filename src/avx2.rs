@@ -776,6 +776,14 @@ pub unsafe fn compress4_transposed(
     );
 }
 
+#[inline(always)]
+unsafe fn unsigned_cmpgt_epi64(a: __m256i, b: __m256i) -> __m256i {
+    // Because _mm256_cmpgt_epi64 operates on signed values, we need to
+    // subtract 2^63 from each value before doing the comparison.
+    let delta = _mm256_set1_epi64x(i64::min_value());
+    _mm256_cmpgt_epi64(_mm256_add_epi64(a, delta), _mm256_add_epi64(b, delta))
+}
+
 #[target_feature(enable = "avx2")]
 pub unsafe fn compress4_loop(
     state0: &mut u64x8,
@@ -872,7 +880,7 @@ pub unsafe fn compress4_loop(
         count_high_vec = add(
             count_high_vec,
             _mm256_and_si256(
-                _mm256_cmpgt_epi64(old_count_low_vec, count_low_vec),
+                unsigned_cmpgt_epi64(old_count_low_vec, count_low_vec),
                 _mm256_set1_epi64x(1),
             ),
         );

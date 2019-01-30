@@ -398,6 +398,14 @@ unsafe fn transpose_vecs(a: __m128i, b: __m128i) -> [__m128i; 2] {
     ]
 }
 
+#[inline(always)]
+unsafe fn unsigned_cmpgt_epi64(a: __m128i, b: __m128i) -> __m128i {
+    // Because _mm_cmpgt_epi64 operates on signed values, we need to subtract
+    // 2^63 from each value before doing the comparison.
+    let delta = _mm_set1_epi64x(i64::min_value());
+    _mm_cmpgt_epi64(_mm_add_epi64(a, delta), _mm_add_epi64(b, delta))
+}
+
 #[target_feature(enable = "sse4.1")]
 pub unsafe fn compress2_loop(
     state0: &mut u64x8,
@@ -498,7 +506,7 @@ pub unsafe fn compress2_loop(
         count_high_vec = add(
             count_high_vec,
             _mm_and_si128(
-                _mm_cmpgt_epi64(old_count_low_vec, count_low_vec),
+                unsigned_cmpgt_epi64(old_count_low_vec, count_low_vec),
                 _mm_set1_epi64x(1),
             ),
         );
