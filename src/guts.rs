@@ -781,14 +781,14 @@ mod test {
                         for &last_node in &[true, false] {
                             for stride in 1..=3 {
                                 for &buffer_tail in &[0, 1, BLOCKBYTES - 1] {
-                                    eprintln!("\ncase -----");
-                                    dbg!(invocations);
-                                    dbg!(blocks_per_invoc);
-                                    dbg!(count);
-                                    dbg!(last_block);
-                                    dbg!(last_node);
-                                    dbg!(stride);
-                                    dbg!(buffer_tail);
+                                    // eprintln!("\ncase -----");
+                                    // dbg!(invocations);
+                                    // dbg!(blocks_per_invoc);
+                                    // dbg!(count);
+                                    // dbg!(last_block);
+                                    // dbg!(last_node);
+                                    // dbg!(stride);
+                                    // dbg!(buffer_tail);
                                     f(
                                         invocations,
                                         blocks_per_invoc,
