@@ -422,9 +422,9 @@ pub unsafe fn compress1_loop(
         // An unchecked pointer deref, guarded by the assert above.
         let block = &*(input.as_ptr().add(offset) as *const Block);
 
-        count += BLOCKBYTES as u128;
+        count = count.wrapping_add(BLOCKBYTES as u128);
         if blocks == 1 {
-            count -= buffer_tail as u128;
+            count = count.wrapping_sub(buffer_tail as u128);
         }
         let (maybe_last_block, maybe_last_node) = if blocks == 1 {
             (last_block, last_node)

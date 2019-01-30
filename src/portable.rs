@@ -331,9 +331,9 @@ pub fn compress1_loop(
         // and that's more valuable than eeking out a little more performance
         // here. The SIMD implementations do make this sort of optimization.
         let block = array_ref!(input, offset, BLOCKBYTES);
-        count += BLOCKBYTES as u128;
+        count = count.wrapping_add(BLOCKBYTES as u128);
         if blocks == 1 {
-            count -= buffer_tail as u128;
+            count = count.wrapping_sub(buffer_tail as u128);
         }
         let (maybe_last_block, maybe_last_node) = if blocks == 1 {
             (last_block, last_node)
