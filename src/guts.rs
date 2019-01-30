@@ -764,6 +764,49 @@ mod test {
         assert_eq!(expected[3], loop_state3);
     }
 
+    fn exercise_cases<F>(mut f: F)
+    where
+        F: FnMut(usize, usize, u128, bool, bool, usize, usize),
+    {
+        // Chose counts to hit the relevant overflow cases.
+        let counts = &[
+            0u128,
+            // These are failing...
+            // (1u128 << 64) - BLOCKBYTES as u128,
+            // 0u128.wrapping_sub(BLOCKBYTES as u128),
+        ];
+        for invocations in 1..=2 {
+            for blocks_per_invoc in 1..=3 {
+                for &count in counts {
+                    for &last_block in &[true, false] {
+                        for &last_node in &[true, false] {
+                            for stride in 1..=3 {
+                                for &buffer_tail in &[0, 1, BLOCKBYTES - 1] {
+                                    dbg!(invocations);
+                                    dbg!(blocks_per_invoc);
+                                    dbg!(count);
+                                    dbg!(last_block);
+                                    dbg!(last_node);
+                                    dbg!(stride);
+                                    dbg!(buffer_tail);
+                                    f(
+                                        invocations,
+                                        blocks_per_invoc,
+                                        count,
+                                        last_block,
+                                        last_node,
+                                        stride,
+                                        buffer_tail,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // For various loop lengths and finalization parameters, make sure that the
     // implementation gives the same answer as the portable implementation does
     // when invoked one block at a time. (So even the portable implementation
@@ -773,58 +816,47 @@ mod test {
     fn exercise_compress1_loop(implementation: Implementation) {
         let mut input = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input);
-        for invocations in 1..=2 {
-            for blocks_per_invoc in 1..=3 {
-                for &last_block in &[true, false] {
-                    for &last_node in &[true, false] {
-                        for stride in 1..=3 {
-                            for &buffer_tail in &[0, 1, BLOCKBYTES - 1] {
-                                // Use the portable implementation, one block
-                                // at a time, to compute the final state that
-                                // we expect.
-                                let mut reference_state = input_state_words(0);
-                                for block in 0..invocations * blocks_per_invoc {
-                                    let input_block =
-                                        array_ref!(&input, block * stride * BLOCKBYTES, BLOCKBYTES);
-                                    let is_last_block = block == invocations * blocks_per_invoc - 1;
-                                    let maybe_tail = if is_last_block { buffer_tail } else { 0 };
-                                    portable::compress1_loop(
-                                        &mut reference_state,
-                                        input_block,
-                                        (block * BLOCKBYTES) as u128,
-                                        u64_flag(is_last_block && last_block),
-                                        u64_flag(is_last_block && last_node),
-                                        1, // blocks, one at a time
-                                        stride,
-                                        maybe_tail,
-                                    );
-                                }
-
-                                // Do the same thing with the implementation
-                                // under test, and make sure they're the same.
-                                let mut test_state = input_state_words(0);
-                                for invocation in 0..invocations {
-                                    let is_last_invoc = invocation == invocations - 1;
-                                    let maybe_tail = if is_last_invoc { buffer_tail } else { 0 };
-                                    implementation.compress1_loop(
-                                        &mut test_state,
-                                        &input
-                                            [invocation * blocks_per_invoc * stride * BLOCKBYTES..],
-                                        (invocation * blocks_per_invoc * BLOCKBYTES) as u128,
-                                        u64_flag(is_last_invoc && last_block),
-                                        u64_flag(is_last_invoc && last_node),
-                                        blocks_per_invoc,
-                                        stride,
-                                        maybe_tail,
-                                    );
-                                }
-                                assert_eq!(reference_state, test_state);
-                            }
-                        }
-                    }
+        exercise_cases(
+            |invocations, blocks_per_invoc, count, last_block, last_node, stride, buffer_tail| {
+                // Use the portable implementation, one block at a time, to
+                // compute the final state that we expect.
+                let mut reference_state = input_state_words(0);
+                for block in 0..invocations * blocks_per_invoc {
+                    let input_block = array_ref!(&input, block * stride * BLOCKBYTES, BLOCKBYTES);
+                    let is_last_block = block == invocations * blocks_per_invoc - 1;
+                    let maybe_tail = if is_last_block { buffer_tail } else { 0 };
+                    portable::compress1_loop(
+                        &mut reference_state,
+                        input_block,
+                        count.wrapping_add((block * BLOCKBYTES) as u128),
+                        u64_flag(is_last_block && last_block),
+                        u64_flag(is_last_block && last_node),
+                        1, // blocks, one at a time
+                        stride,
+                        maybe_tail,
+                    );
                 }
-            }
-        }
+
+                // Do the same thing with the implementation
+                // under test, and make sure they're the same.
+                let mut test_state = input_state_words(0);
+                for invocation in 0..invocations {
+                    let is_last_invoc = invocation == invocations - 1;
+                    let maybe_tail = if is_last_invoc { buffer_tail } else { 0 };
+                    implementation.compress1_loop(
+                        &mut test_state,
+                        &input[invocation * blocks_per_invoc * stride * BLOCKBYTES..],
+                        count.wrapping_add((invocation * blocks_per_invoc * BLOCKBYTES) as u128),
+                        u64_flag(is_last_invoc && last_block),
+                        u64_flag(is_last_invoc && last_node),
+                        blocks_per_invoc,
+                        stride,
+                        maybe_tail,
+                    );
+                }
+                assert_eq!(reference_state, test_state);
+            },
+        );
     }
 
     #[test]
@@ -854,72 +886,56 @@ mod test {
         let mut input_buffer = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input_buffer);
         let inputs = [&input_buffer[0..], &input_buffer[1..]];
-        for invocations in 1..=2 {
-            for blocks_per_invoc in 1..=3 {
-                for &last_block in &[true, false] {
-                    for &last_node in &[true, false] {
-                        for stride in 1..=3 {
-                            for &buffer_tail in &[0, 1, BLOCKBYTES - 1] {
-                                // Use the portable compress1_loop
-                                // implementation to compute a reference state
-                                // for each input separately.
-                                let mut reference_states =
-                                    [input_state_words(0), input_state_words(1)];
-                                for i in 0..reference_states.len() {
-                                    portable::compress1_loop(
-                                        &mut reference_states[i],
-                                        inputs[i],
-                                        0,
-                                        u64_flag(last_block),
-                                        u64_flag(last_node),
-                                        invocations * blocks_per_invoc,
-                                        stride,
-                                        buffer_tail,
-                                    );
-                                }
-
-                                // Do the same thing in parallel with the
-                                // implementation under test under test, and
-                                // make sure the result is the same.
-                                let mut test_state0 = input_state_words(0);
-                                let mut test_state1 = input_state_words(1);
-                                for invocation in 0..invocations {
-                                    let is_last_invoc = invocation == invocations - 1;
-                                    let count_low = u64x2(
-                                        [(invocation * blocks_per_invoc * BLOCKBYTES) as u64; 2],
-                                    );
-                                    let count_high = u64x2([0; 2]);
-                                    let last_block =
-                                        u64x2([u64_flag(is_last_invoc && last_block); 2]);
-                                    let last_node =
-                                        u64x2([u64_flag(is_last_invoc && last_node); 2]);
-                                    let maybe_tail = u64x2(
-                                        [if is_last_invoc { buffer_tail as u64 } else { 0 }; 2],
-                                    );
-                                    implementation.compress2_loop(
-                                        &mut test_state0,
-                                        &mut test_state1,
-                                        &inputs[0]
-                                            [invocation * blocks_per_invoc * stride * BLOCKBYTES..],
-                                        &inputs[1]
-                                            [invocation * blocks_per_invoc * stride * BLOCKBYTES..],
-                                        &count_low,
-                                        &count_high,
-                                        &last_block,
-                                        &last_node,
-                                        blocks_per_invoc,
-                                        stride,
-                                        &maybe_tail,
-                                    );
-                                }
-                                assert_eq!(reference_states[0], test_state0);
-                                assert_eq!(reference_states[1], test_state1);
-                            }
-                        }
-                    }
+        exercise_cases(
+            |invocations, blocks_per_invoc, count, last_block, last_node, stride, buffer_tail| {
+                // Use the portable compress1_loop implementation to compute a
+                // reference state for each input separately.
+                let mut reference_states = [input_state_words(0), input_state_words(1)];
+                for i in 0..reference_states.len() {
+                    portable::compress1_loop(
+                        &mut reference_states[i],
+                        inputs[i],
+                        count,
+                        u64_flag(last_block),
+                        u64_flag(last_node),
+                        invocations * blocks_per_invoc,
+                        stride,
+                        buffer_tail,
+                    );
                 }
-            }
-        }
+
+                // Do the same thing in parallel with the
+                // implementation under test under test, and
+                // make sure the result is the same.
+                let mut test_state0 = input_state_words(0);
+                let mut test_state1 = input_state_words(1);
+                for invocation in 0..invocations {
+                    let is_last_invoc = invocation == invocations - 1;
+                    let invoc_count =
+                        count.wrapping_add((invocation * blocks_per_invoc * BLOCKBYTES) as u128);
+                    let count_low = u64x2([invoc_count as u64; 2]);
+                    let count_high = u64x2([(invoc_count >> 64) as u64; 2]);
+                    let last_block = u64x2([u64_flag(is_last_invoc && last_block); 2]);
+                    let last_node = u64x2([u64_flag(is_last_invoc && last_node); 2]);
+                    let maybe_tail = u64x2([if is_last_invoc { buffer_tail as u64 } else { 0 }; 2]);
+                    implementation.compress2_loop(
+                        &mut test_state0,
+                        &mut test_state1,
+                        &inputs[0][invocation * blocks_per_invoc * stride * BLOCKBYTES..],
+                        &inputs[1][invocation * blocks_per_invoc * stride * BLOCKBYTES..],
+                        &count_low,
+                        &count_high,
+                        &last_block,
+                        &last_node,
+                        blocks_per_invoc,
+                        stride,
+                        &maybe_tail,
+                    );
+                }
+                assert_eq!(reference_states[0], test_state0);
+                assert_eq!(reference_states[1], test_state1);
+            },
+        );
     }
 
     #[test]
