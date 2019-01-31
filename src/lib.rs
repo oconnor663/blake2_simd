@@ -930,18 +930,42 @@ fn hash1(
     last_node: u64,
     count: u128,
 ) {
+    // If the final block is uneven (or if the whole input is empty), the last
+    // compression will be in a local buffer.
     let partial_block_len = input.len() % BLOCKBYTES;
-    let last_block = if partial_block_len == 0 { !0 } else { 0 };
+    let use_local_buffer = input.is_empty() || partial_block_len != 0;
     let blocks = input.len() / BLOCKBYTES;
+    debug_assert!(blocks > 0 || use_local_buffer, "at least one compression");
     if blocks > 0 {
-        implementation.compress1_loop(state, input, count, last_block, last_node, blocks, 1, 0);
+        let last_block = u64_flag(!use_local_buffer);
+        implementation.compress1_loop(
+            state,
+            input,
+            count,
+            last_block,
+            last_block & last_node,
+            blocks,
+            1, // stride
+            0, // buffer_tail
+        );
     }
     // We need to assemble the last block if the input is uneven, and also in
     // the special case that the input is empty.
-    if input.is_empty() || partial_block_len != 0 {
-        let mut block = [0; BLOCKBYTES];
-        block[..partial_block_len].copy_from_slice(&input[..partial_block_len]);
-        implementation.compress(state, &block, count + (input.len() as u128), !0, last_node);
+    if use_local_buffer {
+        let mut buffer = [0; BLOCKBYTES];
+        buffer[..partial_block_len].copy_from_slice(&input[input.len() - partial_block_len..]);
+        let updated_count = count + (blocks * BLOCKBYTES) as u128;
+        let buffer_tail = BLOCKBYTES - partial_block_len;
+        implementation.compress1_loop(
+            state,
+            &buffer,
+            updated_count,
+            !0,
+            last_node,
+            1, // blocks
+            1, // stride
+            buffer_tail,
+        );
     }
 }
 
@@ -996,7 +1020,7 @@ fn hash2(
             hash1(
                 implementation,
                 &mut states[i],
-                inputs[i],
+                &inputs[i][batch_bytes..],
                 last_node[i],
                 batch_bytes as u128,
             );
@@ -1076,7 +1100,7 @@ fn hash4(
             hash1(
                 implementation,
                 &mut states[i],
-                inputs[i],
+                &inputs[i][batch_bytes..],
                 last_node[i],
                 batch_bytes as u128,
             );
