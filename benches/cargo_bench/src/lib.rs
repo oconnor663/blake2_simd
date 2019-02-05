@@ -10,7 +10,6 @@ extern crate test;
 use blake2b_simd::*;
 use test::Bencher;
 
-const BLOCK: &[u8; BLOCKBYTES] = &[0; BLOCKBYTES];
 const MB: usize = 1 << 20;
 
 fn make_input(b: &mut Bencher, len: usize) -> Vec<u8> {
@@ -60,57 +59,6 @@ fn bench_blake2bp_one_mb(b: &mut Bencher) {
     b.iter(|| blake2bp::blake2bp(&input));
 }
 
-#[bench]
-fn bench_blake2b_update4_one_block(b: &mut Bencher) {
-    let input0 = make_input(b, BLOCKBYTES);
-    let input1 = make_input(b, BLOCKBYTES);
-    let input2 = make_input(b, BLOCKBYTES);
-    let input3 = make_input(b, BLOCKBYTES);
-    b.iter(|| {
-        let mut state0 = State::new();
-        let mut state1 = State::new();
-        let mut state2 = State::new();
-        let mut state3 = State::new();
-        update4(
-            &mut state0,
-            &mut state1,
-            &mut state2,
-            &mut state3,
-            &input0,
-            &input1,
-            &input2,
-            &input3,
-        );
-        finalize4(&mut state0, &mut state1, &mut state2, &mut state3)
-    });
-}
-
-#[bench]
-fn bench_blake2b_update4_one_mb(b: &mut Bencher) {
-    let len = MB / 4;
-    let input0 = make_input(b, len);
-    let input1 = make_input(b, len);
-    let input2 = make_input(b, len);
-    let input3 = make_input(b, len);
-    b.iter(|| {
-        let mut state0 = State::new();
-        let mut state1 = State::new();
-        let mut state2 = State::new();
-        let mut state3 = State::new();
-        update4(
-            &mut state0,
-            &mut state1,
-            &mut state2,
-            &mut state3,
-            &input0,
-            &input1,
-            &input2,
-            &input3,
-        );
-        finalize4(&mut state0, &mut state1, &mut state2, &mut state3)
-    });
-}
-
 #[cfg(feature = "libsodium-ffi")]
 #[bench]
 fn bench_libsodium_one_mb(b: &mut Bencher) {
@@ -151,260 +99,6 @@ fn bench_openssl_sha1_one_mb(b: &mut Bencher) {
 fn bench_openssl_sha512_one_mb(b: &mut Bencher) {
     let input = make_input(b, MB);
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), &input));
-}
-
-#[bench]
-fn bench_guts_compress1_portable(b: &mut Bencher) {
-    b.bytes = BLOCK.len() as u64;
-    let portable = guts::Implementation::portable();
-    let mut state = guts::u64x8([1; 8]);
-    b.iter(|| {
-        portable.compress(&mut state, BLOCK, 0, 0, 0);
-    });
-    test::black_box(&mut state);
-}
-
-#[bench]
-fn bench_guts_compress1_avx2(b: &mut Bencher) {
-    b.bytes = BLOCK.len() as u64;
-    let avx2 = if let Some(imp) = guts::Implementation::avx2_if_supported() {
-        imp
-    } else {
-        return;
-    };
-    let mut state = guts::u64x8([1; 8]);
-    b.iter(|| {
-        avx2.compress(&mut state, BLOCK, 0, 0, 0);
-    });
-    test::black_box(&mut state);
-}
-
-#[bench]
-fn bench_guts_compress2_portable(b: &mut Bencher) {
-    b.bytes = BLOCK.len() as u64 * 2;
-    let portable = guts::Implementation::portable();
-    let mut state = [guts::u64x2([1, 1]); 8];
-    let count_low = guts::u64x2([1, 1]);
-    let count_high = guts::u64x2([1, 1]);
-    let lastblock = guts::u64x2([1, 1]);
-    let lastnode = guts::u64x2([1, 1]);
-    b.iter(|| {
-        portable.compress2(
-            &mut state,
-            BLOCK,
-            BLOCK,
-            &count_low,
-            &count_high,
-            &lastblock,
-            &lastnode,
-        );
-    });
-    test::black_box(&mut state);
-}
-
-#[bench]
-fn bench_guts_compress2_sse41(b: &mut Bencher) {
-    b.bytes = BLOCK.len() as u64 * 2;
-    let sse41 = if let Some(imp) = guts::Implementation::sse41_if_supported() {
-        imp
-    } else {
-        return;
-    };
-    let mut state = [guts::u64x2([1, 1]); 8];
-    let count_low = guts::u64x2([1, 1]);
-    let count_high = guts::u64x2([1, 1]);
-    let lastblock = guts::u64x2([1, 1]);
-    let lastnode = guts::u64x2([1, 1]);
-    b.iter(|| {
-        sse41.compress2(
-            &mut state,
-            BLOCK,
-            BLOCK,
-            &count_low,
-            &count_high,
-            &lastblock,
-            &lastnode,
-        );
-    });
-    test::black_box(&mut state);
-}
-
-#[bench]
-fn bench_guts_transpose2_portable(b: &mut Bencher) {
-    let portable = guts::Implementation::portable();
-    let state0 = [1; 8];
-    let state1 = [2; 8];
-    b.iter(|| portable.transpose2(&state0, &state1));
-}
-
-#[bench]
-fn bench_guts_untranspose2_portable(b: &mut Bencher) {
-    let portable = guts::Implementation::portable();
-    let mut state0 = [1; 8];
-    let mut state1 = [2; 8];
-    let transposed = portable.transpose2(&state0, &state1);
-    b.iter(|| {
-        portable.untranspose2(&transposed, &mut state0, &mut state1);
-        test::black_box(&mut state0);
-        test::black_box(&mut state1);
-    });
-}
-
-#[bench]
-fn bench_guts_compress4_portable(b: &mut Bencher) {
-    b.bytes = BLOCK.len() as u64 * 4;
-    let portable = guts::Implementation::portable();
-    let mut state = [guts::u64x4([1, 1, 1, 1]); 8];
-    let count_low = guts::u64x4([1, 1, 1, 1]);
-    let count_high = guts::u64x4([1, 1, 1, 1]);
-    let lastblock = guts::u64x4([1, 1, 1, 1]);
-    let lastnode = guts::u64x4([1, 1, 1, 1]);
-    b.iter(|| {
-        portable.compress4(
-            &mut state,
-            BLOCK,
-            BLOCK,
-            BLOCK,
-            BLOCK,
-            &count_low,
-            &count_high,
-            &lastblock,
-            &lastnode,
-        );
-    });
-    test::black_box(&mut state);
-}
-
-#[bench]
-fn bench_guts_compress4_sse41(b: &mut Bencher) {
-    b.bytes = BLOCK.len() as u64 * 4;
-    let sse41 = if let Some(imp) = guts::Implementation::sse41_if_supported() {
-        imp
-    } else {
-        return;
-    };
-    let mut state = [guts::u64x4([1, 1, 1, 1]); 8];
-    let count_low = guts::u64x4([1, 1, 1, 1]);
-    let count_high = guts::u64x4([1, 1, 1, 1]);
-    let lastblock = guts::u64x4([1, 1, 1, 1]);
-    let lastnode = guts::u64x4([1, 1, 1, 1]);
-    b.iter(|| {
-        sse41.compress4(
-            &mut state,
-            BLOCK,
-            BLOCK,
-            BLOCK,
-            BLOCK,
-            &count_low,
-            &count_high,
-            &lastblock,
-            &lastnode,
-        );
-    });
-    test::black_box(&mut state);
-}
-
-#[bench]
-fn bench_guts_compress4_avx2(b: &mut Bencher) {
-    b.bytes = BLOCK.len() as u64 * 4;
-    let avx2 = if let Some(imp) = guts::Implementation::avx2_if_supported() {
-        imp
-    } else {
-        return;
-    };
-    let mut state = [guts::u64x4([1, 1, 1, 1]); 8];
-    let count_low = guts::u64x4([1, 1, 1, 1]);
-    let count_high = guts::u64x4([1, 1, 1, 1]);
-    let lastblock = guts::u64x4([1, 1, 1, 1]);
-    let lastnode = guts::u64x4([1, 1, 1, 1]);
-    b.iter(|| {
-        avx2.compress4(
-            &mut state,
-            BLOCK,
-            BLOCK,
-            BLOCK,
-            BLOCK,
-            &count_low,
-            &count_high,
-            &lastblock,
-            &lastnode,
-        );
-    });
-    test::black_box(&mut state);
-}
-
-#[bench]
-fn bench_guts_transpose4_portable(b: &mut Bencher) {
-    let portable = guts::Implementation::portable();
-    let state0 = [1; 8];
-    let state1 = [2; 8];
-    let state2 = [3; 8];
-    let state3 = [4; 8];
-    b.iter(|| portable.transpose4(&state0, &state1, &state2, &state3));
-}
-
-#[bench]
-fn bench_guts_transpose4_avx2(b: &mut Bencher) {
-    let avx2 = if let Some(imp) = guts::Implementation::avx2_if_supported() {
-        imp
-    } else {
-        return;
-    };
-    let state0 = [1; 8];
-    let state1 = [2; 8];
-    let state2 = [3; 8];
-    let state3 = [4; 8];
-    b.iter(|| avx2.transpose4(&state0, &state1, &state2, &state3));
-}
-
-#[bench]
-fn bench_guts_untranspose4_portable(b: &mut Bencher) {
-    let portable = guts::Implementation::portable();
-    let mut state0 = [1; 8];
-    let mut state1 = [2; 8];
-    let mut state2 = [3; 8];
-    let mut state3 = [4; 8];
-    let transposed = portable.transpose4(&state0, &state1, &state2, &state3);
-    b.iter(|| {
-        portable.untranspose4(
-            &transposed,
-            &mut state0,
-            &mut state1,
-            &mut state2,
-            &mut state3,
-        );
-        test::black_box(&mut state0);
-        test::black_box(&mut state1);
-        test::black_box(&mut state2);
-        test::black_box(&mut state3);
-    });
-}
-
-#[bench]
-fn bench_guts_untranspose4_avx2(b: &mut Bencher) {
-    let avx2 = if let Some(imp) = guts::Implementation::avx2_if_supported() {
-        imp
-    } else {
-        return;
-    };
-    let mut state0 = [1; 8];
-    let mut state1 = [2; 8];
-    let mut state2 = [3; 8];
-    let mut state3 = [4; 8];
-    let transposed = avx2.transpose4(&state0, &state1, &state2, &state3);
-    b.iter(|| {
-        avx2.untranspose4(
-            &transposed,
-            &mut state0,
-            &mut state1,
-            &mut state2,
-            &mut state3,
-        );
-        test::black_box(&mut state0);
-        test::black_box(&mut state1);
-        test::black_box(&mut state2);
-        test::black_box(&mut state3);
-    });
 }
 
 #[bench]
@@ -531,5 +225,38 @@ fn bench_compress4_loop_avx2_one_mb_striped(b: &mut Bencher) {
         test::black_box(&mut state1);
         test::black_box(&mut state2);
         test::black_box(&mut state3);
+    });
+}
+
+#[bench]
+fn bench_hash_many_4_blocks(b: &mut Bencher) {
+    let params = [Params::new(), Params::new(), Params::new(), Params::new()];
+    let input = make_input(b, 4 * BLOCKBYTES);
+    let inputs = [
+        &input[0 * BLOCKBYTES..][..BLOCKBYTES],
+        &input[1 * BLOCKBYTES..][..BLOCKBYTES],
+        &input[2 * BLOCKBYTES..][..BLOCKBYTES],
+        &input[3 * BLOCKBYTES..][..BLOCKBYTES],
+    ];
+    b.iter(|| {
+        let mut outputs = [Hash::empty(), Hash::empty(), Hash::empty(), Hash::empty()];
+        hash_many(&inputs[..], &mut outputs[..], &params[..]);
+        test::black_box(&mut outputs);
+    });
+}
+
+#[bench]
+fn bench_hash_many_4_mb(b: &mut Bencher) {
+    let params = [Params::new(), Params::new(), Params::new(), Params::new()];
+    let len = 1 << 20;
+    let input0 = make_input(b, len);
+    let input1 = make_input(b, len);
+    let input2 = make_input(b, len);
+    let input3 = make_input(b, len);
+    let inputs = [&input0[..], &input1[..], &input2[..], &input3[..]];
+    b.iter(|| {
+        let mut outputs = [Hash::empty(), Hash::empty(), Hash::empty(), Hash::empty()];
+        hash_many(&inputs[..], &mut outputs[..], &params[..]);
+        test::black_box(&mut outputs);
     });
 }
