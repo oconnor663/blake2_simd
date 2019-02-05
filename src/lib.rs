@@ -136,8 +136,10 @@ mod sse41;
 
 pub mod blake2bp;
 pub mod guts;
+mod hash_many;
+pub use hash_many::hash_many;
 
-use guts::{u64x2, u64x4, u64x8, Implementation};
+use guts::{u64x8, Implementation};
 
 #[cfg(test)]
 mod test;
@@ -458,7 +460,6 @@ impl State {
         let take = cmp::min(BLOCKBYTES - self.buflen as usize, input.len());
         self.buf[self.buflen as usize..self.buflen as usize + take].copy_from_slice(&input[..take]);
         self.buflen += take as u8;
-        self.count += take as u128;
         *input = &input[take..];
     }
 
@@ -469,8 +470,17 @@ impl State {
         if self.buflen > 0 {
             self.fill_buf(input);
             if !input.is_empty() {
-                self.implementation
-                    .compress(&mut self.h, &self.buf, self.count, 0, 0);
+                self.implementation.compress1_loop(
+                    &mut self.h,
+                    &self.buf,
+                    self.count,
+                    0,
+                    0,
+                    1,
+                    1,
+                    0,
+                );
+                self.count += BLOCKBYTES as u128;
                 self.buflen = 0;
             }
         }
@@ -482,12 +492,13 @@ impl State {
         self.compress_buffer_if_possible(&mut input);
         // While there's more than a block of input left (which also means we cleared the buffer
         // above), compress blocks directly without copying.
-        while input.len() > BLOCKBYTES {
-            self.count += BLOCKBYTES as u128;
-            let block = array_ref!(input, 0, BLOCKBYTES);
+        let blocks = input.len().saturating_sub(1) / BLOCKBYTES;
+        if blocks > 0 {
             self.implementation
-                .compress(&mut self.h, block, self.count, 0, 0);
-            input = &input[BLOCKBYTES..];
+                .compress1_loop(&mut self.h, input, self.count, 0, 0, blocks, 1, 0);
+            let bytes = blocks * BLOCKBYTES;
+            self.count += bytes as u128;
+            input = &input[bytes..];
         }
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
         // Note that this represents some copying overhead, which in theory we could avoid in
@@ -506,8 +517,16 @@ impl State {
         }
         let last_node = if self.last_node { !0 } else { 0 };
         let mut h_copy = self.h;
-        self.implementation
-            .compress(&mut h_copy, &self.buf, self.count, !0, last_node);
+        self.implementation.compress1_loop(
+            &mut h_copy,
+            &self.buf,
+            self.count,
+            !0,
+            last_node,
+            1,
+            1,
+            BLOCKBYTES - self.buflen as usize,
+        );
         Hash {
             bytes: state_words_to_bytes(&h_copy),
             len: self.hash_length,
@@ -529,7 +548,7 @@ impl State {
 
     /// Return the total number of bytes input so far.
     pub fn count(&self) -> u128 {
-        self.count
+        self.count + self.buflen as u128
     }
 }
 
@@ -643,562 +662,6 @@ impl AsRef<[u8]> for Hash {
 impl fmt::Debug for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Hash(0x{})", self.to_hex())
-    }
-}
-
-/// Update four `State` objects at the same time.
-///
-/// This implementation isn't multithreaded. Rather, it uses AVX2 (if available) to hash the four
-/// inputs in parallel on a single thread, which is more efficient than hashing them one at a time.
-/// It uses the same underlying machinery as BLAKE2bp, and like BLAKE2bp is has about twice the
-/// overall throughput of regular BLAKE2b.
-///
-/// Note that you can benefit from this implementation even if you're already using multiple
-/// threads. If you have enough separate inputs, hashing four of them per thread raises the
-/// throughput of each thread. With many threads in practice, this seems to be about a 50% increase
-/// rather than the 100% increase we see in single thread benchmarks, possibly because of
-/// interactions with Turbo Boost and Hyper-Threading on Intel processors.
-///
-/// `update4` can only operate in parallel as long as all four inputs still have bytes left. Once
-/// one of the inputs is exhausted, it falls back to regular serial hashing for the rest. To get
-/// the best throughput, use inputs that are roughly the same length.
-///
-/// Unlike BLAKE2bp, which is specifically designed to have four lanes, parallel BLAKE2b isn't tied
-/// to any particular number of lanes. When the AVX-512 instruction set becomes more widespread,
-/// for example, we could add an `update8` implementation to take full advantage of it. We could
-/// also add an SSE-based `update2` implementation to support older machines.
-///
-/// # Example
-///
-/// ```
-/// use blake2b_simd::{blake2b, finalize4, update4, State};
-///
-/// let mut state0 = State::new();
-/// let mut state1 = State::new();
-/// let mut state2 = State::new();
-/// let mut state3 = State::new();
-///
-/// update4(
-///     &mut state0,
-///     &mut state1,
-///     &mut state2,
-///     &mut state3,
-///     b"foo",
-///     b"bar",
-///     b"baz",
-///     b"bing",
-/// );
-///
-/// let parallel_hashes = finalize4(&mut state0, &mut state1, &mut state2, &mut state3);
-///
-/// let serial_hashes = [
-///     blake2b(b"foo"),
-///     blake2b(b"bar"),
-///     blake2b(b"baz"),
-///     blake2b(b"bing"),
-/// ];
-/// assert_eq!(serial_hashes, parallel_hashes);
-/// ```
-///
-/// [`update`]: struct.State.html#method.update
-pub fn update4(
-    state0: &mut State,
-    state1: &mut State,
-    state2: &mut State,
-    state3: &mut State,
-    mut input0: &[u8],
-    mut input1: &[u8],
-    mut input2: &[u8],
-    mut input3: &[u8],
-) {
-    let implementation = Implementation::detect();
-
-    // First we need to make sure all the buffers are clear.
-    state0.compress_buffer_if_possible(&mut input0);
-    state1.compress_buffer_if_possible(&mut input1);
-    state2.compress_buffer_if_possible(&mut input2);
-    state3.compress_buffer_if_possible(&mut input3);
-
-    // Compute the number of full chunks we can compress in parallel. Remember
-    // that we can only compress chunks here if we're certain there's more
-    // input coming, because we're not finalizing here. Thus the minus-one.
-    let min_len = cmp::min(
-        cmp::min(input0.len(), input1.len()),
-        cmp::min(input2.len(), input3.len()),
-    );
-    let full_chunks = min_len.saturating_sub(1) / BLOCKBYTES;
-
-    // Now the main loop, compress as many chunks as we can in parallel. To
-    // avoid transposition overhead in the hot loop, we transpose only once at
-    // the beginning and end. But skip this entire section if the loop isn't
-    // going to run, to avoid paying the cost of transposition at all.
-    if full_chunks > 0 {
-        // Transpose the four separate state words arrays into vectorized form.
-        let mut transposed_state =
-            implementation.transpose4(&state0.h, &state1.h, &state2.h, &state3.h);
-
-        for _ in 0..full_chunks {
-            state0.count += BLOCKBYTES as u128;
-            state1.count += BLOCKBYTES as u128;
-            state2.count += BLOCKBYTES as u128;
-            state3.count += BLOCKBYTES as u128;
-            let count_low = u64x4([
-                state0.count as u64,
-                state1.count as u64,
-                state2.count as u64,
-                state3.count as u64,
-            ]);
-            let count_high = u64x4([
-                (state0.count >> 64) as u64,
-                (state1.count >> 64) as u64,
-                (state2.count >> 64) as u64,
-                (state3.count >> 64) as u64,
-            ]);
-            implementation.compress4(
-                &mut transposed_state,
-                array_ref!(input0, 0, BLOCKBYTES),
-                array_ref!(input1, 0, BLOCKBYTES),
-                array_ref!(input2, 0, BLOCKBYTES),
-                array_ref!(input3, 0, BLOCKBYTES),
-                &count_low,
-                &count_high,
-                &u64x4([0, 0, 0, 0]),
-                &u64x4([0, 0, 0, 0]),
-            );
-            input0 = &input0[BLOCKBYTES..];
-            input1 = &input1[BLOCKBYTES..];
-            input2 = &input2[BLOCKBYTES..];
-            input3 = &input3[BLOCKBYTES..];
-        }
-
-        // With the main loop finished, untranspose the states back out.
-        implementation.untranspose4(
-            &transposed_state,
-            &mut state0.h,
-            &mut state1.h,
-            &mut state2.h,
-            &mut state3.h,
-        );
-    }
-
-    // Finally, buffer/hash any remaining input the usual one-at-a-time way.
-    // Note that if one of the inputs is short, this could actually be more
-    // work than the loop above. The caller should hopefully arrange for that
-    // not to happen.
-    state0.update(input0);
-    state1.update(input1);
-    state2.update(input2);
-    state3.update(input3);
-}
-
-/// Finalize four `State` objects at the same time.
-///
-/// This is the counterpart to [`update4`]. Like the regular [`finalize`], this is idempotent.
-/// Calling it multiple times on the same states will produce the same output, and it's possible to
-/// add more input in between calls.
-///
-/// # Example
-///
-/// ```
-/// use blake2b_simd::{blake2b, finalize4, update4, State};
-///
-/// let mut state0 = State::new();
-/// let mut state1 = State::new();
-/// let mut state2 = State::new();
-/// let mut state3 = State::new();
-///
-/// update4(
-///     &mut state0,
-///     &mut state1,
-///     &mut state2,
-///     &mut state3,
-///     b"foo",
-///     b"bar",
-///     b"baz",
-///     b"bing",
-/// );
-///
-/// let parallel_hashes = finalize4(&mut state0, &mut state1, &mut state2, &mut state3);
-///
-/// let serial_hashes = [
-///     blake2b(b"foo"),
-///     blake2b(b"bar"),
-///     blake2b(b"baz"),
-///     blake2b(b"bing"),
-/// ];
-/// assert_eq!(serial_hashes, parallel_hashes);
-/// ```
-///
-/// [`update4`]: fn.update4.html
-/// [`finalize`]: struct.State.html#method.finalize
-pub fn finalize4(
-    state0: &mut State,
-    state1: &mut State,
-    state2: &mut State,
-    state3: &mut State,
-) -> [Hash; 4] {
-    let implementation = Implementation::detect();
-
-    // Zero out the buffer tails, which might contain bytes from previous blocks.
-    for i in state0.buflen as usize..BLOCKBYTES {
-        state0.buf[i] = 0;
-    }
-    for i in state1.buflen as usize..BLOCKBYTES {
-        state1.buf[i] = 0;
-    }
-    for i in state2.buflen as usize..BLOCKBYTES {
-        state2.buf[i] = 0;
-    }
-    for i in state3.buflen as usize..BLOCKBYTES {
-        state3.buf[i] = 0;
-    }
-
-    // Translate the last node flag of each state into the u64 that BLAKE2 uses.
-
-    // Transpose the state words into vectorized form. We won't write these
-    // words back into the State object, which makes finalize idempotent.
-    let mut transposed_state =
-        implementation.transpose4(&state0.h, &state1.h, &state2.h, &state3.h);
-
-    // Do the final parallel compression step.
-    let count_low = u64x4([
-        state0.count as u64,
-        state1.count as u64,
-        state2.count as u64,
-        state3.count as u64,
-    ]);
-    let count_high = u64x4([
-        (state0.count >> 64) as u64,
-        (state1.count >> 64) as u64,
-        (state2.count >> 64) as u64,
-        (state3.count >> 64) as u64,
-    ]);
-    let lastnode = u64x4([
-        if state0.last_node { !0 } else { 0 },
-        if state1.last_node { !0 } else { 0 },
-        if state2.last_node { !0 } else { 0 },
-        if state3.last_node { !0 } else { 0 },
-    ]);
-    implementation.compress4(
-        &mut transposed_state,
-        &state0.buf,
-        &state1.buf,
-        &state2.buf,
-        &state3.buf,
-        &count_low,
-        &count_high,
-        &u64x4([!0, !0, !0, !0]),
-        &lastnode,
-    );
-
-    // Extract the resulting hashes.
-    let mut words0 = u64x8([0; 8]);
-    let mut words1 = u64x8([0; 8]);
-    let mut words2 = u64x8([0; 8]);
-    let mut words3 = u64x8([0; 8]);
-    implementation.untranspose4(
-        &transposed_state,
-        &mut words0,
-        &mut words1,
-        &mut words2,
-        &mut words3,
-    );
-    [
-        Hash {
-            bytes: state_words_to_bytes(&words0),
-            len: state0.hash_length,
-        },
-        Hash {
-            bytes: state_words_to_bytes(&words1),
-            len: state1.hash_length,
-        },
-        Hash {
-            bytes: state_words_to_bytes(&words2),
-            len: state2.hash_length,
-        },
-        Hash {
-            bytes: state_words_to_bytes(&words3),
-            len: state3.hash_length,
-        },
-    ]
-}
-
-fn hash1(
-    implementation: Implementation,
-    state: &mut u64x8,
-    input: &[u8],
-    last_node: u64,
-    count: u128,
-) {
-    // If the final block is uneven (or if the whole input is empty), the last
-    // compression will be in a local buffer.
-    let partial_block_len = input.len() % BLOCKBYTES;
-    let use_local_buffer = input.is_empty() || partial_block_len != 0;
-    let blocks = input.len() / BLOCKBYTES;
-    debug_assert!(blocks > 0 || use_local_buffer, "at least one compression");
-    if blocks > 0 {
-        let last_block = u64_flag(!use_local_buffer);
-        implementation.compress1_loop(
-            state,
-            input,
-            count,
-            last_block,
-            last_block & last_node,
-            blocks,
-            1, // stride
-            0, // buffer_tail
-        );
-    }
-    // We need to assemble the last block if the input is uneven, and also in
-    // the special case that the input is empty.
-    if use_local_buffer {
-        let mut buffer = [0; BLOCKBYTES];
-        buffer[..partial_block_len].copy_from_slice(&input[input.len() - partial_block_len..]);
-        let updated_count = count + (blocks * BLOCKBYTES) as u128;
-        let buffer_tail = BLOCKBYTES - partial_block_len;
-        implementation.compress1_loop(
-            state,
-            &buffer,
-            updated_count,
-            !0,
-            last_node,
-            1, // blocks
-            1, // stride
-            buffer_tail,
-        );
-    }
-}
-
-fn hash2(
-    implementation: Implementation,
-    state0: &mut u64x8,
-    state1: &mut u64x8,
-    input0: &[u8],
-    input1: &[u8],
-    last_node: &u64x2,
-) {
-    // Figure out how many blocks we can compress together. Skip this part
-    // entirely if the answer is zero.
-    let min_len = cmp::min(input0.len(), input1.len());
-    let batch_blocks = min_len / BLOCKBYTES;
-    let batch_bytes = batch_blocks * BLOCKBYTES;
-    if batch_blocks > 0 {
-        let last_block_fn = |input: &[u8]| {
-            if input.len() == batch_bytes {
-                !0
-            } else {
-                0
-            }
-        };
-        let last_block = u64x2([last_block_fn(input0), last_block_fn(input1)]);
-        let last_node_maybe = u64x2([last_block[0] & last_node[0], last_block[1] & last_node[1]]);
-
-        // Do the main loop compression.
-        implementation.compress2_loop(
-            state0,
-            state1,
-            input0,
-            input1,
-            &u64x2([0; 2]),
-            &u64x2([0; 2]),
-            &last_block,
-            &last_node_maybe,
-            batch_blocks,
-            1,
-            &u64x2([0; 2]),
-        );
-    }
-
-    // If any of the inputs weren't finished in the 2-way loop above, finish
-    // them individually. Note that if any of the inputs is empty, the loop
-    // above doesn't do any work, and all of the inputs need to be finalized
-    // individually.
-    let mut states = [state0, state1];
-    let inputs = [input0, input1];
-    for i in 0..2 {
-        if batch_bytes == 0 || inputs[i].len() != batch_bytes {
-            hash1(
-                implementation,
-                &mut states[i],
-                &inputs[i][batch_bytes..],
-                last_node[i],
-                batch_bytes as u128,
-            );
-        }
-    }
-}
-
-fn hash4(
-    implementation: Implementation,
-    state0: &mut u64x8,
-    state1: &mut u64x8,
-    state2: &mut u64x8,
-    state3: &mut u64x8,
-    input0: &[u8],
-    input1: &[u8],
-    input2: &[u8],
-    input3: &[u8],
-    last_node: &u64x4,
-) {
-    // Figure out how many blocks we can compress together. Skip this part
-    // entirely if the answer is zero.
-    let min_len = cmp::min(
-        cmp::min(input0.len(), input1.len()),
-        cmp::min(input2.len(), input3.len()),
-    );
-    let batch_blocks = min_len / BLOCKBYTES;
-    let batch_bytes = batch_blocks * BLOCKBYTES;
-    if batch_blocks > 0 {
-        let last_block_fn = |input: &[u8]| {
-            if input.len() == batch_bytes {
-                !0
-            } else {
-                0
-            }
-        };
-        let last_block = u64x4([
-            last_block_fn(input0),
-            last_block_fn(input1),
-            last_block_fn(input2),
-            last_block_fn(input3),
-        ]);
-        let last_node_maybe = u64x4([
-            last_block[0] & last_node[0],
-            last_block[1] & last_node[1],
-            last_block[2] & last_node[2],
-            last_block[3] & last_node[3],
-        ]);
-
-        // Do the main loop compression.
-        implementation.compress4_loop(
-            state0,
-            state1,
-            state2,
-            state3,
-            input0,
-            input1,
-            input2,
-            input3,
-            &u64x4([0; 4]),
-            &u64x4([0; 4]),
-            &last_block,
-            &last_node_maybe,
-            batch_blocks,
-            1,
-            &u64x4([0; 4]),
-        );
-    }
-
-    // If any of the inputs weren't finished in the 4-way loop above, finish
-    // them individually. Note that if any of the inputs is empty, the loop
-    // above doesn't do any work, and all of the inputs need to be finalized
-    // individually.
-    let mut states = [state0, state1, state2, state3];
-    let inputs = [input0, input1, input2, input3];
-    for i in 0..4 {
-        if batch_bytes == 0 || inputs[i].len() != batch_bytes {
-            hash1(
-                implementation,
-                &mut states[i],
-                &inputs[i][batch_bytes..],
-                last_node[i],
-                batch_bytes as u128,
-            );
-        }
-    }
-}
-
-pub fn hash_many(inputs: &[&[u8]], outputs: &mut [Hash], params: &[Params]) {
-    assert_eq!(inputs.len(), outputs.len());
-    assert_eq!(inputs.len(), params.len());
-    let implementation = Implementation::detect();
-    let mut index = 0;
-
-    while inputs.len() - index >= 4 {
-        let params0 = &params[index + 0];
-        let params1 = &params[index + 1];
-        let params2 = &params[index + 2];
-        let params3 = &params[index + 3];
-        let mut words0 = params0.to_state_words();
-        let mut words1 = params1.to_state_words();
-        let mut words2 = params2.to_state_words();
-        let mut words3 = params3.to_state_words();
-        let last_node = u64x4([
-            u64_flag(params0.last_node),
-            u64_flag(params1.last_node),
-            u64_flag(params2.last_node),
-            u64_flag(params3.last_node),
-        ]);
-        hash4(
-            implementation,
-            &mut words0,
-            &mut words1,
-            &mut words2,
-            &mut words3,
-            inputs[index + 0],
-            inputs[index + 1],
-            inputs[index + 2],
-            inputs[index + 3],
-            &last_node,
-        );
-        outputs[index + 0] = Hash {
-            bytes: state_words_to_bytes(&words0),
-            len: params0.hash_length,
-        };
-        outputs[index + 1] = Hash {
-            bytes: state_words_to_bytes(&words1),
-            len: params1.hash_length,
-        };
-        outputs[index + 2] = Hash {
-            bytes: state_words_to_bytes(&words2),
-            len: params2.hash_length,
-        };
-        outputs[index + 3] = Hash {
-            bytes: state_words_to_bytes(&words3),
-            len: params3.hash_length,
-        };
-        index += 4;
-    }
-
-    while inputs.len() - index >= 2 {
-        let params0 = &params[index + 0];
-        let params1 = &params[index + 1];
-        let mut words0 = params0.to_state_words();
-        let mut words1 = params1.to_state_words();
-        let last_node = u64x2([u64_flag(params0.last_node), u64_flag(params1.last_node)]);
-        hash2(
-            implementation,
-            &mut words0,
-            &mut words1,
-            inputs[index + 0],
-            inputs[index + 1],
-            &last_node,
-        );
-        outputs[index + 0] = Hash {
-            bytes: state_words_to_bytes(&words0),
-            len: params0.hash_length,
-        };
-        outputs[index + 1] = Hash {
-            bytes: state_words_to_bytes(&words1),
-            len: params1.hash_length,
-        };
-        index += 2;
-    }
-
-    while inputs.len() - index >= 1 {
-        let mut words = params[index].to_state_words();
-        hash1(
-            implementation,
-            &mut words,
-            inputs[index],
-            u64_flag(params[index].last_node),
-            0,
-        );
-        outputs[index] = Hash {
-            bytes: state_words_to_bytes(&words),
-            len: params[index].hash_length,
-        };
-        index += 1;
     }
 }
 

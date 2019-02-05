@@ -421,15 +421,16 @@ impl State {
                 let block_len = cmp::min(BLOCKBYTES, buf_len - block_start);
                 // Note that the buffer tail was zeroed at the start of this
                 // function, so we can take a partial block directly from there
-                // without copying it again. Note also that the single
-                // compression takes an already-updated value of count, unlike
-                // the loop compression.
-                self.implementation.compress(
+                // without copying it again.
+                self.implementation.compress1_loop(
                     &mut leaves_copy[leaf],
-                    array_ref!(self.buf, block_start, BLOCKBYTES),
-                    count + block_len as u128,
+                    &self.buf[block_start..],
+                    count,
                     !0, /* last_block */
                     0,  /* last_node */
+                    1,
+                    1,
+                    BLOCKBYTES - block_len,
                 );
             }
         }
@@ -442,21 +443,24 @@ impl State {
         // untruncated output of each leaf. Note also that, as mentioned above,
         // the root node doesn't hash any key bytes.
         let mut root_words_copy = self.root_words;
-        for i in 0..DEGREE / 2 {
-            let mut block = [0; BLOCKBYTES];
-            LittleEndian::write_u64_into(&leaves_copy[2 * i][..], &mut block[0..OUTBYTES]);
+        let mut block = [0; DEGREE * OUTBYTES];
+        debug_assert_eq!(block.len(), DEGREE * BLOCKBYTES / 2);
+        for leaf in 0..DEGREE {
             LittleEndian::write_u64_into(
-                &leaves_copy[2 * i + 1][..],
-                &mut block[OUTBYTES..2 * OUTBYTES],
-            );
-            self.implementation.compress(
-                &mut root_words_copy,
-                &block,
-                ((i + 1) * BLOCKBYTES) as u128,
-                if i == DEGREE / 2 - 1 { !0 } else { 0 },
-                if i == DEGREE / 2 - 1 { !0 } else { 0 },
+                &leaves_copy[leaf][..],
+                &mut block[leaf * OUTBYTES..][..OUTBYTES],
             );
         }
+        self.implementation.compress1_loop(
+            &mut root_words_copy,
+            &block,
+            0,
+            !0,
+            !0,
+            DEGREE / 2,
+            1,
+            0,
+        );
 
         Hash {
             bytes: crate::state_words_to_bytes(&root_words_copy),

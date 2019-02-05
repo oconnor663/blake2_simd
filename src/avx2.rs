@@ -6,7 +6,6 @@ use core::arch::x86_64::*;
 use super::*;
 use crate::guts::u64x4;
 use crate::guts::u64x8;
-use core::mem;
 
 #[inline(always)]
 unsafe fn load_u64x4(a: &u64x4) -> __m256i {
@@ -399,11 +398,6 @@ unsafe fn compress_block(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64
 }
 
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, lastnode: u64) {
-    compress_block(h, msg, count, lastblock, lastnode);
-}
-
-#[target_feature(enable = "avx2")]
 pub unsafe fn compress1_loop(
     state: &mut u64x8,
     input: &[u8],
@@ -602,105 +596,6 @@ unsafe fn transpose_vecs(
     [abcd_0, abcd_1, abcd_2, abcd_3]
 }
 
-#[target_feature(enable = "avx2")]
-pub unsafe fn transpose4(
-    words0: &u64x8,
-    words1: &u64x8,
-    words2: &u64x8,
-    words3: &u64x8,
-) -> [u64x4; 8] {
-    let h_vecs_lo = transpose_vecs(
-        _mm256_loadu_si256((words0.as_ptr() as *const __m256i).add(0)),
-        _mm256_loadu_si256((words1.as_ptr() as *const __m256i).add(0)),
-        _mm256_loadu_si256((words2.as_ptr() as *const __m256i).add(0)),
-        _mm256_loadu_si256((words3.as_ptr() as *const __m256i).add(0)),
-    );
-    let h_vecs_hi = transpose_vecs(
-        _mm256_loadu_si256((words0.as_ptr() as *const __m256i).add(1)),
-        _mm256_loadu_si256((words1.as_ptr() as *const __m256i).add(1)),
-        _mm256_loadu_si256((words2.as_ptr() as *const __m256i).add(1)),
-        _mm256_loadu_si256((words3.as_ptr() as *const __m256i).add(1)),
-    );
-    mem::transmute([
-        h_vecs_lo[0],
-        h_vecs_lo[1],
-        h_vecs_lo[2],
-        h_vecs_lo[3],
-        h_vecs_hi[0],
-        h_vecs_hi[1],
-        h_vecs_hi[2],
-        h_vecs_hi[3],
-    ])
-}
-
-#[target_feature(enable = "avx2")]
-pub unsafe fn untranspose4(
-    transposed: &[u64x4; 8],
-    out0: &mut u64x8,
-    out1: &mut u64x8,
-    out2: &mut u64x8,
-    out3: &mut u64x8,
-) {
-    let h_vecs: &[__m256i; 8] = mem::transmute(transposed);
-    let untransposed_low = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
-    _mm256_storeu_si256((out0.as_ptr() as *mut __m256i).add(0), untransposed_low[0]);
-    _mm256_storeu_si256((out1.as_ptr() as *mut __m256i).add(0), untransposed_low[1]);
-    _mm256_storeu_si256((out2.as_ptr() as *mut __m256i).add(0), untransposed_low[2]);
-    _mm256_storeu_si256((out3.as_ptr() as *mut __m256i).add(0), untransposed_low[3]);
-    let untransposed_high = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
-    _mm256_storeu_si256((out0.as_ptr() as *mut __m256i).add(1), untransposed_high[0]);
-    _mm256_storeu_si256((out1.as_ptr() as *mut __m256i).add(1), untransposed_high[1]);
-    _mm256_storeu_si256((out2.as_ptr() as *mut __m256i).add(1), untransposed_high[2]);
-    _mm256_storeu_si256((out3.as_ptr() as *mut __m256i).add(1), untransposed_high[3]);
-}
-
-#[inline(always)]
-unsafe fn load_4x256(msg: &Block) -> (__m256i, __m256i, __m256i, __m256i) {
-    (
-        _mm256_loadu_si256((msg.as_ptr() as *const __m256i).add(0)),
-        _mm256_loadu_si256((msg.as_ptr() as *const __m256i).add(1)),
-        _mm256_loadu_si256((msg.as_ptr() as *const __m256i).add(2)),
-        _mm256_loadu_si256((msg.as_ptr() as *const __m256i).add(3)),
-    )
-}
-
-#[inline(always)]
-pub unsafe fn transpose_message_blocks(
-    msg_a: &Block,
-    msg_b: &Block,
-    msg_c: &Block,
-    msg_d: &Block,
-) -> [__m256i; 16] {
-    let (a0, a1, a2, a3) = load_4x256(msg_a);
-    let (b0, b1, b2, b3) = load_4x256(msg_b);
-    let (c0, c1, c2, c3) = load_4x256(msg_c);
-    let (d0, d1, d2, d3) = load_4x256(msg_d);
-
-    let transposed0 = transpose_vecs(a0, b0, c0, d0);
-    let transposed1 = transpose_vecs(a1, b1, c1, d1);
-    let transposed2 = transpose_vecs(a2, b2, c2, d2);
-    let transposed3 = transpose_vecs(a3, b3, c3, d3);
-
-    [
-        transposed0[0],
-        transposed0[1],
-        transposed0[2],
-        transposed0[3],
-        transposed1[0],
-        transposed1[1],
-        transposed1[2],
-        transposed1[3],
-        transposed2[0],
-        transposed2[1],
-        transposed2[2],
-        transposed2[3],
-        transposed3[0],
-        transposed3[1],
-        transposed3[2],
-        transposed3[3],
-    ]
-}
-
 #[inline(always)]
 unsafe fn compress4_transposed_inline(
     h_vecs: &mut [__m256i; 8],
@@ -750,30 +645,6 @@ unsafe fn compress4_transposed_inline(
     h_vecs[5] = xor(xor(h_vecs[5], v[5]), v[13]);
     h_vecs[6] = xor(xor(h_vecs[6], v[6]), v[14]);
     h_vecs[7] = xor(xor(h_vecs[7], v[7]), v[15]);
-}
-
-// Currently just for benchmarking.
-#[target_feature(enable = "avx2")]
-pub unsafe fn compress4_transposed(
-    h_vecs: &mut [u64x4; 8],
-    msg0: &Block,
-    msg1: &Block,
-    msg2: &Block,
-    msg3: &Block,
-    count_low: &u64x4,
-    count_high: &u64x4,
-    lastblock: &u64x4,
-    lastnode: &u64x4,
-) {
-    let m = transpose_message_blocks(msg0, msg1, msg2, msg3);
-    compress4_transposed_inline(
-        mem::transmute(h_vecs),
-        &m,
-        mem::transmute(*count_low),
-        mem::transmute(*count_high),
-        mem::transmute(*lastblock),
-        mem::transmute(*lastnode),
-    );
 }
 
 #[inline(always)]

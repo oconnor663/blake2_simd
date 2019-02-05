@@ -1,5 +1,4 @@
 use super::*;
-use arrayvec::ArrayVec;
 
 const EMPTY_HASH: &str = "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419\
                           d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce";
@@ -11,7 +10,7 @@ const THOUSAND_HASH: &str = "1ee4e51ecab5210a518f26150e882627ec839967f19d763e150
                              58f6a1c9d1f969bc224dc9440f5a6955277e755b9c513f9ba4421c5e50c8d787";
 
 #[test]
-fn test_vectors() {
+fn test_update_state() {
     let io = &[
         (&b""[..], EMPTY_HASH),
         (&b"abc"[..], ABC_HASH),
@@ -182,159 +181,4 @@ fn test_blake2bp_long_hash_length_panics() {
 #[should_panic]
 fn test_blake2bp_long_key_panics() {
     blake2bp::Params::new().key(&[0; KEYBYTES + 1]);
-}
-
-#[test]
-fn test_update4() {
-    const INPUT_PREFIX: &[u8] = b"foobarbaz";
-
-    // Define an inner test run function, because we're going to run different permutations of
-    // states and inputs.
-    fn test_run(
-        state0: &mut State,
-        state1: &mut State,
-        state2: &mut State,
-        state3: &mut State,
-        input0: &[u8],
-        input1: &[u8],
-        input2: &[u8],
-        input3: &[u8],
-    ) {
-        // Compute the expected hashes the normal way, using cloned copies.
-        let expected0 = state0.clone().update(input0).finalize();
-        let expected1 = state1.clone().update(input1).finalize();
-        let expected2 = state2.clone().update(input2).finalize();
-        let expected3 = state3.clone().update(input3).finalize();
-
-        // Now do the same thing using the parallel interface.
-        update4(
-            state0, state1, state2, state3, input0, input1, input2, input3,
-        );
-        let output = finalize4(state0, state1, state2, state3);
-
-        assert_eq!(expected0, output[0]);
-        assert_eq!(expected1, output[1]);
-        assert_eq!(expected2, output[2]);
-        assert_eq!(expected3, output[3]);
-    }
-
-    // State A is default.
-    let mut state_a = State::new();
-    // State B sets last node on the state.
-    let mut state_b = State::new();
-    state_b.set_last_node(true);
-    // State C gets a "foobarbaz" prefix.
-    let mut state_c = State::new();
-    state_c.update(INPUT_PREFIX);
-    // State D gets wacky parameters.
-    let mut state_d = Params::new()
-        .hash_length(18)
-        .key(b"bar")
-        .salt(b"bazbazbazbazbazb")
-        .personal(b"bing bing bing b")
-        .fanout(2)
-        .max_depth(3)
-        .max_leaf_length(0x04050607)
-        .node_offset(0x08090a0b0c0d0e0f)
-        .node_depth(16)
-        .inner_hash_length(17)
-        .last_node(true)
-        .to_state();
-
-    let mut input = [0; 35 * BLOCKBYTES];
-    paint_test_input(&mut input);
-    let input_e = &input[0_ * BLOCKBYTES..10 * BLOCKBYTES];
-    let input_f = &input[10 * BLOCKBYTES..20 * BLOCKBYTES];
-    let input_g = &input[20 * BLOCKBYTES..30 * BLOCKBYTES];
-    // Input H is short.
-    let input_h = &input[30 * BLOCKBYTES..35 * BLOCKBYTES];
-
-    // Loop over four different permutations of the input.
-    for (input0, input1, input2, input3) in &[
-        (input_e, input_f, input_g, input_h),
-        (input_f, input_g, input_h, input_e),
-        (input_g, input_h, input_e, input_f),
-        (input_h, input_e, input_f, input_g),
-    ] {
-        // For each input permutation, run four permutations of the states.
-        test_run(
-            &mut state_a,
-            &mut state_b,
-            &mut state_c,
-            &mut state_d,
-            input0,
-            input1,
-            input2,
-            input3,
-        );
-        test_run(
-            &mut state_b,
-            &mut state_c,
-            &mut state_d,
-            &mut state_a,
-            input0,
-            input1,
-            input2,
-            input3,
-        );
-        test_run(
-            &mut state_c,
-            &mut state_d,
-            &mut state_a,
-            &mut state_b,
-            input0,
-            input1,
-            input2,
-            input3,
-        );
-        test_run(
-            &mut state_d,
-            &mut state_a,
-            &mut state_b,
-            &mut state_c,
-            input0,
-            input1,
-            input2,
-            input3,
-        );
-    }
-}
-
-#[test]
-fn test_hash_many() {
-    // Use a length of inputs that will exercise all of the power-of-two loops.
-    const LEN: usize = 2 * guts::MAX_DEGREE - 1;
-
-    let mut params: ArrayVec<[Params; LEN]> = ArrayVec::new();
-    for i in 0..LEN {
-        let mut param = Params::new();
-        param.node_offset(i as u64);
-        param.last_node(i % 2 == 1);
-        params.push(param);
-    }
-
-    // Rerun LEN inputs LEN different times, with the empty input starting in a
-    // different spot each time.
-    let mut input = [0; LEN * BLOCKBYTES];
-    paint_test_input(&mut input);
-    for start_offset in 0..LEN {
-        let mut inputs: [&[u8]; LEN] = [&[]; LEN];
-        for i in 0..LEN {
-            let chunks = (i + start_offset) % LEN;
-            inputs[i] = &input[..chunks * BLOCKBYTES];
-        }
-
-        let mut outputs: ArrayVec<[Hash; LEN]> = ArrayVec::new();
-        for _ in 0..LEN {
-            outputs.push(Hash::empty());
-        }
-
-        hash_many(&inputs, &mut outputs, &params);
-
-        // Check the outputs.
-        for i in 0..LEN {
-            let expected = params[i].to_state().update(inputs[i]).finalize();
-            assert_eq!(&expected, &outputs[i]);
-        }
-    }
 }
