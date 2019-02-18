@@ -1,6 +1,5 @@
-use crate::guts::{u64x2, u64x4, u64x8, Implementation};
+use crate::guts::{u64_flag, u64x2, u64x4, u64x8, Implementation};
 use crate::state_words_to_bytes;
-use crate::u64_flag;
 use crate::Hash;
 use crate::Params;
 use crate::BLOCKBYTES;

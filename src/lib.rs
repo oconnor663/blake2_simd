@@ -665,15 +665,6 @@ impl fmt::Debug for Hash {
     }
 }
 
-#[inline(always)]
-fn u64_flag(flag: bool) -> u64 {
-    if flag {
-        !0
-    } else {
-        0
-    }
-}
-
 // Paint a byte pattern that won't repeat, so that we don't accidentally miss
 // buffer offset bugs. This is the same as what Bao uses in its tests.
 #[cfg(test)]

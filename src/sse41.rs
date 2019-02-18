@@ -4,8 +4,7 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 use super::*;
-use crate::guts::u64x2;
-use crate::guts::u64x8;
+use crate::guts::{u64_flag, u64x2, u64x8};
 use core::mem;
 
 #[inline(always)]
@@ -498,8 +497,8 @@ pub unsafe fn compress2_loop_b(
     let mut buffer0 = [0; BLOCKBYTES];
     let mut buffer1 = [0; BLOCKBYTES];
     while blocks > 0 {
-        let block0 = guts::make_msg_block(inputs[0], offset, &mut buffer0, &mut count0);
-        let block1 = guts::make_msg_block(inputs[1], offset, &mut buffer1, &mut count1);
+        let block0 = guts::next_msg_block(inputs[0], offset, &mut buffer0, &mut count0);
+        let block1 = guts::next_msg_block(inputs[1], offset, &mut buffer1, &mut count1);
         let m_vecs = transpose_msg_vecs(block0, block1);
         let counts_low = load_counts_low(count0, count1);
         let counts_high = load_counts_high(count0, count1);
@@ -523,4 +522,6 @@ pub unsafe fn compress2_loop_b(
     }
 
     untranspose_state_vecs(&h_vecs, states);
+    *counts[0] = count0;
+    *counts[1] = count1;
 }

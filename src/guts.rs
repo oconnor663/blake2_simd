@@ -358,7 +358,7 @@ impl core::ops::DerefMut for u64x8 {
 // if the input is too short to contain a full block after that point, copy any
 // partial bytes from there to a local block buffer, and point to that instead.
 #[inline(always)]
-pub(crate) fn make_msg_block<'a>(
+pub(crate) fn next_msg_block<'a>(
     input: &'a [u8],
     offset: usize,
     buffer: &'a mut [u8; BLOCKBYTES],
@@ -381,6 +381,15 @@ pub(crate) fn make_msg_block<'a>(
         *count += remaining as u128;
     }
     buffer
+}
+
+#[inline(always)]
+pub(crate) fn u64_flag(flag: bool) -> u64 {
+    if flag {
+        !0
+    } else {
+        0
+    }
 }
 
 #[cfg(test)]

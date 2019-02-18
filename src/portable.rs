@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
-use crate::guts::u64x8;
+use crate::guts::{u64_flag, u64x8};
 
 // G is the mixing function, called eight times per round in the compression
 // function. V is the 16-word state vector of the compression function, usually
@@ -135,6 +135,31 @@ pub fn compress1_loop(
             (0, 0)
         };
         compress_block(state, block, count, maybe_last_block, maybe_last_node);
+        offset += stride * BLOCKBYTES;
+        blocks -= 1;
+    }
+}
+
+pub unsafe fn compress1_loop_b(
+    state: &mut u64x8,
+    input: &[u8],
+    count: &mut u128,
+    last_block: bool,
+    last_node: bool,
+    mut blocks: usize,
+    stride: usize,
+) {
+    let mut offset = 0;
+    while blocks > 0 {
+        let mut buffer = [0; BLOCKBYTES];
+        let block = guts::next_msg_block(input, offset, &mut buffer, count);
+        compress_block(
+            state,
+            block,
+            *count,
+            u64_flag(last_block),
+            u64_flag(last_node),
+        );
         offset += stride * BLOCKBYTES;
         blocks -= 1;
     }

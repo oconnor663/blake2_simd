@@ -5,7 +5,7 @@ use core::arch::x86_64::*;
 
 use super::*;
 use crate::guts;
-use crate::guts::{u64x4, u64x8};
+use crate::guts::{u64_flag, u64x4, u64x8};
 
 #[inline(always)]
 unsafe fn load_u64x4(a: &u64x4) -> __m256i {
@@ -918,10 +918,10 @@ pub unsafe fn compress4_loop_b(
     let mut buffer2 = [0; BLOCKBYTES];
     let mut buffer3 = [0; BLOCKBYTES];
     while blocks > 0 {
-        let block0 = guts::make_msg_block(inputs[0], offset, &mut buffer0, &mut count0);
-        let block1 = guts::make_msg_block(inputs[1], offset, &mut buffer1, &mut count1);
-        let block2 = guts::make_msg_block(inputs[2], offset, &mut buffer2, &mut count2);
-        let block3 = guts::make_msg_block(inputs[3], offset, &mut buffer3, &mut count3);
+        let block0 = guts::next_msg_block(inputs[0], offset, &mut buffer0, &mut count0);
+        let block1 = guts::next_msg_block(inputs[1], offset, &mut buffer1, &mut count1);
+        let block2 = guts::next_msg_block(inputs[2], offset, &mut buffer2, &mut count2);
+        let block3 = guts::next_msg_block(inputs[3], offset, &mut buffer3, &mut count3);
         let m_vecs = transpose_msg_vecs(block0, block1, block2, block3);
         let counts_low = load_counts_low(count0, count1, count2, count3);
         let counts_high = load_counts_high(count0, count1, count2, count3);
@@ -945,4 +945,8 @@ pub unsafe fn compress4_loop_b(
     }
 
     untranspose_state_vecs(&h_vecs, states);
+    *counts[0] = count0;
+    *counts[1] = count1;
+    *counts[2] = count2;
+    *counts[3] = count3;
 }
