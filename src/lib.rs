@@ -665,6 +665,7 @@ impl fmt::Debug for Hash {
     }
 }
 
+#[inline(always)]
 fn u64_flag(flag: bool) -> u64 {
     if flag {
         !0

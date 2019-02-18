@@ -791,3 +791,187 @@ pub unsafe fn compress4_loop(
     store_u64x4(high_words[2], &mut state2.split_mut()[1]);
     store_u64x4(high_words[3], &mut state3.split_mut()[1]);
 }
+
+#[inline(always)]
+unsafe fn transpose_state_vecs(states: &[u64x8; 4]) -> [__m256i; 8] {
+    // Load all the state words into transposed vectors, where the first vector
+    // has the first word of each state, etc. This is the form that 4-way
+    // compression operates on, and transposing once at the beginning and once
+    // at the end is more efficient that repeating it for each block. Note that
+    // these loads are aligned, because u64x4 and u64x8 guarantee alignment.
+    let [h0, h1, h2, h3] = transpose_vecs(
+        load_u64x4(&states[0].split()[0]),
+        load_u64x4(&states[1].split()[0]),
+        load_u64x4(&states[2].split()[0]),
+        load_u64x4(&states[3].split()[0]),
+    );
+    let [h4, h5, h6, h7] = transpose_vecs(
+        load_u64x4(&states[0].split()[1]),
+        load_u64x4(&states[1].split()[1]),
+        load_u64x4(&states[2].split()[1]),
+        load_u64x4(&states[3].split()[1]),
+    );
+    [h0, h1, h2, h3, h4, h5, h6, h7]
+}
+
+#[inline(always)]
+unsafe fn untranspose_state_vecs(h_vecs: &[__m256i; 8], states: &mut [u64x8; 4]) {
+    // Un-transpose the updated state vectors back into the caller's arrays.
+    // These are aligned stores.
+    let low_words = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
+    store_u64x4(low_words[0], &mut states[0].split_mut()[0]);
+    store_u64x4(low_words[1], &mut states[1].split_mut()[0]);
+    store_u64x4(low_words[2], &mut states[2].split_mut()[0]);
+    store_u64x4(low_words[3], &mut states[3].split_mut()[0]);
+    let high_words = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
+    store_u64x4(high_words[0], &mut states[0].split_mut()[1]);
+    store_u64x4(high_words[1], &mut states[1].split_mut()[1]);
+    store_u64x4(high_words[2], &mut states[2].split_mut()[1]);
+    store_u64x4(high_words[3], &mut states[3].split_mut()[1]);
+}
+
+#[inline(always)]
+unsafe fn transpose_msg_vecs(
+    block0: &[u8; BLOCKBYTES],
+    block1: &[u8; BLOCKBYTES],
+    block2: &[u8; BLOCKBYTES],
+    block3: &[u8; BLOCKBYTES],
+) -> [__m256i; 16] {
+    // These input arrays have no particular alignment, so we use unaligned
+    // loads to read from them.
+    let ptr0 = block0.as_ptr() as *const __m256i;
+    let ptr1 = block1.as_ptr() as *const __m256i;
+    let ptr2 = block2.as_ptr() as *const __m256i;
+    let ptr3 = block3.as_ptr() as *const __m256i;
+    let [m0, m1, m2, m3] = transpose_vecs(
+        _mm256_loadu_si256(ptr0.add(0)),
+        _mm256_loadu_si256(ptr1.add(0)),
+        _mm256_loadu_si256(ptr2.add(0)),
+        _mm256_loadu_si256(ptr3.add(0)),
+    );
+    let [m4, m5, m6, m7] = transpose_vecs(
+        _mm256_loadu_si256(ptr0.add(1)),
+        _mm256_loadu_si256(ptr1.add(1)),
+        _mm256_loadu_si256(ptr2.add(1)),
+        _mm256_loadu_si256(ptr3.add(1)),
+    );
+    let [m8, m9, m10, m11] = transpose_vecs(
+        _mm256_loadu_si256(ptr0.add(2)),
+        _mm256_loadu_si256(ptr1.add(2)),
+        _mm256_loadu_si256(ptr2.add(2)),
+        _mm256_loadu_si256(ptr3.add(2)),
+    );
+    let [m12, m13, m14, m15] = transpose_vecs(
+        _mm256_loadu_si256(ptr0.add(3)),
+        _mm256_loadu_si256(ptr1.add(3)),
+        _mm256_loadu_si256(ptr2.add(3)),
+        _mm256_loadu_si256(ptr3.add(3)),
+    );
+    [
+        m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15,
+    ]
+}
+
+// Take a block-sized array pointer from the given offset in the input. Except
+// if the input is too short to contain a full block after that point, copy any
+// partial bytes from there to a local block buffer, and point to that instead.
+#[inline(always)]
+fn make_msg_block<'a>(
+    input: &'a [u8],
+    offset: usize,
+    buffer: &'a mut [u8; BLOCKBYTES],
+    count: &mut u128,
+) -> &'a [u8; BLOCKBYTES] {
+    if offset > 0 {
+        debug_assert!(offset < input.len());
+    }
+    // Account for negative overflow in `input.len() - offset` with a two-part
+    // check. The compiler should be able to elide some bounds checks here,
+    // though a perfect result might depend on https://github.com/droundy/arrayref/pull/16.
+    if input.len() >= offset {
+        let remaining = input.len() - offset;
+        if remaining >= BLOCKBYTES {
+            *count += BLOCKBYTES as u128;
+            return array_ref!(input, offset, BLOCKBYTES);
+        }
+        *buffer = [0; BLOCKBYTES];
+        buffer[..remaining].copy_from_slice(&input[offset..]);
+        *count += remaining as u128;
+    }
+    buffer
+}
+
+#[inline(always)]
+unsafe fn load_counts_low(count0: u128, count1: u128, count2: u128, count3: u128) -> __m256i {
+    _mm256_setr_epi64x(count0 as i64, count1 as i64, count2 as i64, count3 as i64)
+}
+
+#[inline(always)]
+unsafe fn load_counts_high(count0: u128, count1: u128, count2: u128, count3: u128) -> __m256i {
+    _mm256_setr_epi64x(
+        (count0 >> 64) as i64,
+        (count1 >> 64) as i64,
+        (count2 >> 64) as i64,
+        (count3 >> 64) as i64,
+    )
+}
+
+#[inline(always)]
+unsafe fn load_flags_vec(flags: [bool; 4]) -> __m256i {
+    _mm256_setr_epi64x(
+        u64_flag(flags[0]) as i64,
+        u64_flag(flags[1]) as i64,
+        u64_flag(flags[2]) as i64,
+        u64_flag(flags[3]) as i64,
+    )
+}
+
+#[target_feature(enable = "avx2")]
+pub unsafe fn compress4_loop_b(
+    states: &mut [u64x8; 4],
+    inputs: &[&[u8]; 4],
+    counts: &mut [&mut u128; 4],
+    last_block: [bool; 4],
+    last_node: [bool; 4],
+    mut blocks: usize,
+    stride: usize,
+) {
+    let mut h_vecs = transpose_state_vecs(states);
+    let mut offset = 0;
+    let mut count0 = *counts[0];
+    let mut count1 = *counts[1];
+    let mut count2 = *counts[2];
+    let mut count3 = *counts[3];
+    let mut buffer0 = [0; BLOCKBYTES];
+    let mut buffer1 = [0; BLOCKBYTES];
+    let mut buffer2 = [0; BLOCKBYTES];
+    let mut buffer3 = [0; BLOCKBYTES];
+    while blocks > 0 {
+        let block0 = make_msg_block(inputs[0], offset, &mut buffer0, &mut count0);
+        let block1 = make_msg_block(inputs[1], offset, &mut buffer1, &mut count1);
+        let block2 = make_msg_block(inputs[2], offset, &mut buffer2, &mut count2);
+        let block3 = make_msg_block(inputs[3], offset, &mut buffer3, &mut count3);
+        let m_vecs = transpose_msg_vecs(block0, block1, block2, block3);
+        let counts_low = load_counts_low(count0, count1, count2, count3);
+        let counts_high = load_counts_high(count0, count1, count2, count3);
+        let (last_block_vec, last_node_vec) = if blocks == 1 {
+            (load_flags_vec(last_block), load_flags_vec(last_node))
+        } else {
+            (_mm256_set1_epi64x(0), _mm256_set1_epi64x(0))
+        };
+
+        compress4_transposed_inline(
+            &mut h_vecs,
+            &m_vecs,
+            counts_low,
+            counts_high,
+            last_block_vec,
+            last_node_vec,
+        );
+
+        offset += BLOCKBYTES * stride;
+        blocks -= 1;
+    }
+
+    untranspose_state_vecs(&h_vecs, states);
+}
