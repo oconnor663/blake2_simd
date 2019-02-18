@@ -909,22 +909,19 @@ pub unsafe fn compress4_loop_b(
 ) {
     let mut h_vecs = transpose_state_vecs(states);
     let mut offset = 0;
-    let mut count0 = *counts[0];
-    let mut count1 = *counts[1];
-    let mut count2 = *counts[2];
-    let mut count3 = *counts[3];
+    let &mut [ref mut count0, ref mut count1, ref mut count2, ref mut count3] = counts;
     let mut buffer0 = [0; BLOCKBYTES];
     let mut buffer1 = [0; BLOCKBYTES];
     let mut buffer2 = [0; BLOCKBYTES];
     let mut buffer3 = [0; BLOCKBYTES];
     while blocks > 0 {
-        let block0 = guts::next_msg_block(inputs[0], offset, &mut buffer0, &mut count0);
-        let block1 = guts::next_msg_block(inputs[1], offset, &mut buffer1, &mut count1);
-        let block2 = guts::next_msg_block(inputs[2], offset, &mut buffer2, &mut count2);
-        let block3 = guts::next_msg_block(inputs[3], offset, &mut buffer3, &mut count3);
+        let block0 = guts::next_msg_block(inputs[0], offset, &mut buffer0, count0);
+        let block1 = guts::next_msg_block(inputs[1], offset, &mut buffer1, count1);
+        let block2 = guts::next_msg_block(inputs[2], offset, &mut buffer2, count2);
+        let block3 = guts::next_msg_block(inputs[3], offset, &mut buffer3, count3);
         let m_vecs = transpose_msg_vecs(block0, block1, block2, block3);
-        let counts_low = load_counts_low(count0, count1, count2, count3);
-        let counts_high = load_counts_high(count0, count1, count2, count3);
+        let counts_low = load_counts_low(**count0, **count1, **count2, **count3);
+        let counts_high = load_counts_high(**count0, **count1, **count2, **count3);
         let (last_block_vec, last_node_vec) = if blocks == 1 {
             (load_flags_vec(last_block), load_flags_vec(last_node))
         } else {
@@ -945,8 +942,4 @@ pub unsafe fn compress4_loop_b(
     }
 
     untranspose_state_vecs(&h_vecs, states);
-    *counts[0] = count0;
-    *counts[1] = count1;
-    *counts[2] = count2;
-    *counts[3] = count3;
 }

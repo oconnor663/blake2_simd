@@ -492,16 +492,15 @@ pub unsafe fn compress2_loop_b(
 ) {
     let mut h_vecs = transpose_state_vecs(states);
     let mut offset = 0;
-    let mut count0 = *counts[0];
-    let mut count1 = *counts[1];
+    let &mut [ref mut count0, ref mut count1] = counts;
     let mut buffer0 = [0; BLOCKBYTES];
     let mut buffer1 = [0; BLOCKBYTES];
     while blocks > 0 {
-        let block0 = guts::next_msg_block(inputs[0], offset, &mut buffer0, &mut count0);
-        let block1 = guts::next_msg_block(inputs[1], offset, &mut buffer1, &mut count1);
+        let block0 = guts::next_msg_block(inputs[0], offset, &mut buffer0, count0);
+        let block1 = guts::next_msg_block(inputs[1], offset, &mut buffer1, count1);
         let m_vecs = transpose_msg_vecs(block0, block1);
-        let counts_low = load_counts_low(count0, count1);
-        let counts_high = load_counts_high(count0, count1);
+        let counts_low = load_counts_low(**count0, **count1);
+        let counts_high = load_counts_high(**count0, **count1);
         let (last_block_vec, last_node_vec) = if blocks == 1 {
             (load_flags_vec(last_block), load_flags_vec(last_node))
         } else {
@@ -522,6 +521,4 @@ pub unsafe fn compress2_loop_b(
     }
 
     untranspose_state_vecs(&h_vecs, states);
-    *counts[0] = count0;
-    *counts[1] = count1;
 }
