@@ -396,3 +396,131 @@ pub unsafe fn compress2_loop(
     store_u64x2(words[0], &mut state0.split_mut()[1].split_mut()[1]);
     store_u64x2(words[1], &mut state1.split_mut()[1].split_mut()[1]);
 }
+
+#[inline(always)]
+unsafe fn transpose_state_vecs(states: &[u64x8; 2]) -> [__m128i; 8] {
+    // Load all the state words into transposed vectors, where the first vector
+    // has the first word of each state, etc. This is the form that 4-way
+    // compression operates on, and transposing once at the beginning and once
+    // at the end is more efficient that repeating it for each block. Note that
+    // these loads are aligned, because u64x4 and u64x8 guarantee alignment.
+    let [h0, h1] = transpose_vecs(
+        load_u64x2(&states[0].split()[0].split()[0]),
+        load_u64x2(&states[1].split()[0].split()[0]),
+    );
+    let [h2, h3] = transpose_vecs(
+        load_u64x2(&states[0].split()[0].split()[1]),
+        load_u64x2(&states[1].split()[0].split()[1]),
+    );
+    let [h4, h5] = transpose_vecs(
+        load_u64x2(&states[0].split()[1].split()[0]),
+        load_u64x2(&states[1].split()[1].split()[0]),
+    );
+    let [h6, h7] = transpose_vecs(
+        load_u64x2(&states[0].split()[1].split()[1]),
+        load_u64x2(&states[1].split()[1].split()[1]),
+    );
+    [h0, h1, h2, h3, h4, h5, h6, h7]
+}
+
+#[inline(always)]
+unsafe fn untranspose_state_vecs(h_vecs: &[__m128i; 8], states: &mut [u64x8; 2]) {
+    // Un-transpose the updated state vectors back into the caller's arrays.
+    // These are aligned stores.
+    let words = transpose_vecs(h_vecs[0], h_vecs[1]);
+    store_u64x2(words[0], &mut states[0].split_mut()[0].split_mut()[0]);
+    store_u64x2(words[1], &mut states[1].split_mut()[0].split_mut()[0]);
+    let words = transpose_vecs(h_vecs[2], h_vecs[3]);
+    store_u64x2(words[0], &mut states[0].split_mut()[0].split_mut()[1]);
+    store_u64x2(words[1], &mut states[1].split_mut()[0].split_mut()[1]);
+    let words = transpose_vecs(h_vecs[4], h_vecs[5]);
+    store_u64x2(words[0], &mut states[0].split_mut()[1].split_mut()[0]);
+    store_u64x2(words[1], &mut states[1].split_mut()[1].split_mut()[0]);
+    let words = transpose_vecs(h_vecs[6], h_vecs[7]);
+    store_u64x2(words[0], &mut states[0].split_mut()[1].split_mut()[1]);
+    store_u64x2(words[1], &mut states[1].split_mut()[1].split_mut()[1]);
+}
+
+#[inline(always)]
+unsafe fn transpose_msg_vecs(
+    block0: &[u8; BLOCKBYTES],
+    block1: &[u8; BLOCKBYTES],
+) -> [__m128i; 16] {
+    // These input arrays have no particular alignment, so we use unaligned
+    // loads to read from them.
+    let ptr0 = block0.as_ptr() as *const __m128i;
+    let ptr1 = block1.as_ptr() as *const __m128i;
+    let [m0, m1] = transpose_vecs(_mm_loadu_si128(ptr0.add(0)), _mm_loadu_si128(ptr1.add(0)));
+    let [m2, m3] = transpose_vecs(_mm_loadu_si128(ptr0.add(1)), _mm_loadu_si128(ptr1.add(1)));
+    let [m4, m5] = transpose_vecs(_mm_loadu_si128(ptr0.add(2)), _mm_loadu_si128(ptr1.add(2)));
+    let [m6, m7] = transpose_vecs(_mm_loadu_si128(ptr0.add(3)), _mm_loadu_si128(ptr1.add(3)));
+    let [m8, m9] = transpose_vecs(_mm_loadu_si128(ptr0.add(4)), _mm_loadu_si128(ptr1.add(4)));
+    let [m10, m11] = transpose_vecs(_mm_loadu_si128(ptr0.add(5)), _mm_loadu_si128(ptr1.add(5)));
+    let [m12, m13] = transpose_vecs(_mm_loadu_si128(ptr0.add(6)), _mm_loadu_si128(ptr1.add(6)));
+    let [m14, m15] = transpose_vecs(_mm_loadu_si128(ptr0.add(7)), _mm_loadu_si128(ptr1.add(7)));
+    [
+        m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15,
+    ]
+}
+
+#[inline(always)]
+unsafe fn load_counts_low(count0: u128, count1: u128) -> __m128i {
+    // There's no _mm_setr_epi64x, so note the arg order.
+    _mm_set_epi64x(count1 as i64, count0 as i64)
+}
+
+#[inline(always)]
+unsafe fn load_counts_high(count0: u128, count1: u128) -> __m128i {
+    // There's no _mm_setr_epi64x, so note the arg order.
+    _mm_set_epi64x((count1 >> 64) as i64, (count0 >> 64) as i64)
+}
+
+#[inline(always)]
+unsafe fn load_flags_vec(flags: [bool; 2]) -> __m128i {
+    // There's no _mm_setr_epi64x, so note the arg order.
+    _mm_set_epi64x(u64_flag(flags[1]) as i64, u64_flag(flags[0]) as i64)
+}
+
+#[target_feature(enable = "avx2")]
+pub unsafe fn compress2_loop_b(
+    states: &mut [u64x8; 2],
+    inputs: &[&[u8]; 2],
+    counts: &mut [&mut u128; 2],
+    last_block: [bool; 2],
+    last_node: [bool; 2],
+    mut blocks: usize,
+    stride: usize,
+) {
+    let mut h_vecs = transpose_state_vecs(states);
+    let mut offset = 0;
+    let mut count0 = *counts[0];
+    let mut count1 = *counts[1];
+    let mut buffer0 = [0; BLOCKBYTES];
+    let mut buffer1 = [0; BLOCKBYTES];
+    while blocks > 0 {
+        let block0 = guts::make_msg_block(inputs[0], offset, &mut buffer0, &mut count0);
+        let block1 = guts::make_msg_block(inputs[1], offset, &mut buffer1, &mut count1);
+        let m_vecs = transpose_msg_vecs(block0, block1);
+        let counts_low = load_counts_low(count0, count1);
+        let counts_high = load_counts_high(count0, count1);
+        let (last_block_vec, last_node_vec) = if blocks == 1 {
+            (load_flags_vec(last_block), load_flags_vec(last_node))
+        } else {
+            (_mm_set1_epi64x(0), _mm_set1_epi64x(0))
+        };
+
+        compress2_transposed_inline(
+            &mut h_vecs,
+            &m_vecs,
+            counts_low,
+            counts_high,
+            last_block_vec,
+            last_node_vec,
+        );
+
+        offset += BLOCKBYTES * stride;
+        blocks -= 1;
+    }
+
+    untranspose_state_vecs(&h_vecs, states);
+}

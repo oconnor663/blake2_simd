@@ -4,8 +4,8 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 use super::*;
-use crate::guts::u64x4;
-use crate::guts::u64x8;
+use crate::guts;
+use crate::guts::{u64x4, u64x8};
 
 #[inline(always)]
 unsafe fn load_u64x4(a: &u64x4) -> __m256i {
@@ -872,35 +872,6 @@ unsafe fn transpose_msg_vecs(
     ]
 }
 
-// Take a block-sized array pointer from the given offset in the input. Except
-// if the input is too short to contain a full block after that point, copy any
-// partial bytes from there to a local block buffer, and point to that instead.
-#[inline(always)]
-fn make_msg_block<'a>(
-    input: &'a [u8],
-    offset: usize,
-    buffer: &'a mut [u8; BLOCKBYTES],
-    count: &mut u128,
-) -> &'a [u8; BLOCKBYTES] {
-    if offset > 0 {
-        debug_assert!(offset < input.len());
-    }
-    // Account for negative overflow in `input.len() - offset` with a two-part
-    // check. The compiler should be able to elide some bounds checks here,
-    // though a perfect result might depend on https://github.com/droundy/arrayref/pull/16.
-    if input.len() >= offset {
-        let remaining = input.len() - offset;
-        if remaining >= BLOCKBYTES {
-            *count += BLOCKBYTES as u128;
-            return array_ref!(input, offset, BLOCKBYTES);
-        }
-        *buffer = [0; BLOCKBYTES];
-        buffer[..remaining].copy_from_slice(&input[offset..]);
-        *count += remaining as u128;
-    }
-    buffer
-}
-
 #[inline(always)]
 unsafe fn load_counts_low(count0: u128, count1: u128, count2: u128, count3: u128) -> __m256i {
     _mm256_setr_epi64x(count0 as i64, count1 as i64, count2 as i64, count3 as i64)
@@ -947,10 +918,10 @@ pub unsafe fn compress4_loop_b(
     let mut buffer2 = [0; BLOCKBYTES];
     let mut buffer3 = [0; BLOCKBYTES];
     while blocks > 0 {
-        let block0 = make_msg_block(inputs[0], offset, &mut buffer0, &mut count0);
-        let block1 = make_msg_block(inputs[1], offset, &mut buffer1, &mut count1);
-        let block2 = make_msg_block(inputs[2], offset, &mut buffer2, &mut count2);
-        let block3 = make_msg_block(inputs[3], offset, &mut buffer3, &mut count3);
+        let block0 = guts::make_msg_block(inputs[0], offset, &mut buffer0, &mut count0);
+        let block1 = guts::make_msg_block(inputs[1], offset, &mut buffer1, &mut count1);
+        let block2 = guts::make_msg_block(inputs[2], offset, &mut buffer2, &mut count2);
+        let block3 = guts::make_msg_block(inputs[3], offset, &mut buffer3, &mut count3);
         let m_vecs = transpose_msg_vecs(block0, block1, block2, block3);
         let counts_low = load_counts_low(count0, count1, count2, count3);
         let counts_high = load_counts_high(count0, count1, count2, count3);

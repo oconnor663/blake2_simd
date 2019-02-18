@@ -354,6 +354,35 @@ impl core::ops::DerefMut for u64x8 {
     }
 }
 
+// Take a block-sized array pointer from the given offset in the input. Except
+// if the input is too short to contain a full block after that point, copy any
+// partial bytes from there to a local block buffer, and point to that instead.
+#[inline(always)]
+pub(crate) fn make_msg_block<'a>(
+    input: &'a [u8],
+    offset: usize,
+    buffer: &'a mut [u8; BLOCKBYTES],
+    count: &mut u128,
+) -> &'a [u8; BLOCKBYTES] {
+    if offset > 0 {
+        debug_assert!(offset < input.len());
+    }
+    // Account for negative overflow in `input.len() - offset` with a two-part
+    // check. The compiler should be able to elide some bounds checks here,
+    // though a perfect result might depend on https://github.com/droundy/arrayref/pull/16.
+    if input.len() >= offset {
+        let remaining = input.len() - offset;
+        if remaining >= BLOCKBYTES {
+            *count += BLOCKBYTES as u128;
+            return array_ref!(input, offset, BLOCKBYTES);
+        }
+        *buffer = [0; BLOCKBYTES];
+        buffer[..remaining].copy_from_slice(&input[offset..]);
+        *count += remaining as u128;
+    }
+    buffer
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
