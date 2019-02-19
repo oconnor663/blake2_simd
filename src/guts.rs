@@ -128,6 +128,31 @@ impl Implementation {
         }
     }
 
+    pub fn compress1_loop_b(
+        &self,
+        state: &mut u64x8,
+        input: &[u8],
+        count: &mut u128,
+        last_block: bool,
+        last_node: bool,
+        blocks: usize,
+        stride: usize,
+    ) {
+        match self.0 {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::AVX2 => unsafe {
+                avx2::compress1_loop_b(state, input, count, last_block, last_node, blocks, stride);
+            },
+            // Note that there's an SSE version of compress1 in the official C
+            // implementation, but I haven't ported it yet.
+            _ => {
+                portable::compress1_loop_b(
+                    state, input, count, last_block, last_node, blocks, stride,
+                );
+            }
+        }
+    }
+
     pub fn compress2_loop(
         &self,
         state0: &mut u64x8,
@@ -179,6 +204,51 @@ impl Implementation {
                     blocks,
                     stride,
                     buffer_tail[1] as usize,
+                );
+            }
+        }
+    }
+
+    pub fn compress2_loop_b(
+        &self,
+        states: [&mut u64x8; 2],
+        inputs: [&[u8]; 2],
+        counts: [&mut u128; 2],
+        last_block: [bool; 2],
+        last_node: [bool; 2],
+        blocks: usize,
+        stride: usize,
+    ) {
+        match self.0 {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::AVX2 | Platform::SSE41 => unsafe {
+                sse41::compress2_loop_b(
+                    states, inputs, counts, last_block, last_node, blocks, stride,
+                );
+            },
+            Platform::Portable => {
+                let [state0, state1] = states;
+                let [input0, input1] = inputs;
+                let [count0, count1] = counts;
+                let [last_block0, last_block1] = last_block;
+                let [last_node0, last_node1] = last_node;
+                self.compress1_loop_b(
+                    state0,
+                    input0,
+                    count0,
+                    last_block0,
+                    last_node0,
+                    blocks,
+                    stride,
+                );
+                self.compress1_loop_b(
+                    state1,
+                    input1,
+                    count1,
+                    last_block1,
+                    last_node1,
+                    blocks,
+                    stride,
                 );
             }
         }
@@ -258,6 +328,60 @@ impl Implementation {
                     blocks,
                     stride,
                     &buffer_tail.split()[1],
+                );
+            }
+        }
+    }
+
+    pub fn compress4_loop_b(
+        &self,
+        states: [&mut u64x8; 4],
+        inputs: [&[u8]; 4],
+        counts: [&mut u128; 4],
+        last_block: [bool; 4],
+        last_node: [bool; 4],
+        blocks: usize,
+        stride: usize,
+    ) {
+        match self.0 {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::AVX2 => unsafe {
+                avx2::compress4_loop_b(
+                    states, inputs, counts, last_block, last_node, blocks, stride,
+                );
+            },
+            _ => {
+                // Performance note: Would it be faster to add a compress4_loop
+                // interface to the sse41 implementation, which used a single
+                // loop to process the inputs together instead of one after the
+                // other? For BLAKE2bp it probably would be, because you'll get
+                // better cache performance by traversing the input once
+                // instead of twice. But for tree hashes probably not, since
+                // the inputs are usually adjacent or nearly-adjacent rather
+                // than overlapping. Tree hash performance is our priority
+                // here, and also doing things this way is simpler.
+                let [state0, state1, state2, state3] = states;
+                let [input0, input1, input2, input3] = inputs;
+                let [count0, count1, count2, count3] = counts;
+                let [last_block0, last_block1, last_block2, last_block3] = last_block;
+                let [last_node0, last_node1, last_node2, last_node3] = last_node;
+                self.compress2_loop_b(
+                    [state0, state1],
+                    [input0, input1],
+                    [count0, count1],
+                    [last_block0, last_block1],
+                    [last_node0, last_node1],
+                    blocks,
+                    stride,
+                );
+                self.compress2_loop_b(
+                    [state2, state3],
+                    [input2, input3],
+                    [count2, count3],
+                    [last_block2, last_block3],
+                    [last_node2, last_node3],
+                    blocks,
+                    stride,
                 );
             }
         }

@@ -433,6 +433,32 @@ pub unsafe fn compress1_loop(
     }
 }
 
+#[target_feature(enable = "avx2")]
+pub unsafe fn compress1_loop_b(
+    state: &mut u64x8,
+    input: &[u8],
+    count: &mut u128,
+    last_block: bool,
+    last_node: bool,
+    mut blocks: usize,
+    stride: usize,
+) {
+    let mut offset = 0;
+    while blocks > 0 {
+        let mut buffer = [0; BLOCKBYTES];
+        let block = guts::next_msg_block(input, offset, &mut buffer, count);
+        compress_block(
+            state,
+            block,
+            *count,
+            u64_flag(last_block),
+            u64_flag(last_node),
+        );
+        offset += stride * BLOCKBYTES;
+        blocks -= 1;
+    }
+}
+
 #[inline(always)]
 unsafe fn load_256_from_u64(x: u64) -> __m256i {
     _mm256_set1_epi64x(x as i64)
@@ -793,7 +819,7 @@ pub unsafe fn compress4_loop(
 }
 
 #[inline(always)]
-unsafe fn transpose_state_vecs(states: &[u64x8; 4]) -> [__m256i; 8] {
+unsafe fn transpose_state_vecs(states: &[&mut u64x8; 4]) -> [__m256i; 8] {
     // Load all the state words into transposed vectors, where the first vector
     // has the first word of each state, etc. This is the form that 4-way
     // compression operates on, and transposing once at the beginning and once
@@ -815,7 +841,7 @@ unsafe fn transpose_state_vecs(states: &[u64x8; 4]) -> [__m256i; 8] {
 }
 
 #[inline(always)]
-unsafe fn untranspose_state_vecs(h_vecs: &[__m256i; 8], states: &mut [u64x8; 4]) {
+unsafe fn untranspose_state_vecs(h_vecs: &[__m256i; 8], states: [&mut u64x8; 4]) {
     // Un-transpose the updated state vectors back into the caller's arrays.
     // These are aligned stores.
     let low_words = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
@@ -899,17 +925,17 @@ unsafe fn load_flags_vec(flags: [bool; 4]) -> __m256i {
 
 #[target_feature(enable = "avx2")]
 pub unsafe fn compress4_loop_b(
-    states: &mut [u64x8; 4],
-    inputs: &[&[u8]; 4],
-    counts: &mut [&mut u128; 4],
+    states: [&mut u64x8; 4],
+    inputs: [&[u8]; 4],
+    counts: [&mut u128; 4],
     last_block: [bool; 4],
     last_node: [bool; 4],
     mut blocks: usize,
     stride: usize,
 ) {
-    let mut h_vecs = transpose_state_vecs(states);
+    let mut h_vecs = transpose_state_vecs(&states);
     let mut offset = 0;
-    let &mut [ref mut count0, ref mut count1, ref mut count2, ref mut count3] = counts;
+    let [count0, count1, count2, count3] = counts;
     let mut buffer0 = [0; BLOCKBYTES];
     let mut buffer1 = [0; BLOCKBYTES];
     let mut buffer2 = [0; BLOCKBYTES];
@@ -920,8 +946,8 @@ pub unsafe fn compress4_loop_b(
         let block2 = guts::next_msg_block(inputs[2], offset, &mut buffer2, count2);
         let block3 = guts::next_msg_block(inputs[3], offset, &mut buffer3, count3);
         let m_vecs = transpose_msg_vecs(block0, block1, block2, block3);
-        let counts_low = load_counts_low(**count0, **count1, **count2, **count3);
-        let counts_high = load_counts_high(**count0, **count1, **count2, **count3);
+        let counts_low = load_counts_low(*count0, *count1, *count2, *count3);
+        let counts_high = load_counts_high(*count0, *count1, *count2, *count3);
         let (last_block_vec, last_node_vec) = if blocks == 1 {
             (load_flags_vec(last_block), load_flags_vec(last_node))
         } else {

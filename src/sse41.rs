@@ -397,7 +397,7 @@ pub unsafe fn compress2_loop(
 }
 
 #[inline(always)]
-unsafe fn transpose_state_vecs(states: &[u64x8; 2]) -> [__m128i; 8] {
+unsafe fn transpose_state_vecs(states: &[&mut u64x8; 2]) -> [__m128i; 8] {
     // Load all the state words into transposed vectors, where the first vector
     // has the first word of each state, etc. This is the form that 4-way
     // compression operates on, and transposing once at the beginning and once
@@ -423,7 +423,7 @@ unsafe fn transpose_state_vecs(states: &[u64x8; 2]) -> [__m128i; 8] {
 }
 
 #[inline(always)]
-unsafe fn untranspose_state_vecs(h_vecs: &[__m128i; 8], states: &mut [u64x8; 2]) {
+unsafe fn untranspose_state_vecs(h_vecs: &[__m128i; 8], states: [&mut u64x8; 2]) {
     // Un-transpose the updated state vectors back into the caller's arrays.
     // These are aligned stores.
     let words = transpose_vecs(h_vecs[0], h_vecs[1]);
@@ -482,25 +482,25 @@ unsafe fn load_flags_vec(flags: [bool; 2]) -> __m128i {
 
 #[target_feature(enable = "avx2")]
 pub unsafe fn compress2_loop_b(
-    states: &mut [u64x8; 2],
-    inputs: &[&[u8]; 2],
-    counts: &mut [&mut u128; 2],
+    states: [&mut u64x8; 2],
+    inputs: [&[u8]; 2],
+    counts: [&mut u128; 2],
     last_block: [bool; 2],
     last_node: [bool; 2],
     mut blocks: usize,
     stride: usize,
 ) {
-    let mut h_vecs = transpose_state_vecs(states);
+    let mut h_vecs = transpose_state_vecs(&states);
     let mut offset = 0;
-    let &mut [ref mut count0, ref mut count1] = counts;
+    let [count0, count1] = counts;
     let mut buffer0 = [0; BLOCKBYTES];
     let mut buffer1 = [0; BLOCKBYTES];
     while blocks > 0 {
         let block0 = guts::next_msg_block(inputs[0], offset, &mut buffer0, count0);
         let block1 = guts::next_msg_block(inputs[1], offset, &mut buffer1, count1);
         let m_vecs = transpose_msg_vecs(block0, block1);
-        let counts_low = load_counts_low(**count0, **count1);
-        let counts_high = load_counts_high(**count0, **count1);
+        let counts_low = load_counts_low(*count0, *count1);
+        let counts_high = load_counts_high(*count0, *count1);
         let (last_block_vec, last_node_vec) = if blocks == 1 {
             (load_flags_vec(last_block), load_flags_vec(last_node))
         } else {

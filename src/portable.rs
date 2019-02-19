@@ -140,7 +140,7 @@ pub fn compress1_loop(
     }
 }
 
-pub unsafe fn compress1_loop_b(
+pub fn compress1_loop_b(
     state: &mut u64x8,
     input: &[u8],
     count: &mut u128,
