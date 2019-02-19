@@ -157,8 +157,8 @@ pub fn compress1_loop_b(
             state,
             block,
             *count,
-            u64_flag(last_block),
-            u64_flag(last_node),
+            u64_flag(blocks == 1 && last_block),
+            u64_flag(blocks == 1 && last_node),
         );
         offset += stride * BLOCKBYTES;
         blocks -= 1;
