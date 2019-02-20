@@ -3,7 +3,7 @@ use crate::state_words_to_bytes;
 use crate::Hash;
 use crate::Params;
 use crate::BLOCKBYTES;
-use std::cmp;
+use core::cmp;
 
 fn hash1(
     implementation: Implementation,
