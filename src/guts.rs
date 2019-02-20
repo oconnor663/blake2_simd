@@ -489,7 +489,7 @@ pub(crate) fn next_msg_block<'a>(
     count: &mut u128,
 ) -> &'a [u8; BLOCKBYTES] {
     if offset > 0 {
-        debug_assert!(offset < input.len());
+        debug_assert!(offset < input.len(), "{} >= {}", offset, input.len());
     }
     // Account for negative overflow in `input.len() - offset` with a two-part
     // check. The compiler should be able to elide some bounds checks here,
@@ -576,7 +576,14 @@ mod test {
                     for &last_block in &[true, false] {
                         for &last_node in &[true, false] {
                             for stride in 1..=3 {
-                                for &buffer_tail in &[0, 1, BLOCKBYTES - 1] {
+                                for &buffer_tail in &[0, 1, BLOCKBYTES - 1, BLOCKBYTES] {
+                                    if invocations * blocks_per_invoc != 1
+                                        && buffer_tail == BLOCKBYTES
+                                    {
+                                        // Skip the empty block case when there's more than a single
+                                        // block of input. We have asserts preventing that.
+                                        continue;
+                                    }
                                     // eprintln!("\ncase -----");
                                     // dbg!(invocations);
                                     // dbg!(blocks_per_invoc);
@@ -668,9 +675,14 @@ mod test {
                 for block in 0..total_blocks {
                     let input_block = array_ref!(&input, block * stride * BLOCKBYTES, BLOCKBYTES);
                     let is_last_block = block == total_blocks - 1;
+                    let input_slice = if is_last_block {
+                        &input_block[..BLOCKBYTES - buffer_tail]
+                    } else {
+                        &input_block[..]
+                    };
                     portable::compress1_loop_b(
                         &mut reference_state,
-                        input_block,
+                        input_slice,
                         &mut reference_count,
                         is_last_block && last_block,
                         is_last_block && last_node,
@@ -678,10 +690,10 @@ mod test {
                         stride,
                     );
                 }
-                assert_eq!(
-                    count.wrapping_add((total_blocks * BLOCKBYTES) as u128),
-                    reference_count,
-                );
+                let expected_count = count
+                    .wrapping_add((total_blocks * BLOCKBYTES) as u128)
+                    .wrapping_sub(buffer_tail as u128);
+                assert_eq!(expected_count, reference_count);
 
                 // Do the same thing with the implementation
                 // under test, and make sure they're the same.
@@ -689,10 +701,16 @@ mod test {
                 let mut test_count = count;
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
-                    let maybe_tail = if is_last_invoc { buffer_tail } else { 0 };
+                    let offset_input = &input[invoc_num * blocks_per_invoc * stride * BLOCKBYTES..];
+                    let input_slice = if is_last_invoc {
+                        let len = ((blocks_per_invoc - 1) * stride + 1) * BLOCKBYTES - buffer_tail;
+                        &offset_input[..len]
+                    } else {
+                        offset_input
+                    };
                     implementation.compress1_loop_b(
                         &mut test_state,
-                        &input[invoc_num * blocks_per_invoc * stride * BLOCKBYTES..],
+                        &input_slice,
                         &mut test_count,
                         is_last_invoc && last_block,
                         is_last_invoc && last_node,
@@ -815,12 +833,13 @@ mod test {
                 // Use the portable compress1_loop implementation to compute a
                 // reference state for each input separately.
                 let total_blocks = invocations * blocks_per_invoc;
+                let input_len = ((total_blocks - 1) * stride + 1) * BLOCKBYTES - buffer_tail;
                 let mut reference_states = [input_state_words(0), input_state_words(1)];
                 let mut reference_counts = [count; 2];
                 for i in 0..reference_states.len() {
                     portable::compress1_loop_b(
                         &mut reference_states[i],
-                        inputs[i],
+                        &inputs[i][..input_len],
                         &mut reference_counts[i],
                         last_block,
                         last_node,
@@ -828,10 +847,10 @@ mod test {
                         stride,
                     );
                 }
-                assert_eq!(
-                    [count.wrapping_add((total_blocks * BLOCKBYTES) as u128); 2],
-                    reference_counts,
-                );
+                let expected_count = count
+                    .wrapping_add((total_blocks * BLOCKBYTES) as u128)
+                    .wrapping_sub(buffer_tail as u128);
+                assert_eq!([expected_count; 2], reference_counts);
 
                 // Do the same thing in parallel with the
                 // implementation under test under test, and
@@ -842,12 +861,16 @@ mod test {
                 let mut test_count1 = count;
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
+                    let offset = invoc_num * blocks_per_invoc * stride * BLOCKBYTES;
+                    let invoc_inputs = if is_last_invoc {
+                        let len = ((blocks_per_invoc - 1) * stride + 1) * BLOCKBYTES - buffer_tail;
+                        [&inputs[0][offset..][..len], &inputs[1][offset..][..len]]
+                    } else {
+                        [&inputs[0][offset..], &inputs[1][offset..]]
+                    };
                     implementation.compress2_loop_b(
                         [&mut test_state0, &mut test_state1],
-                        [
-                            &inputs[0][invoc_num * blocks_per_invoc * stride * BLOCKBYTES..],
-                            &inputs[1][invoc_num * blocks_per_invoc * stride * BLOCKBYTES..],
-                        ],
+                        invoc_inputs,
                         [&mut test_count0, &mut test_count1],
                         [is_last_invoc && last_block; 2],
                         [is_last_invoc && last_node; 2],
@@ -995,6 +1018,7 @@ mod test {
                 // Use the portable compress1_loop implementation to compute a
                 // reference state for each input separately.
                 let total_blocks = invocations * blocks_per_invoc;
+                let input_len = ((total_blocks - 1) * stride + 1) * BLOCKBYTES - buffer_tail;
                 let mut reference_states = [
                     input_state_words(0),
                     input_state_words(1),
@@ -1005,7 +1029,7 @@ mod test {
                 for i in 0..reference_states.len() {
                     portable::compress1_loop_b(
                         &mut reference_states[i],
-                        inputs[i],
+                        &inputs[i][..input_len],
                         &mut reference_counts[i],
                         last_block,
                         last_node,
@@ -1013,10 +1037,10 @@ mod test {
                         stride,
                     );
                 }
-                assert_eq!(
-                    [count.wrapping_add((total_blocks * BLOCKBYTES) as u128); 4],
-                    reference_counts,
-                );
+                let expected_count = count
+                    .wrapping_add((total_blocks * BLOCKBYTES) as u128)
+                    .wrapping_sub(buffer_tail as u128);
+                assert_eq!([expected_count; 4], reference_counts);
 
                 // Do the same thing in parallel with the
                 // implementation under test under test, and
@@ -1031,6 +1055,23 @@ mod test {
                 let mut test_count3 = count;
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
+                    let offset = invoc_num * blocks_per_invoc * stride * BLOCKBYTES;
+                    let invoc_inputs = if is_last_invoc {
+                        let len = ((blocks_per_invoc - 1) * stride + 1) * BLOCKBYTES - buffer_tail;
+                        [
+                            &inputs[0][offset..][..len],
+                            &inputs[1][offset..][..len],
+                            &inputs[2][offset..][..len],
+                            &inputs[3][offset..][..len],
+                        ]
+                    } else {
+                        [
+                            &inputs[0][offset..],
+                            &inputs[1][offset..],
+                            &inputs[2][offset..],
+                            &inputs[3][offset..],
+                        ]
+                    };
                     implementation.compress4_loop_b(
                         [
                             &mut test_state0,
@@ -1038,12 +1079,7 @@ mod test {
                             &mut test_state2,
                             &mut test_state3,
                         ],
-                        [
-                            &inputs[0][invoc_num * blocks_per_invoc * stride * BLOCKBYTES..],
-                            &inputs[1][invoc_num * blocks_per_invoc * stride * BLOCKBYTES..],
-                            &inputs[2][invoc_num * blocks_per_invoc * stride * BLOCKBYTES..],
-                            &inputs[3][invoc_num * blocks_per_invoc * stride * BLOCKBYTES..],
-                        ],
+                        invoc_inputs,
                         [
                             &mut test_count0,
                             &mut test_count1,
