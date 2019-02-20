@@ -478,6 +478,34 @@ impl core::ops::DerefMut for u64x8 {
     }
 }
 
+#[inline(always)]
+pub(crate) fn whole_blocks(min_len: usize, parallel_stride: bool) -> usize {
+    // Using fixed, power-of-2 values for stride means the compiler doesn't
+    // need to do expensive division or guard against div-by-zero.
+    let stride = if parallel_stride {
+        crate::blake2bp::DEGREE
+    } else {
+        1
+    };
+    // one_extra accounts for the fact that the last block doesn't need to have
+    // stride padding after it.
+    let one_extra = (min_len >= BLOCKBYTES) as usize;
+    min_len.saturating_sub(BLOCKBYTES) / (stride * BLOCKBYTES) + one_extra
+}
+
+#[inline(always)]
+pub(crate) fn partial_block(min_len: usize, parallel_stride: bool) -> bool {
+    // Using fixed, power-of-2 values for stride means the compiler doesn't
+    // need to do expensive division or guard against div-by-zero.
+    let stride = if parallel_stride {
+        crate::blake2bp::DEGREE
+    } else {
+        1
+    };
+    let tail = min_len % (stride * BLOCKBYTES);
+    min_len == 0 || (tail < BLOCKBYTES && tail != 0)
+}
+
 // Take a block-sized array pointer from the given offset in the input. Except
 // if the input is too short to contain a full block after that point, copy any
 // partial bytes from there to a local block buffer, and point to that instead.
@@ -520,6 +548,80 @@ pub(crate) fn u64_flag(flag: bool) -> u64 {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_whole_blocks() {
+        let no_stride_cases = [
+            (0, 0),
+            (1, 0),
+            (BLOCKBYTES - 1, 0),
+            (BLOCKBYTES, 1),
+            (BLOCKBYTES + 1, 1),
+            (2 * BLOCKBYTES - 1, 1),
+            (2 * BLOCKBYTES, 2),
+            (2 * BLOCKBYTES + 1, 2),
+            (3 * BLOCKBYTES - 1, 2),
+            (3 * BLOCKBYTES, 3),
+            (3 * BLOCKBYTES + 1, 3),
+        ];
+        for &(min_len, expected_blocks) in no_stride_cases.iter() {
+            assert_eq!(expected_blocks, whole_blocks(min_len, false));
+        }
+
+        let stride_cases = [
+            (0, 0),
+            (1, 0),
+            (BLOCKBYTES - 1, 0),
+            (BLOCKBYTES, 1),
+            (BLOCKBYTES + 1, 1),
+            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES - 1, 1),
+            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES, 2),
+            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES + 1, 2),
+            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES - 1, 2),
+            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES, 3),
+            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES + 1, 3),
+        ];
+        for &(min_len, expected_blocks) in stride_cases.iter() {
+            assert_eq!(expected_blocks, whole_blocks(min_len, true));
+        }
+    }
+
+    #[test]
+    fn test_partial_block() {
+        let no_stride_cases = [
+            (0, true),
+            (1, true),
+            (BLOCKBYTES - 1, true),
+            (BLOCKBYTES, false),
+            (BLOCKBYTES + 1, true),
+            (2 * BLOCKBYTES - 1, true),
+            (2 * BLOCKBYTES, false),
+            (2 * BLOCKBYTES + 1, true),
+            (3 * BLOCKBYTES - 1, true),
+            (3 * BLOCKBYTES, false),
+            (3 * BLOCKBYTES + 1, true),
+        ];
+        for &(min_len, expected_partial) in no_stride_cases.iter() {
+            assert_eq!(expected_partial, partial_block(min_len, false));
+        }
+
+        let stride_cases = [
+            (0, true),
+            (1, true),
+            (BLOCKBYTES - 1, true),
+            (BLOCKBYTES, false),
+            (BLOCKBYTES + 1, false),
+            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES - 1, true),
+            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES, false),
+            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES + 1, false),
+            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES - 1, true),
+            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES, false),
+            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES + 1, false),
+        ];
+        for &(min_len, expected_partial) in stride_cases.iter() {
+            assert_eq!(expected_partial, partial_block(min_len, true));
+        }
+    }
 
     #[test]
     fn test_detection() {

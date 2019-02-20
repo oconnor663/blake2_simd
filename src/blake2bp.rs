@@ -34,7 +34,7 @@ use core::fmt;
 #[cfg(feature = "std")]
 use std;
 
-const DEGREE: usize = 4;
+pub(crate) const DEGREE: usize = 4;
 
 /// Compute the BLAKE2bp hash of a slice of bytes, using default parameters.
 ///
