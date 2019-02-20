@@ -102,6 +102,79 @@ fn bench_openssl_sha512_one_mb(b: &mut Bencher) {
 }
 
 #[bench]
+fn bench_compress4_loop_avx2_one_block_b(b: &mut Bencher) {
+    if guts::Implementation::avx2_if_supported().is_none() {
+        return;
+    }
+    let input0 = make_input(b, BLOCKBYTES);
+    let input1 = make_input(b, BLOCKBYTES);
+    let input2 = make_input(b, BLOCKBYTES);
+    let input3 = make_input(b, BLOCKBYTES);
+    let last_block = [true; 4];
+    let last_node = [true; 4];
+    b.iter(|| unsafe {
+        let mut state0 = guts::u64x8([1; 8]);
+        let mut state1 = guts::u64x8([2; 8]);
+        let mut state2 = guts::u64x8([3; 8]);
+        let mut state3 = guts::u64x8([4; 8]);
+        let mut count0 = 0;
+        let mut count1 = 0;
+        let mut count2 = 0;
+        let mut count3 = 0;
+        benchmarks::compress4_loop_avx2_b(
+            [&mut state0, &mut state1, &mut state2, &mut state3],
+            [&input0, &input1, &input2, &input3],
+            [&mut count0, &mut count1, &mut count2, &mut count3],
+            last_block,
+            last_node,
+            1,
+            1,
+        );
+        test::black_box(&mut state0);
+        test::black_box(&mut state1);
+        test::black_box(&mut state2);
+        test::black_box(&mut state3);
+    });
+}
+
+#[bench]
+fn bench_compress4_loop_avx2_one_mb_b(b: &mut Bencher) {
+    if guts::Implementation::avx2_if_supported().is_none() {
+        return;
+    }
+    let len = (1 << 20) / 4;
+    let input0 = make_input(b, len);
+    let input1 = make_input(b, len);
+    let input2 = make_input(b, len);
+    let input3 = make_input(b, len);
+    let last_block = [true; 4];
+    let last_node = [true; 4];
+    b.iter(|| unsafe {
+        let mut state0 = guts::u64x8([1; 8]);
+        let mut state1 = guts::u64x8([2; 8]);
+        let mut state2 = guts::u64x8([3; 8]);
+        let mut state3 = guts::u64x8([4; 8]);
+        let mut count0 = 0;
+        let mut count1 = 0;
+        let mut count2 = 0;
+        let mut count3 = 0;
+        benchmarks::compress4_loop_avx2_b(
+            [&mut state0, &mut state1, &mut state2, &mut state3],
+            [&input0, &input1, &input2, &input3],
+            [&mut count0, &mut count1, &mut count2, &mut count3],
+            last_block,
+            last_node,
+            len / BLOCKBYTES,
+            1,
+        );
+        test::black_box(&mut state0);
+        test::black_box(&mut state1);
+        test::black_box(&mut state2);
+        test::black_box(&mut state3);
+    });
+}
+
+#[bench]
 fn bench_compress4_loop_avx2_one_block(b: &mut Bencher) {
     if guts::Implementation::avx2_if_supported().is_none() {
         return;
@@ -179,46 +252,6 @@ fn bench_compress4_loop_avx2_one_mb(b: &mut Bencher) {
             &last_node,
             len / BLOCKBYTES,
             1,
-            &buffer_tail,
-        );
-        test::black_box(&mut state0);
-        test::black_box(&mut state1);
-        test::black_box(&mut state2);
-        test::black_box(&mut state3);
-    });
-}
-
-#[bench]
-fn bench_compress4_loop_avx2_one_mb_striped(b: &mut Bencher) {
-    if guts::Implementation::avx2_if_supported().is_none() {
-        return;
-    }
-    let input = make_input(b, MB);
-    let count_low = guts::u64x4([0; 4]);
-    let count_high = guts::u64x4([0; 4]);
-    let last_block = guts::u64x4([0; 4]);
-    let last_node = guts::u64x4([0; 4]);
-    let buffer_tail = guts::u64x4([0; 4]);
-    b.iter(|| unsafe {
-        let mut state0 = guts::u64x8([1; 8]);
-        let mut state1 = guts::u64x8([2; 8]);
-        let mut state2 = guts::u64x8([3; 8]);
-        let mut state3 = guts::u64x8([4; 8]);
-        benchmarks::compress4_loop_avx2(
-            &mut state0,
-            &mut state1,
-            &mut state2,
-            &mut state3,
-            &input[0 * BLOCKBYTES..],
-            &input[1 * BLOCKBYTES..],
-            &input[2 * BLOCKBYTES..],
-            &input[3 * BLOCKBYTES..],
-            &count_low,
-            &count_high,
-            &last_block,
-            &last_node,
-            MB / (BLOCKBYTES * 4),
-            4,
             &buffer_tail,
         );
         test::black_box(&mut state0);
