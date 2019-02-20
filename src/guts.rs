@@ -500,7 +500,8 @@ pub(crate) fn next_msg_block<'a>(
             *count = count.wrapping_add(BLOCKBYTES as u128);
             return array_ref!(input, offset, BLOCKBYTES);
         }
-        *buffer = [0; BLOCKBYTES];
+        // No need to zero the buffer first here. It's assumed to be zeroed by
+        // the caller, and only used once.
         buffer[..remaining].copy_from_slice(&input[offset..]);
         *count += remaining as u128;
     }
