@@ -487,21 +487,36 @@ pub unsafe fn compress2_loop_b(
     counts: [&mut u128; 2],
     last_block: [bool; 2],
     last_node: [bool; 2],
-    mut blocks: usize,
-    stride: usize,
-) {
+    parallel_stride: bool,
+) -> usize {
     let mut h_vecs = transpose_state_vecs(&states);
     let mut offset = 0;
     let [count0, count1] = counts;
+    let min_len = inputs.iter().map(|i| i.len()).min().unwrap();
+    let (iterations, last_block_partial) = guts::loop_iterations(min_len, parallel_stride);
     let mut buffer0 = [0; BLOCKBYTES];
     let mut buffer1 = [0; BLOCKBYTES];
-    while blocks > 0 {
-        let block0 = guts::next_msg_block(inputs[0], offset, &mut buffer0, count0);
-        let block1 = guts::next_msg_block(inputs[1], offset, &mut buffer1, count1);
+    for i in 0..iterations {
+        // Note that iterations is never zero, even for the empty input, so
+        // this subtraction can't neg-overflow.
+        let final_block = i == iterations - 1;
+        let block0;
+        let block1;
+        if final_block && last_block_partial {
+            block0 = guts::get_partial_block(inputs[0], offset, &mut buffer0, count0);
+            block1 = guts::get_partial_block(inputs[1], offset, &mut buffer1, count1);
+        } else {
+            // These unsafe pointer casts avoid paying for bounds checks. The
+            // loop_iterations function guarantees that these loads are in-bounds.
+            block0 = &*(inputs[0].as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
+            block1 = &*(inputs[1].as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
+            *count0 = count0.wrapping_add(BLOCKBYTES as u128);
+            *count1 = count1.wrapping_add(BLOCKBYTES as u128);
+        }
         let m_vecs = transpose_msg_vecs(block0, block1);
         let counts_low = load_counts_low(*count0, *count1);
         let counts_high = load_counts_high(*count0, *count1);
-        let (last_block_vec, last_node_vec) = if blocks == 1 {
+        let (last_block_vec, last_node_vec) = if final_block {
             (load_flags_vec(last_block), load_flags_vec(last_node))
         } else {
             (_mm_set1_epi64x(0), _mm_set1_epi64x(0))
@@ -516,9 +531,9 @@ pub unsafe fn compress2_loop_b(
             last_node_vec,
         );
 
-        offset += BLOCKBYTES * stride;
-        blocks -= 1;
+        offset = offset.saturating_add(guts::padded_blockbytes(parallel_stride));
     }
 
     untranspose_state_vecs(&h_vecs, states);
+    offset
 }

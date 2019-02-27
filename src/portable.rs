@@ -146,21 +146,27 @@ pub fn compress1_loop_b(
     count: &mut u128,
     last_block: bool,
     last_node: bool,
-    mut blocks: usize,
-    stride: usize,
+    parallel_stride: bool,
 ) {
+    let (iterations, last_block_partial) = guts::loop_iterations(input.len(), parallel_stride);
     let mut offset = 0;
-    while blocks > 0 {
-        let mut buffer = [0; BLOCKBYTES];
-        let block = guts::next_msg_block(input, offset, &mut buffer, count);
+    let mut buffer = [0; BLOCKBYTES];
+    for i in 0..iterations {
+        let final_block = i == iterations - 1;
+        let block;
+        if final_block && last_block_partial {
+            block = guts::get_partial_block(input, offset, &mut buffer, count);
+        } else {
+            block = array_ref!(input, offset, BLOCKBYTES);
+            *count = count.wrapping_add(BLOCKBYTES as u128);
+        }
         compress_block(
             state,
             block,
             *count,
-            u64_flag(blocks == 1 && last_block),
-            u64_flag(blocks == 1 && last_node),
+            u64_flag(final_block && last_block),
+            u64_flag(final_block && last_node),
         );
-        offset += stride * BLOCKBYTES;
-        blocks -= 1;
+        offset += guts::padded_blockbytes(parallel_stride);
     }
 }

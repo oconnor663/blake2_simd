@@ -135,19 +135,23 @@ impl Implementation {
         count: &mut u128,
         last_block: bool,
         last_node: bool,
-        blocks: usize,
-        stride: usize,
+        parallel_stride: bool,
     ) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => unsafe {
-                avx2::compress1_loop_b(state, input, count, last_block, last_node, blocks, stride);
+                avx2::compress1_loop_b(state, input, count, last_block, last_node, parallel_stride);
             },
             // Note that there's an SSE version of compress1 in the official C
             // implementation, but I haven't ported it yet.
             _ => {
                 portable::compress1_loop_b(
-                    state, input, count, last_block, last_node, blocks, stride,
+                    state,
+                    input,
+                    count,
+                    last_block,
+                    last_node,
+                    parallel_stride,
                 );
             }
         }
@@ -216,41 +220,21 @@ impl Implementation {
         counts: [&mut u128; 2],
         last_block: [bool; 2],
         last_node: [bool; 2],
-        blocks: usize,
-        stride: usize,
-    ) {
+        parallel_stride: bool,
+    ) -> usize {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 | Platform::SSE41 => unsafe {
                 sse41::compress2_loop_b(
-                    states, inputs, counts, last_block, last_node, blocks, stride,
-                );
+                    states,
+                    inputs,
+                    counts,
+                    last_block,
+                    last_node,
+                    parallel_stride,
+                )
             },
-            Platform::Portable => {
-                let [state0, state1] = states;
-                let [input0, input1] = inputs;
-                let [count0, count1] = counts;
-                let [last_block0, last_block1] = last_block;
-                let [last_node0, last_node1] = last_node;
-                self.compress1_loop_b(
-                    state0,
-                    input0,
-                    count0,
-                    last_block0,
-                    last_node0,
-                    blocks,
-                    stride,
-                );
-                self.compress1_loop_b(
-                    state1,
-                    input1,
-                    count1,
-                    last_block1,
-                    last_node1,
-                    blocks,
-                    stride,
-                );
-            }
+            _ => panic!("unsupported"),
         }
     }
 
@@ -340,50 +324,21 @@ impl Implementation {
         counts: [&mut u128; 4],
         last_block: [bool; 4],
         last_node: [bool; 4],
-        blocks: usize,
-        stride: usize,
-    ) {
+        parallel_stride: bool,
+    ) -> usize {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => unsafe {
                 avx2::compress4_loop_b(
-                    states, inputs, counts, last_block, last_node, blocks, stride,
-                );
+                    states,
+                    inputs,
+                    counts,
+                    last_block,
+                    last_node,
+                    parallel_stride,
+                )
             },
-            _ => {
-                // Performance note: Would it be faster to add a compress4_loop
-                // interface to the sse41 implementation, which used a single
-                // loop to process the inputs together instead of one after the
-                // other? For BLAKE2bp it probably would be, because you'll get
-                // better cache performance by traversing the input once
-                // instead of twice. But for tree hashes probably not, since
-                // the inputs are usually adjacent or nearly-adjacent rather
-                // than overlapping. Tree hash performance is our priority
-                // here, and also doing things this way is simpler.
-                let [state0, state1, state2, state3] = states;
-                let [input0, input1, input2, input3] = inputs;
-                let [count0, count1, count2, count3] = counts;
-                let [last_block0, last_block1, last_block2, last_block3] = last_block;
-                let [last_node0, last_node1, last_node2, last_node3] = last_node;
-                self.compress2_loop_b(
-                    [state0, state1],
-                    [input0, input1],
-                    [count0, count1],
-                    [last_block0, last_block1],
-                    [last_node0, last_node1],
-                    blocks,
-                    stride,
-                );
-                self.compress2_loop_b(
-                    [state2, state3],
-                    [input2, input3],
-                    [count2, count3],
-                    [last_block2, last_block3],
-                    [last_node2, last_node3],
-                    blocks,
-                    stride,
-                );
-            }
+            _ => panic!("unsupported"),
         }
     }
 }
@@ -479,60 +434,41 @@ impl core::ops::DerefMut for u64x8 {
 }
 
 #[inline(always)]
-pub(crate) fn whole_blocks(min_len: usize, parallel_stride: bool) -> usize {
+pub(crate) fn padded_blockbytes(parallel_stride: bool) -> usize {
+    if parallel_stride {
+        crate::blake2bp::DEGREE * BLOCKBYTES
+    } else {
+        BLOCKBYTES
+    }
+}
+
+// Returns the total number of compressions that need to be done, as well as a
+// bool indicating whether the final compression is a partial block (in which
+// case it needs to be copied to a buffer).
+#[inline(always)]
+pub(crate) fn loop_iterations(min_len: usize, parallel_stride: bool) -> (usize, bool) {
     // Using fixed, power-of-2 values for stride means the compiler doesn't
     // need to do expensive division or guard against div-by-zero.
-    let stride = if parallel_stride {
-        crate::blake2bp::DEGREE
-    } else {
-        1
-    };
-    // one_extra accounts for the fact that the last block doesn't need to have
-    // stride padding after it.
-    let one_extra = (min_len >= BLOCKBYTES) as usize;
-    min_len.saturating_sub(BLOCKBYTES) / (stride * BLOCKBYTES) + one_extra
+    let num = (min_len.saturating_sub(1) / padded_blockbytes(parallel_stride)) + 1;
+    let remainder = min_len % padded_blockbytes(parallel_stride);
+    let flag = (min_len == 0) || (0 < remainder && remainder < BLOCKBYTES);
+    (num, flag)
 }
 
 #[inline(always)]
-pub(crate) fn partial_block(min_len: usize, parallel_stride: bool) -> bool {
-    // Using fixed, power-of-2 values for stride means the compiler doesn't
-    // need to do expensive division or guard against div-by-zero.
-    let stride = if parallel_stride {
-        crate::blake2bp::DEGREE
-    } else {
-        1
-    };
-    let tail = min_len % (stride * BLOCKBYTES);
-    min_len == 0 || (tail < BLOCKBYTES && tail != 0)
-}
-
-// Take a block-sized array pointer from the given offset in the input. Except
-// if the input is too short to contain a full block after that point, copy any
-// partial bytes from there to a local block buffer, and point to that instead.
-#[inline(always)]
-pub(crate) fn next_msg_block<'a>(
+pub(crate) fn get_partial_block<'a>(
     input: &'a [u8],
     offset: usize,
     buffer: &'a mut [u8; BLOCKBYTES],
     count: &mut u128,
 ) -> &'a [u8; BLOCKBYTES] {
-    if offset > 0 {
-        debug_assert!(offset < input.len(), "{} >= {}", offset, input.len());
-    }
-    // Account for negative overflow in `input.len() - offset` with a two-part
-    // check. The compiler should be able to elide some bounds checks here,
-    // though a perfect result might depend on https://github.com/droundy/arrayref/pull/16.
-    if input.len() >= offset {
-        let remaining = input.len() - offset;
-        if remaining >= BLOCKBYTES {
-            *count = count.wrapping_add(BLOCKBYTES as u128);
-            return array_ref!(input, offset, BLOCKBYTES);
-        }
-        // No need to zero the buffer first here. It's assumed to be zeroed by
-        // the caller, and only used once.
-        buffer[..remaining].copy_from_slice(&input[offset..]);
-        *count += remaining as u128;
-    }
+    // Copy the partial block to a full-sized buffer. Note that the buffer is
+    // expected to be zeroed in advance.
+    debug_assert!(offset == 0 || offset < input.len());
+    debug_assert!(input.len() - offset < BLOCKBYTES);
+    let len = input.len().saturating_sub(offset);
+    *count += len as u128;
+    buffer[..len].copy_from_slice(&input[offset..][..len]);
     buffer
 }
 
@@ -550,76 +486,45 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_whole_blocks() {
+    fn test_loop_iterations() {
         let no_stride_cases = [
-            (0, 0),
-            (1, 0),
-            (BLOCKBYTES - 1, 0),
-            (BLOCKBYTES, 1),
-            (BLOCKBYTES + 1, 1),
-            (2 * BLOCKBYTES - 1, 1),
-            (2 * BLOCKBYTES, 2),
-            (2 * BLOCKBYTES + 1, 2),
-            (3 * BLOCKBYTES - 1, 2),
-            (3 * BLOCKBYTES, 3),
-            (3 * BLOCKBYTES + 1, 3),
+            (0, (1, true)),
+            (1, (1, true)),
+            (BLOCKBYTES - 1, (1, true)),
+            (BLOCKBYTES, (1, false)),
+            (BLOCKBYTES + 1, (2, true)),
+            (2 * BLOCKBYTES - 1, (2, true)),
+            (2 * BLOCKBYTES, (2, false)),
+            (2 * BLOCKBYTES + 1, (3, true)),
+            (3 * BLOCKBYTES - 1, (3, true)),
+            (3 * BLOCKBYTES, (3, false)),
+            (3 * BLOCKBYTES + 1, (4, true)),
         ];
-        for &(min_len, expected_blocks) in no_stride_cases.iter() {
-            assert_eq!(expected_blocks, whole_blocks(min_len, false));
+        for &(min_len, result) in no_stride_cases.iter() {
+            assert_eq!(result, loop_iterations(min_len, false));
         }
 
         let stride_cases = [
-            (0, 0),
-            (1, 0),
-            (BLOCKBYTES - 1, 0),
-            (BLOCKBYTES, 1),
-            (BLOCKBYTES + 1, 1),
-            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES - 1, 1),
-            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES, 2),
-            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES + 1, 2),
-            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES - 1, 2),
-            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES, 3),
-            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES + 1, 3),
+            (0, (1, true)),
+            (1, (1, true)),
+            (BLOCKBYTES - 1, (1, true)),
+            (BLOCKBYTES, (1, false)),
+            (BLOCKBYTES + 1, (1, false)),
+            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES - 1, (2, true)),
+            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES, (2, false)),
+            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES + 1, (2, false)),
+            (
+                (2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES - 1,
+                (3, true),
+            ),
+            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES, (3, false)),
+            (
+                (2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES + 1,
+                (3, false),
+            ),
         ];
-        for &(min_len, expected_blocks) in stride_cases.iter() {
-            assert_eq!(expected_blocks, whole_blocks(min_len, true));
-        }
-    }
-
-    #[test]
-    fn test_partial_block() {
-        let no_stride_cases = [
-            (0, true),
-            (1, true),
-            (BLOCKBYTES - 1, true),
-            (BLOCKBYTES, false),
-            (BLOCKBYTES + 1, true),
-            (2 * BLOCKBYTES - 1, true),
-            (2 * BLOCKBYTES, false),
-            (2 * BLOCKBYTES + 1, true),
-            (3 * BLOCKBYTES - 1, true),
-            (3 * BLOCKBYTES, false),
-            (3 * BLOCKBYTES + 1, true),
-        ];
-        for &(min_len, expected_partial) in no_stride_cases.iter() {
-            assert_eq!(expected_partial, partial_block(min_len, false));
-        }
-
-        let stride_cases = [
-            (0, true),
-            (1, true),
-            (BLOCKBYTES - 1, true),
-            (BLOCKBYTES, false),
-            (BLOCKBYTES + 1, false),
-            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES - 1, true),
-            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES, false),
-            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES + 1, false),
-            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES - 1, true),
-            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES, false),
-            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES + 1, false),
-        ];
-        for &(min_len, expected_partial) in stride_cases.iter() {
-            assert_eq!(expected_partial, partial_block(min_len, true));
+        for &(min_len, result) in stride_cases.iter() {
+            assert_eq!(result, loop_iterations(min_len, true));
         }
     }
 
@@ -713,6 +618,58 @@ mod test {
         }
     }
 
+    fn exercise_cases_b<F>(mut f: F)
+    where
+        F: FnMut(usize, usize, u128, bool, bool, bool, usize),
+    {
+        // Chose counts to hit the relevant overflow cases.
+        let counts = &[
+            0u128,
+            (1u128 << 64) - BLOCKBYTES as u128,
+            0u128.wrapping_sub(BLOCKBYTES as u128),
+        ];
+        for invocations in 1..=2 {
+            for blocks_per_invoc in 1..=3 {
+                for &count in counts {
+                    for &last_block in &[true, false] {
+                        for &last_node in &[true, false] {
+                            for &stride in &[true, false] {
+                                for &buffer_tail in &[0, 1, BLOCKBYTES - 1, BLOCKBYTES] {
+                                    // eprintln!("\ncase -----");
+                                    // dbg!(invocations);
+                                    // dbg!(blocks_per_invoc);
+                                    // dbg!(count);
+                                    // dbg!(last_block);
+                                    // dbg!(last_node);
+                                    // dbg!(stride);
+                                    // dbg!(buffer_tail);
+                                    // Skip the empty block case when there's
+                                    // more than a single block of input. It's
+                                    // not really valid, and our test reference
+                                    // doesn't do the right thing either.
+                                    if invocations * blocks_per_invoc != 1
+                                        && buffer_tail == BLOCKBYTES
+                                    {
+                                        continue;
+                                    }
+                                    f(
+                                        invocations,
+                                        blocks_per_invoc,
+                                        count,
+                                        last_block,
+                                        last_node,
+                                        stride,
+                                        buffer_tail,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // For various loop lengths and finalization parameters, make sure that the
     // implementation gives the same answer as the portable implementation does
     // when invoked one block at a time. (So even the portable implementation
@@ -767,7 +724,7 @@ mod test {
     fn exercise_compress1_loop_b(implementation: Implementation) {
         let mut input = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input);
-        exercise_cases(
+        exercise_cases_b(
             |invocations, blocks_per_invoc, count, last_block, last_node, stride, buffer_tail| {
                 // Use the portable implementation, one block at a time, to
                 // compute the final state that we expect. Manually update the
@@ -776,7 +733,8 @@ mod test {
                 let mut reference_count = count;
                 let total_blocks = invocations * blocks_per_invoc;
                 for block in 0..total_blocks {
-                    let input_block = array_ref!(&input, block * stride * BLOCKBYTES, BLOCKBYTES);
+                    let input_block =
+                        array_ref!(&input, block * padded_blockbytes(stride), BLOCKBYTES);
                     let is_last_block = block == total_blocks - 1;
                     let input_slice = if is_last_block {
                         &input_block[..BLOCKBYTES - buffer_tail]
@@ -789,7 +747,6 @@ mod test {
                         &mut reference_count,
                         is_last_block && last_block,
                         is_last_block && last_node,
-                        1, // blocks, one at a time
                         stride,
                     );
                 }
@@ -798,26 +755,25 @@ mod test {
                     .wrapping_sub(buffer_tail as u128);
                 assert_eq!(expected_count, reference_count);
 
-                // Do the same thing with the implementation
-                // under test, and make sure they're the same.
+                // Do the same thing in batches with the implementation under
+                // test, and make sure they're the same.
                 let mut test_state = input_state_words(0);
                 let mut test_count = count;
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
-                    let offset_input = &input[invoc_num * blocks_per_invoc * stride * BLOCKBYTES..];
-                    let input_slice = if is_last_invoc {
-                        let len = ((blocks_per_invoc - 1) * stride + 1) * BLOCKBYTES - buffer_tail;
-                        &offset_input[..len]
-                    } else {
-                        offset_input
-                    };
+                    let offset = invoc_num * blocks_per_invoc * padded_blockbytes(stride);
+                    let mut len = blocks_per_invoc * padded_blockbytes(stride);
+                    if is_last_invoc {
+                        // Buffer tail cuts into the input block itself, not into its stride padding.
+                        len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
+                    }
+                    let input_slice = &input[offset..][..len];
                     implementation.compress1_loop_b(
                         &mut test_state,
                         &input_slice,
                         &mut test_count,
                         is_last_invoc && last_block,
                         is_last_invoc && last_node,
-                        blocks_per_invoc,
                         stride,
                     );
                 }
@@ -927,26 +883,39 @@ mod test {
             },
         );
     }
+    fn rounded_up(len: usize, stride: bool) -> usize {
+        // An empty input still counts as a full padded block of offset.
+        let padded = padded_blockbytes(stride);
+        if len == 0 {
+            padded
+        } else if len % padded != 0 {
+            len - (len % padded) + padded
+        } else {
+            len
+        }
+    }
     fn exercise_compress2_loop_b(implementation: Implementation) {
         let mut input_buffer = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input_buffer);
         let inputs = [&input_buffer[0..], &input_buffer[1..]];
-        exercise_cases(
+        exercise_cases_b(
             |invocations, blocks_per_invoc, count, last_block, last_node, stride, buffer_tail| {
                 // Use the portable compress1_loop implementation to compute a
                 // reference state for each input separately.
                 let total_blocks = invocations * blocks_per_invoc;
-                let input_len = ((total_blocks - 1) * stride + 1) * BLOCKBYTES - buffer_tail;
+                let mut len = total_blocks * padded_blockbytes(stride);
+                if buffer_tail != 0 {
+                    len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
+                }
                 let mut reference_states = [input_state_words(0), input_state_words(1)];
                 let mut reference_counts = [count; 2];
                 for i in 0..reference_states.len() {
                     portable::compress1_loop_b(
                         &mut reference_states[i],
-                        &inputs[i][..input_len],
+                        &inputs[i][..len],
                         &mut reference_counts[i],
                         last_block,
                         last_node,
-                        total_blocks,
                         stride,
                     );
                 }
@@ -955,31 +924,28 @@ mod test {
                     .wrapping_sub(buffer_tail as u128);
                 assert_eq!([expected_count; 2], reference_counts);
 
-                // Do the same thing in parallel with the
-                // implementation under test under test, and
-                // make sure the result is the same.
+                // Do the same thing with the implementation under test under
+                // test, and make sure the result is the same.
                 let mut test_state0 = input_state_words(0);
                 let mut test_state1 = input_state_words(1);
                 let mut test_count0 = count;
                 let mut test_count1 = count;
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
-                    let offset = invoc_num * blocks_per_invoc * stride * BLOCKBYTES;
-                    let invoc_inputs = if is_last_invoc {
-                        let len = ((blocks_per_invoc - 1) * stride + 1) * BLOCKBYTES - buffer_tail;
-                        [&inputs[0][offset..][..len], &inputs[1][offset..][..len]]
-                    } else {
-                        [&inputs[0][offset..], &inputs[1][offset..]]
-                    };
-                    implementation.compress2_loop_b(
+                    let offset = invoc_num * blocks_per_invoc * padded_blockbytes(stride);
+                    let mut len = blocks_per_invoc * padded_blockbytes(stride);
+                    if is_last_invoc && buffer_tail != 0 {
+                        len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
+                    }
+                    let ret = implementation.compress2_loop_b(
                         [&mut test_state0, &mut test_state1],
-                        invoc_inputs,
+                        [&inputs[0][offset..][..len], &inputs[1][offset..][..len]],
                         [&mut test_count0, &mut test_count1],
                         [is_last_invoc && last_block; 2],
                         [is_last_invoc && last_node; 2],
-                        blocks_per_invoc,
                         stride,
                     );
+                    assert_eq!(rounded_up(len, stride), ret);
                 }
                 assert_eq!(reference_counts[0], test_count0);
                 assert_eq!(reference_counts[1], test_count1);
@@ -1009,11 +975,6 @@ mod test {
         if let Some(imp) = Implementation::avx2_if_supported() {
             exercise_compress2_loop(imp);
         }
-    }
-
-    #[test]
-    fn test_compress2_loop_portable_b() {
-        exercise_compress2_loop_b(Implementation::portable());
     }
 
     #[test]
@@ -1116,12 +1077,15 @@ mod test {
             &input_buffer[2..],
             &input_buffer[3..],
         ];
-        exercise_cases(
+        exercise_cases_b(
             |invocations, blocks_per_invoc, count, last_block, last_node, stride, buffer_tail| {
                 // Use the portable compress1_loop implementation to compute a
                 // reference state for each input separately.
                 let total_blocks = invocations * blocks_per_invoc;
-                let input_len = ((total_blocks - 1) * stride + 1) * BLOCKBYTES - buffer_tail;
+                let mut len = total_blocks * padded_blockbytes(stride);
+                if buffer_tail != 0 {
+                    len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
+                }
                 let mut reference_states = [
                     input_state_words(0),
                     input_state_words(1),
@@ -1132,11 +1096,10 @@ mod test {
                 for i in 0..reference_states.len() {
                     portable::compress1_loop_b(
                         &mut reference_states[i],
-                        &inputs[i][..input_len],
+                        &inputs[i][..len],
                         &mut reference_counts[i],
                         last_block,
                         last_node,
-                        total_blocks,
                         stride,
                     );
                 }
@@ -1145,9 +1108,8 @@ mod test {
                     .wrapping_sub(buffer_tail as u128);
                 assert_eq!([expected_count; 4], reference_counts);
 
-                // Do the same thing in parallel with the
-                // implementation under test under test, and
-                // make sure the result is the same.
+                // Do the same thing with the implementation under test under
+                // test, and make sure the result is the same.
                 let mut test_state0 = input_state_words(0);
                 let mut test_state1 = input_state_words(1);
                 let mut test_state2 = input_state_words(2);
@@ -1158,31 +1120,24 @@ mod test {
                 let mut test_count3 = count;
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
-                    let offset = invoc_num * blocks_per_invoc * stride * BLOCKBYTES;
-                    let invoc_inputs = if is_last_invoc {
-                        let len = ((blocks_per_invoc - 1) * stride + 1) * BLOCKBYTES - buffer_tail;
-                        [
-                            &inputs[0][offset..][..len],
-                            &inputs[1][offset..][..len],
-                            &inputs[2][offset..][..len],
-                            &inputs[3][offset..][..len],
-                        ]
-                    } else {
-                        [
-                            &inputs[0][offset..],
-                            &inputs[1][offset..],
-                            &inputs[2][offset..],
-                            &inputs[3][offset..],
-                        ]
-                    };
-                    implementation.compress4_loop_b(
+                    let offset = invoc_num * blocks_per_invoc * padded_blockbytes(stride);
+                    let mut len = blocks_per_invoc * padded_blockbytes(stride);
+                    if is_last_invoc && buffer_tail != 0 {
+                        len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
+                    }
+                    let ret = implementation.compress4_loop_b(
                         [
                             &mut test_state0,
                             &mut test_state1,
                             &mut test_state2,
                             &mut test_state3,
                         ],
-                        invoc_inputs,
+                        [
+                            &inputs[0][offset..][..len],
+                            &inputs[1][offset..][..len],
+                            &inputs[2][offset..][..len],
+                            &inputs[3][offset..][..len],
+                        ],
                         [
                             &mut test_count0,
                             &mut test_count1,
@@ -1191,9 +1146,9 @@ mod test {
                         ],
                         [is_last_invoc && last_block; 4],
                         [is_last_invoc && last_node; 4],
-                        blocks_per_invoc,
                         stride,
                     );
+                    assert_eq!(rounded_up(len, stride), ret);
                 }
                 assert_eq!(reference_counts[0], test_count0);
                 assert_eq!(reference_counts[1], test_count1);
@@ -1226,20 +1181,6 @@ mod test {
     fn test_compress4_loop_avx2() {
         if let Some(imp) = Implementation::avx2_if_supported() {
             exercise_compress4_loop(imp);
-        }
-    }
-
-    #[test]
-    fn test_compress4_loop_portable_b() {
-        exercise_compress4_loop_b(Implementation::portable());
-    }
-
-    #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn test_compress4_loop_sse41_b() {
-        // Currently this just falls back to portable, but we test it anyway.
-        if let Some(imp) = Implementation::sse41_if_supported() {
-            exercise_compress4_loop_b(imp);
         }
     }
 
