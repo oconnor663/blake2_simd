@@ -442,34 +442,31 @@ pub(crate) fn padded_blockbytes(parallel_stride: bool) -> usize {
     }
 }
 
-// Returns the total number of compressions that need to be done, as well as a
-// bool indicating whether the final compression is a partial block (in which
-// case it needs to be copied to a buffer).
+// Note that even an empty input has a final block at offset 0, which will wind
+// up being all zeros.
 #[inline(always)]
-pub(crate) fn loop_iterations(min_len: usize, parallel_stride: bool) -> (usize, bool) {
-    // Using fixed, power-of-2 values for stride means the compiler doesn't
-    // need to do expensive division or guard against div-by-zero.
-    let num = (min_len.saturating_sub(1) / padded_blockbytes(parallel_stride)) + 1;
-    let remainder = min_len % padded_blockbytes(parallel_stride);
-    let flag = (min_len == 0) || (0 < remainder && remainder < BLOCKBYTES);
-    (num, flag)
+pub(crate) fn final_block_offset(min_len: usize, parallel_stride: bool) -> usize {
+    let final_byte = min_len.saturating_sub(1);
+    final_byte - (final_byte % padded_blockbytes(parallel_stride))
 }
 
+// Returns (block, len).
 #[inline(always)]
-pub(crate) fn get_partial_block<'a>(
+pub(crate) fn get_block<'a>(
     input: &'a [u8],
     offset: usize,
     buffer: &'a mut [u8; BLOCKBYTES],
-    count: &mut u128,
-) -> &'a [u8; BLOCKBYTES] {
-    // Copy the partial block to a full-sized buffer. Note that the buffer is
-    // expected to be zeroed in advance.
+) -> (&'a [u8; BLOCKBYTES], usize) {
+    debug_assert!(BLOCKBYTES < u8::max_value() as usize);
     debug_assert!(offset == 0 || offset < input.len());
-    debug_assert!(input.len() - offset < BLOCKBYTES);
-    let len = input.len().saturating_sub(offset);
-    *count += len as u128;
-    buffer[..len].copy_from_slice(&input[offset..][..len]);
-    buffer
+    let start = cmp::min(offset, input.len());
+    let len = cmp::min(BLOCKBYTES, input.len() - start);
+    if input.len() - start >= BLOCKBYTES {
+        (array_ref!(input, start, BLOCKBYTES), BLOCKBYTES)
+    } else {
+        buffer[..len].copy_from_slice(&input[start..][..len]);
+        (buffer, len)
+    }
 }
 
 #[inline(always)]
@@ -484,49 +481,6 @@ pub(crate) fn u64_flag(flag: bool) -> u64 {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn test_loop_iterations() {
-        let no_stride_cases = [
-            (0, (1, true)),
-            (1, (1, true)),
-            (BLOCKBYTES - 1, (1, true)),
-            (BLOCKBYTES, (1, false)),
-            (BLOCKBYTES + 1, (2, true)),
-            (2 * BLOCKBYTES - 1, (2, true)),
-            (2 * BLOCKBYTES, (2, false)),
-            (2 * BLOCKBYTES + 1, (3, true)),
-            (3 * BLOCKBYTES - 1, (3, true)),
-            (3 * BLOCKBYTES, (3, false)),
-            (3 * BLOCKBYTES + 1, (4, true)),
-        ];
-        for &(min_len, result) in no_stride_cases.iter() {
-            assert_eq!(result, loop_iterations(min_len, false));
-        }
-
-        let stride_cases = [
-            (0, (1, true)),
-            (1, (1, true)),
-            (BLOCKBYTES - 1, (1, true)),
-            (BLOCKBYTES, (1, false)),
-            (BLOCKBYTES + 1, (1, false)),
-            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES - 1, (2, true)),
-            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES, (2, false)),
-            ((crate::blake2bp::DEGREE + 1) * BLOCKBYTES + 1, (2, false)),
-            (
-                (2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES - 1,
-                (3, true),
-            ),
-            ((2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES, (3, false)),
-            (
-                (2 * crate::blake2bp::DEGREE + 1) * BLOCKBYTES + 1,
-                (3, false),
-            ),
-        ];
-        for &(min_len, result) in stride_cases.iter() {
-            assert_eq!(result, loop_iterations(min_len, true));
-        }
-    }
 
     #[test]
     fn test_detection() {
@@ -650,6 +604,16 @@ mod test {
                                     if invocations * blocks_per_invoc != 1
                                         && buffer_tail == BLOCKBYTES
                                     {
+                                        continue;
+                                    }
+                                    // Skip last_node=true when last_block=false.
+                                    // We assert against doing that.
+                                    if last_node && !last_block {
+                                        continue;
+                                    }
+                                    // Skip non-zero buffer tails when last_block=false.
+                                    // We assert against doing that.
+                                    if !last_block && buffer_tail != 0 {
                                         continue;
                                     }
                                     f(

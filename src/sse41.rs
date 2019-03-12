@@ -480,7 +480,7 @@ unsafe fn load_flags_vec(flags: [bool; 2]) -> __m128i {
     _mm_set_epi64x(u64_flag(flags[1]) as i64, u64_flag(flags[0]) as i64)
 }
 
-#[target_feature(enable = "avx2")]
+#[target_feature(enable = "sse4.1")]
 pub unsafe fn compress2_loop_b(
     states: [&mut u64x8; 2],
     inputs: [&[u8]; 2],
@@ -489,38 +489,52 @@ pub unsafe fn compress2_loop_b(
     last_node: [bool; 2],
     parallel_stride: bool,
 ) -> usize {
+    for i in 0..inputs.len() {
+        if !last_block[i] {
+            debug_assert!(!last_node[i]);
+            debug_assert_eq!(0, inputs[i].len() % BLOCKBYTES);
+        }
+    }
     let mut h_vecs = transpose_state_vecs(&states);
     let mut offset = 0;
-    let [count0, count1] = counts;
+    let mut count0 = *counts[0];
+    let mut count1 = *counts[1];
     let min_len = inputs.iter().map(|i| i.len()).min().unwrap();
-    let (iterations, last_block_partial) = guts::loop_iterations(min_len, parallel_stride);
+    let final_block_offset = guts::final_block_offset(min_len, parallel_stride);
     let mut buffer0 = [0; BLOCKBYTES];
     let mut buffer1 = [0; BLOCKBYTES];
-    for i in 0..iterations {
-        // Note that iterations is never zero, even for the empty input, so
-        // this subtraction can't neg-overflow.
-        let final_block = i == iterations - 1;
+    let (finblock0, finblock_len0) = guts::get_block(inputs[0], final_block_offset, &mut buffer0);
+    let (finblock1, finblock_len1) = guts::get_block(inputs[1], final_block_offset, &mut buffer1);
+    let finlastblockvec = load_flags_vec(last_block);
+    let finlastnodevec = load_flags_vec(last_node);
+    let zerovec = _mm_set1_epi64x(0);
+    while offset <= final_block_offset {
+        let is_final_block = offset == final_block_offset;
         let block0;
         let block1;
-        if final_block && last_block_partial {
-            block0 = guts::get_partial_block(inputs[0], offset, &mut buffer0, count0);
-            block1 = guts::get_partial_block(inputs[1], offset, &mut buffer1, count1);
+        let last_block_vec;
+        let last_node_vec;
+        if is_final_block {
+            block0 = finblock0;
+            block1 = finblock1;
+            last_block_vec = finlastblockvec;
+            last_node_vec = finlastnodevec;
+            count0 = count0.wrapping_add(finblock_len0 as u128);
+            count1 = count1.wrapping_add(finblock_len1 as u128);
         } else {
             // These unsafe pointer casts avoid paying for bounds checks. The
-            // loop_iterations function guarantees that these loads are in-bounds.
+            // final_block_offset math guarantees that these loads are
+            // in-bounds.
             block0 = &*(inputs[0].as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
             block1 = &*(inputs[1].as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
-            *count0 = count0.wrapping_add(BLOCKBYTES as u128);
-            *count1 = count1.wrapping_add(BLOCKBYTES as u128);
+            last_block_vec = zerovec;
+            last_node_vec = zerovec;
+            count0 = count0.wrapping_add(BLOCKBYTES as u128);
+            count1 = count1.wrapping_add(BLOCKBYTES as u128);
         }
         let m_vecs = transpose_msg_vecs(block0, block1);
-        let counts_low = load_counts_low(*count0, *count1);
-        let counts_high = load_counts_high(*count0, *count1);
-        let (last_block_vec, last_node_vec) = if final_block {
-            (load_flags_vec(last_block), load_flags_vec(last_node))
-        } else {
-            (_mm_set1_epi64x(0), _mm_set1_epi64x(0))
-        };
+        let counts_low = load_counts_low(count0, count1);
+        let counts_high = load_counts_high(count0, count1);
 
         compress2_transposed_inline(
             &mut h_vecs,
@@ -534,6 +548,8 @@ pub unsafe fn compress2_loop_b(
         offset = offset.saturating_add(guts::padded_blockbytes(parallel_stride));
     }
 
+    *counts[0] = count0;
+    *counts[1] = count1;
     untranspose_state_vecs(&h_vecs, states);
     offset
 }

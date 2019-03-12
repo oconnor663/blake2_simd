@@ -148,25 +148,33 @@ pub fn compress1_loop_b(
     last_node: bool,
     parallel_stride: bool,
 ) {
-    let (iterations, last_block_partial) = guts::loop_iterations(input.len(), parallel_stride);
+    if !last_block {
+        debug_assert!(!last_node);
+        debug_assert_eq!(0, input.len() % BLOCKBYTES);
+    }
     let mut offset = 0;
+    let final_block_offset = guts::final_block_offset(input.len(), parallel_stride);
     let mut buffer = [0; BLOCKBYTES];
-    for i in 0..iterations {
-        let final_block = i == iterations - 1;
+    let (finblock, finblock_len) = guts::get_block(input, final_block_offset, &mut buffer);
+    let mut local_count = *count;
+    while offset <= final_block_offset {
+        let is_final_block = offset == final_block_offset;
         let block;
-        if final_block && last_block_partial {
-            block = guts::get_partial_block(input, offset, &mut buffer, count);
+        if is_final_block {
+            block = finblock;
+            local_count = local_count.wrapping_add(finblock_len as u128);
         } else {
             block = array_ref!(input, offset, BLOCKBYTES);
-            *count = count.wrapping_add(BLOCKBYTES as u128);
+            local_count = local_count.wrapping_add(BLOCKBYTES as u128);
         }
         compress_block(
             state,
             block,
-            *count,
-            u64_flag(final_block && last_block),
-            u64_flag(final_block && last_node),
+            local_count,
+            u64_flag(is_final_block && last_block),
+            u64_flag(is_final_block && last_node),
         );
         offset += guts::padded_blockbytes(parallel_stride);
     }
+    *count = local_count;
 }

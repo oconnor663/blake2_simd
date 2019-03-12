@@ -684,7 +684,12 @@ fn paint_test_input(buf: &mut [u8]) {
 #[doc(hidden)]
 pub mod benchmarks {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub use crate::avx2::compress1_loop as compress1_loop_avx2;
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub use crate::avx2::compress1_loop_b as compress1_loop_avx2_b;
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub use crate::avx2::compress4_loop as compress4_loop_avx2;
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub use crate::avx2::compress4_loop_b as compress4_loop_avx2_b;
 
     pub fn force_portable(state: &mut crate::State) {

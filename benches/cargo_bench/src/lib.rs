@@ -127,8 +127,7 @@ fn bench_compress4_loop_avx2_one_block_b(b: &mut Bencher) {
             [&mut count0, &mut count1, &mut count2, &mut count3],
             last_block,
             last_node,
-            1,
-            1,
+            false,
         );
         test::black_box(&mut state0);
         test::black_box(&mut state1);
@@ -164,13 +163,41 @@ fn bench_compress4_loop_avx2_one_mb_b(b: &mut Bencher) {
             [&mut count0, &mut count1, &mut count2, &mut count3],
             last_block,
             last_node,
-            len / BLOCKBYTES,
-            1,
+            false,
         );
         test::black_box(&mut state0);
         test::black_box(&mut state1);
         test::black_box(&mut state2);
         test::black_box(&mut state3);
+    });
+}
+
+#[bench]
+fn bench_compress1_loop_avx2_one_mb(b: &mut Bencher) {
+    if guts::Implementation::avx2_if_supported().is_none() {
+        return;
+    }
+    let len = 1 << 20;
+    let input0 = make_input(b, len);
+    b.iter(|| unsafe {
+        let mut state0 = guts::u64x8([1; 8]);
+        benchmarks::compress1_loop_avx2(&mut state0, &input0, 0, !0, !0, len / BLOCKBYTES, 1, 0);
+        test::black_box(&mut state0);
+    });
+}
+
+#[bench]
+fn bench_compress1_loop_avx2_one_mb_b(b: &mut Bencher) {
+    if guts::Implementation::avx2_if_supported().is_none() {
+        return;
+    }
+    let len = 1 << 20;
+    let input0 = make_input(b, len);
+    b.iter(|| unsafe {
+        let mut state0 = guts::u64x8([1; 8]);
+        let mut count0 = 0;
+        benchmarks::compress1_loop_avx2_b(&mut state0, &input0, &mut count0, true, true, false);
+        test::black_box(&mut state0);
     });
 }
 
