@@ -173,6 +173,34 @@ fn bench_compress4_loop_avx2_one_mb_b(b: &mut Bencher) {
 }
 
 #[bench]
+fn bench_compress2_loop_avx2_one_mb_b(b: &mut Bencher) {
+    if guts::Implementation::avx2_if_supported().is_none() {
+        return;
+    }
+    let len = (1 << 20) / 2;
+    let input0 = make_input(b, len);
+    let input1 = make_input(b, len);
+    let last_block = [true; 2];
+    let last_node = [true; 2];
+    b.iter(|| unsafe {
+        let mut state0 = guts::u64x8([1; 8]);
+        let mut state1 = guts::u64x8([2; 8]);
+        let mut count0 = 0;
+        let mut count1 = 0;
+        benchmarks::compress2_loop_sse41_b(
+            [&mut state0, &mut state1],
+            [&input0, &input1],
+            [&mut count0, &mut count1],
+            last_block,
+            last_node,
+            false,
+        );
+        test::black_box(&mut state0);
+        test::black_box(&mut state1);
+    });
+}
+
+#[bench]
 fn bench_compress1_loop_avx2_one_mb(b: &mut Bencher) {
     if guts::Implementation::avx2_if_supported().is_none() {
         return;
@@ -285,6 +313,40 @@ fn bench_compress4_loop_avx2_one_mb(b: &mut Bencher) {
         test::black_box(&mut state1);
         test::black_box(&mut state2);
         test::black_box(&mut state3);
+    });
+}
+
+#[bench]
+fn bench_compress2_loop_avx2_one_mb(b: &mut Bencher) {
+    if guts::Implementation::avx2_if_supported().is_none() {
+        return;
+    }
+    let len = (1 << 20) / 2;
+    let input0 = make_input(b, len);
+    let input1 = make_input(b, len);
+    let count_low = guts::u64x2([0; 2]);
+    let count_high = guts::u64x2([0; 2]);
+    let last_block = guts::u64x2([0; 2]);
+    let last_node = guts::u64x2([0; 2]);
+    let buffer_tail = guts::u64x2([0; 2]);
+    b.iter(|| unsafe {
+        let mut state0 = guts::u64x8([1; 8]);
+        let mut state1 = guts::u64x8([2; 8]);
+        benchmarks::compress2_loop_sse41(
+            &mut state0,
+            &mut state1,
+            &input0,
+            &input1,
+            &count_low,
+            &count_high,
+            &last_block,
+            &last_node,
+            len / BLOCKBYTES,
+            1,
+            &buffer_tail,
+        );
+        test::black_box(&mut state0);
+        test::black_box(&mut state1);
     });
 }
 

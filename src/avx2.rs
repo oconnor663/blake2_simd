@@ -698,6 +698,14 @@ unsafe fn unsigned_cmpgt_epi64(a: __m256i, b: __m256i) -> __m256i {
     _mm256_cmpgt_epi64(_mm256_add_epi64(a, delta), _mm256_add_epi64(b, delta))
 }
 
+#[inline(always)]
+unsafe fn add_carry(lo: &mut __m256i, hi: &mut __m256i, x: __m256i) {
+    let old_lo = *lo;
+    *lo = _mm256_add_epi64(*lo, x);
+    let carries = _mm256_and_si256(unsigned_cmpgt_epi64(old_lo, *lo), _mm256_set1_epi64x(1));
+    *hi = _mm256_add_epi64(*hi, carries);
+}
+
 #[target_feature(enable = "avx2")]
 pub unsafe fn compress4_loop(
     state0: &mut u64x8,
@@ -957,10 +965,8 @@ pub unsafe fn compress4_loop_b(
     }
     let mut h_vecs = transpose_state_vecs(&states);
     let mut offset = 0;
-    let mut count0 = *counts[0];
-    let mut count1 = *counts[1];
-    let mut count2 = *counts[2];
-    let mut count3 = *counts[3];
+    let mut counts_lo = load_counts_low(*counts[0], *counts[1], *counts[2], *counts[3]);
+    let mut counts_hi = load_counts_high(*counts[0], *counts[1], *counts[2], *counts[3]);
     let min_len = inputs.iter().map(|i| i.len()).min().unwrap();
     let final_block_offset = guts::final_block_offset(min_len, parallel_stride);
     let mut buffer0 = [0; BLOCKBYTES];
@@ -973,7 +979,12 @@ pub unsafe fn compress4_loop_b(
     let (finblock3, finblock_len3) = guts::get_block(inputs[3], final_block_offset, &mut buffer3);
     let finlastblockvec = load_flags_vec(last_block);
     let finlastnodevec = load_flags_vec(last_node);
-    let zerovec = _mm256_set1_epi64x(0);
+    let fincountsinc = _mm256_setr_epi64x(
+        finblock_len0 as i64,
+        finblock_len1 as i64,
+        finblock_len2 as i64,
+        finblock_len3 as i64,
+    );
     while offset <= final_block_offset {
         let is_final_block = offset == final_block_offset;
         let block0;
@@ -982,6 +993,7 @@ pub unsafe fn compress4_loop_b(
         let block3;
         let last_block_vec;
         let last_node_vec;
+        let counts_inc;
         if is_final_block {
             block0 = finblock0;
             block1 = finblock1;
@@ -989,10 +1001,7 @@ pub unsafe fn compress4_loop_b(
             block3 = finblock3;
             last_block_vec = finlastblockvec;
             last_node_vec = finlastnodevec;
-            count0 = count0.wrapping_add(finblock_len0 as u128);
-            count1 = count1.wrapping_add(finblock_len1 as u128);
-            count2 = count2.wrapping_add(finblock_len2 as u128);
-            count3 = count3.wrapping_add(finblock_len3 as u128);
+            counts_inc = fincountsinc;
         } else {
             // These unsafe pointer casts avoid paying for bounds checks. The
             // final_block_offset math guarantees that these loads are
@@ -1001,22 +1010,18 @@ pub unsafe fn compress4_loop_b(
             block1 = &*(inputs[1].as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
             block2 = &*(inputs[2].as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
             block3 = &*(inputs[3].as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
-            last_block_vec = zerovec;
-            last_node_vec = zerovec;
-            count0 = count0.wrapping_add(BLOCKBYTES as u128);
-            count1 = count1.wrapping_add(BLOCKBYTES as u128);
-            count2 = count2.wrapping_add(BLOCKBYTES as u128);
-            count3 = count3.wrapping_add(BLOCKBYTES as u128);
+            last_block_vec = _mm256_set1_epi64x(0);
+            last_node_vec = _mm256_set1_epi64x(0);
+            counts_inc = _mm256_set1_epi64x(BLOCKBYTES as i64);
         }
+        add_carry(&mut counts_lo, &mut counts_hi, counts_inc);
         let m_vecs = transpose_msg_vecs(block0, block1, block2, block3);
-        let counts_low = load_counts_low(count0, count1, count2, count3);
-        let counts_high = load_counts_high(count0, count1, count2, count3);
 
         compress4_transposed_inline(
             &mut h_vecs,
             &m_vecs,
-            counts_low,
-            counts_high,
+            counts_lo,
+            counts_hi,
             last_block_vec,
             last_node_vec,
         );
@@ -1024,10 +1029,12 @@ pub unsafe fn compress4_loop_b(
         offset = offset.saturating_add(guts::padded_blockbytes(parallel_stride));
     }
 
-    *counts[0] = count0;
-    *counts[1] = count1;
-    *counts[2] = count2;
-    *counts[3] = count3;
+    let lo_ints: [u64; 4] = core::mem::transmute(counts_lo);
+    let hi_ints: [u64; 4] = core::mem::transmute(counts_hi);
+    *counts[0] = lo_ints[0] as u128 + ((hi_ints[0] as u128) << 64);
+    *counts[1] = lo_ints[1] as u128 + ((hi_ints[1] as u128) << 64);
+    *counts[2] = lo_ints[2] as u128 + ((hi_ints[2] as u128) << 64);
+    *counts[3] = lo_ints[3] as u128 + ((hi_ints[3] as u128) << 64);
     untranspose_state_vecs(&h_vecs, states);
     offset
 }

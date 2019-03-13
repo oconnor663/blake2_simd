@@ -691,6 +691,10 @@ pub mod benchmarks {
     pub use crate::avx2::compress4_loop as compress4_loop_avx2;
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub use crate::avx2::compress4_loop_b as compress4_loop_avx2_b;
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub use crate::sse41::compress2_loop as compress2_loop_sse41;
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub use crate::sse41::compress2_loop_b as compress2_loop_sse41_b;
 
     pub fn force_portable(state: &mut crate::State) {
         state.implementation = crate::guts::Implementation::portable();
