@@ -924,18 +924,31 @@ unsafe fn transpose_msg_vecs(
 }
 
 #[inline(always)]
-unsafe fn load_counts_low(count0: u128, count1: u128, count2: u128, count3: u128) -> __m256i {
-    _mm256_setr_epi64x(count0 as i64, count1 as i64, count2 as i64, count3 as i64)
+unsafe fn load_counts(counts: &[&mut u128; 4]) -> (__m256i, __m256i) {
+    (
+        _mm256_setr_epi64x(
+            *counts[0] as i64,
+            *counts[1] as i64,
+            *counts[2] as i64,
+            *counts[3] as i64,
+        ),
+        _mm256_setr_epi64x(
+            (*counts[0] >> 64) as i64,
+            (*counts[1] >> 64) as i64,
+            (*counts[2] >> 64) as i64,
+            (*counts[3] >> 64) as i64,
+        ),
+    )
 }
 
 #[inline(always)]
-unsafe fn load_counts_high(count0: u128, count1: u128, count2: u128, count3: u128) -> __m256i {
-    _mm256_setr_epi64x(
-        (count0 >> 64) as i64,
-        (count1 >> 64) as i64,
-        (count2 >> 64) as i64,
-        (count3 >> 64) as i64,
-    )
+unsafe fn store_counts(lo: __m256i, hi: __m256i, counts: [&mut u128; 4]) {
+    let lo_ints: [u64; 4] = core::mem::transmute(lo);
+    let hi_ints: [u64; 4] = core::mem::transmute(hi);
+    *counts[0] = lo_ints[0] as u128 | ((hi_ints[0] as u128) << 64);
+    *counts[1] = lo_ints[1] as u128 | ((hi_ints[1] as u128) << 64);
+    *counts[2] = lo_ints[2] as u128 | ((hi_ints[2] as u128) << 64);
+    *counts[3] = lo_ints[3] as u128 | ((hi_ints[3] as u128) << 64);
 }
 
 #[inline(always)]
@@ -965,8 +978,7 @@ pub unsafe fn compress4_loop_b(
     }
     let mut h_vecs = transpose_state_vecs(&states);
     let mut offset = 0;
-    let mut counts_lo = load_counts_low(*counts[0], *counts[1], *counts[2], *counts[3]);
-    let mut counts_hi = load_counts_high(*counts[0], *counts[1], *counts[2], *counts[3]);
+    let (mut counts_lo, mut counts_hi) = load_counts(&counts);
     let min_len = inputs.iter().map(|i| i.len()).min().unwrap();
     let final_block_offset = guts::final_block_offset(min_len, parallel_stride);
     let mut buffer0 = [0; BLOCKBYTES];
@@ -1029,12 +1041,7 @@ pub unsafe fn compress4_loop_b(
         offset = offset.saturating_add(guts::padded_blockbytes(parallel_stride));
     }
 
-    let lo_ints: [u64; 4] = core::mem::transmute(counts_lo);
-    let hi_ints: [u64; 4] = core::mem::transmute(counts_hi);
-    *counts[0] = lo_ints[0] as u128 + ((hi_ints[0] as u128) << 64);
-    *counts[1] = lo_ints[1] as u128 + ((hi_ints[1] as u128) << 64);
-    *counts[2] = lo_ints[2] as u128 + ((hi_ints[2] as u128) << 64);
-    *counts[3] = lo_ints[3] as u128 + ((hi_ints[3] as u128) << 64);
+    store_counts(counts_lo, counts_hi, counts);
     untranspose_state_vecs(&h_vecs, states);
     offset
 }

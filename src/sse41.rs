@@ -471,15 +471,20 @@ unsafe fn transpose_msg_vecs(
 }
 
 #[inline(always)]
-unsafe fn load_counts_low(count0: u128, count1: u128) -> __m128i {
-    // There's no _mm_setr_epi64x, so note the arg order.
-    _mm_set_epi64x(count1 as i64, count0 as i64)
+unsafe fn load_counts(counts: &[&mut u128; 2]) -> (__m128i, __m128i) {
+    (
+        // There's no _mm_setr_epi64x, so note the arg order.
+        _mm_set_epi64x(*counts[1] as i64, *counts[0] as i64),
+        _mm_set_epi64x((*counts[1] >> 64) as i64, (*counts[0] >> 64) as i64),
+    )
 }
 
 #[inline(always)]
-unsafe fn load_counts_high(count0: u128, count1: u128) -> __m128i {
-    // There's no _mm_setr_epi64x, so note the arg order.
-    _mm_set_epi64x((count1 >> 64) as i64, (count0 >> 64) as i64)
+unsafe fn store_counts(lo: __m128i, hi: __m128i, counts: [&mut u128; 2]) {
+    let lo_ints: [u64; 2] = core::mem::transmute(lo);
+    let hi_ints: [u64; 2] = core::mem::transmute(hi);
+    *counts[0] = lo_ints[0] as u128 | ((hi_ints[0] as u128) << 64);
+    *counts[1] = lo_ints[1] as u128 | ((hi_ints[1] as u128) << 64);
 }
 
 #[inline(always)]
@@ -505,8 +510,7 @@ pub unsafe fn compress2_loop_b(
     }
     let mut h_vecs = transpose_state_vecs(&states);
     let mut offset = 0;
-    let mut counts_lo = load_counts_low(*counts[0], *counts[1]);
-    let mut counts_hi = load_counts_high(*counts[0], *counts[1]);
+    let (mut counts_lo, mut counts_hi) = load_counts(&counts);
     let min_len = inputs.iter().map(|i| i.len()).min().unwrap();
     let final_block_offset = guts::final_block_offset(min_len, parallel_stride);
     let mut buffer0 = [0; BLOCKBYTES];
@@ -555,10 +559,7 @@ pub unsafe fn compress2_loop_b(
         offset = offset.saturating_add(guts::padded_blockbytes(parallel_stride));
     }
 
-    let lo_ints: [u64; 2] = core::mem::transmute(counts_lo);
-    let hi_ints: [u64; 2] = core::mem::transmute(counts_hi);
-    *counts[0] = lo_ints[0] as u128 + ((hi_ints[0] as u128) << 64);
-    *counts[1] = lo_ints[1] as u128 + ((hi_ints[1] as u128) << 64);
+    store_counts(counts_lo, counts_hi, counts);
     untranspose_state_vecs(&h_vecs, states);
     offset
 }
