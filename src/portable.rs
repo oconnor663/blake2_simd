@@ -2,6 +2,7 @@ use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
 use crate::guts::{u64_flag, u64x8};
+use crate::hash_many::Job;
 
 // G is the mixing function, called eight times per round in the compression
 // function. V is the 16-word state vector of the compression function, usually
@@ -140,23 +141,13 @@ pub fn compress1_loop(
     }
 }
 
-pub fn compress1_loop_b(
-    state: &mut u64x8,
-    input: &[u8],
-    count: &mut u128,
-    last_block: bool,
-    last_node: bool,
-    parallel_stride: bool,
-) {
-    if !last_block {
-        debug_assert!(!last_node);
-        debug_assert_eq!(0, input.len() % BLOCKBYTES);
-    }
+pub fn compress1_loop_b(job: &mut Job, parallel_stride: bool) {
     let mut offset = 0;
-    let final_block_offset = guts::final_block_offset(input.len(), parallel_stride);
+    let final_block_offset = guts::final_block_offset(job.input.len(), parallel_stride);
     let mut buffer = [0; BLOCKBYTES];
-    let (finblock, finblock_len) = guts::get_block(input, final_block_offset, &mut buffer);
-    let mut local_count = *count;
+    let (finblock, finblock_len) = guts::get_block(job.input, final_block_offset, &mut buffer);
+    let mut local_state = job.state;
+    let mut local_count = job.count;
     while offset <= final_block_offset {
         let is_final_block = offset == final_block_offset;
         let block;
@@ -164,17 +155,18 @@ pub fn compress1_loop_b(
             block = finblock;
             local_count = local_count.wrapping_add(finblock_len as u128);
         } else {
-            block = array_ref!(input, offset, BLOCKBYTES);
+            block = array_ref!(job.input, offset, BLOCKBYTES);
             local_count = local_count.wrapping_add(BLOCKBYTES as u128);
         }
         compress_block(
-            state,
+            &mut local_state,
             block,
             local_count,
-            u64_flag(is_final_block && last_block),
-            u64_flag(is_final_block && last_node),
+            u64_flag(is_final_block && job.last_block),
+            u64_flag(is_final_block && job.last_node),
         );
         offset += guts::padded_blockbytes(parallel_stride);
     }
-    *count = local_count;
+    job.state = local_state;
+    job.count = local_count;
 }

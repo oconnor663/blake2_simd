@@ -1,8 +1,9 @@
-use crate::guts::{u64_flag, u64x2, u64x4, u64x8, Implementation};
+use crate::guts::{self, u64_flag, u64x2, u64x4, u64x8, Implementation};
 use crate::state_words_to_bytes;
 use crate::Hash;
 use crate::Params;
 use crate::BLOCKBYTES;
+use arrayvec::ArrayVec;
 use core::cmp;
 
 fn hash1(
@@ -281,6 +282,80 @@ pub fn hash_many(inputs: &[&[u8]], outputs: &mut [Hash], params: &[Params]) {
             len: params[index].hash_length,
         };
         index += 1;
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Job<'a> {
+    pub state: u64x8,
+    pub input: &'a [u8],
+    pub count: u128,
+    pub last_block: bool,
+    pub last_node: bool,
+}
+
+type JobsVec<'a, 'b> = ArrayVec<[&'a mut Job<'b>; guts::MAX_DEGREE]>;
+
+fn fill_jobs_vec<'a, 'b>(
+    jobs_iter: &mut impl Iterator<Item = &'a mut Job<'b>>,
+    vec: &mut JobsVec<'a, 'b>,
+) {
+    while vec.len() < vec.capacity() {
+        if let Some(job) = jobs_iter.next() {
+            vec.push(job);
+        } else {
+            break;
+        }
+    }
+}
+
+fn advance_or_evict<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize, finished_offset: usize) {
+    // Iterate backwards so that swap_remove doesn't swap in a finished job.
+    for i in (vec.len() - num_jobs..vec.len()).rev() {
+        // Strictly greater is important here, otherwise we'd get an extra empty
+        // block hashed in.
+        if vec[i].input.len() > finished_offset {
+            vec[i].input = &vec[i].input[finished_offset..];
+        } else {
+            vec.swap_remove(i);
+        }
+    }
+}
+
+pub fn hash_many_b(jobs: &mut [Job], imp: Implementation, parallel_stride: bool) {
+    // sanity checks
+    for job in jobs.iter() {
+        if !job.last_block {
+            debug_assert!(!job.last_node);
+            debug_assert_eq!(0, job.input.len() % BLOCKBYTES);
+        }
+    }
+
+    let mut jobs_iter = jobs.iter_mut().fuse();
+    let mut jobs_vec = JobsVec::new();
+    fill_jobs_vec(&mut jobs_iter, &mut jobs_vec);
+
+    if imp.degree() >= 4 {
+        while jobs_vec.len() >= 4 {
+            let jobs_array = array_mut_ref!(jobs_vec, jobs_vec.len() - 4, 4);
+            let offset = imp.compress4_loop_b(jobs_array, parallel_stride);
+            advance_or_evict(&mut jobs_vec, 4, offset);
+            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec);
+        }
+    }
+
+    if imp.degree() >= 2 {
+        while jobs_vec.len() >= 2 {
+            let jobs_array = array_mut_ref!(jobs_vec, jobs_vec.len() - 2, 2);
+            let offset = imp.compress2_loop_b(jobs_array, parallel_stride);
+            advance_or_evict(&mut jobs_vec, 2, offset);
+            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec);
+        }
+    }
+
+    for job in jobs_vec.into_iter().chain(jobs_iter) {
+        imp.compress1_loop_b(job, parallel_stride);
+        job.input = &[];
     }
 }
 

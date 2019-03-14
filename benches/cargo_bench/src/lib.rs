@@ -7,6 +7,7 @@ extern crate libsodium_ffi;
 extern crate openssl;
 extern crate test;
 
+use blake2b_simd::hash_many::Job;
 use blake2b_simd::*;
 use test::Bencher;
 
@@ -110,29 +111,39 @@ fn bench_compress4_loop_avx2_one_block_b(b: &mut Bencher) {
     let input1 = make_input(b, BLOCKBYTES);
     let input2 = make_input(b, BLOCKBYTES);
     let input3 = make_input(b, BLOCKBYTES);
-    let last_block = [true; 4];
-    let last_node = [true; 4];
     b.iter(|| unsafe {
-        let mut state0 = guts::u64x8([1; 8]);
-        let mut state1 = guts::u64x8([2; 8]);
-        let mut state2 = guts::u64x8([3; 8]);
-        let mut state3 = guts::u64x8([4; 8]);
-        let mut count0 = 0;
-        let mut count1 = 0;
-        let mut count2 = 0;
-        let mut count3 = 0;
-        benchmarks::compress4_loop_avx2_b(
-            [&mut state0, &mut state1, &mut state2, &mut state3],
-            [&input0, &input1, &input2, &input3],
-            [&mut count0, &mut count1, &mut count2, &mut count3],
-            last_block,
-            last_node,
-            false,
-        );
-        test::black_box(&mut state0);
-        test::black_box(&mut state1);
-        test::black_box(&mut state2);
-        test::black_box(&mut state3);
+        let mut jobs = [
+            &mut Job {
+                state: guts::u64x8([1; 8]),
+                input: &input0,
+                count: 0,
+                last_block: true,
+                last_node: true,
+            },
+            &mut Job {
+                state: guts::u64x8([2; 8]),
+                input: &input1,
+                count: 0,
+                last_block: true,
+                last_node: true,
+            },
+            &mut Job {
+                state: guts::u64x8([3; 8]),
+                input: &input2,
+                count: 0,
+                last_block: true,
+                last_node: true,
+            },
+            &mut Job {
+                state: guts::u64x8([4; 8]),
+                input: &input3,
+                count: 0,
+                last_block: true,
+                last_node: true,
+            },
+        ];
+        benchmarks::compress4_loop_avx2_b(&mut jobs, false);
+        test::black_box(&mut jobs);
     });
 }
 
@@ -146,29 +157,39 @@ fn bench_compress4_loop_avx2_one_mb_b(b: &mut Bencher) {
     let input1 = make_input(b, len);
     let input2 = make_input(b, len);
     let input3 = make_input(b, len);
-    let last_block = [true; 4];
-    let last_node = [true; 4];
     b.iter(|| unsafe {
-        let mut state0 = guts::u64x8([1; 8]);
-        let mut state1 = guts::u64x8([2; 8]);
-        let mut state2 = guts::u64x8([3; 8]);
-        let mut state3 = guts::u64x8([4; 8]);
-        let mut count0 = 0;
-        let mut count1 = 0;
-        let mut count2 = 0;
-        let mut count3 = 0;
-        benchmarks::compress4_loop_avx2_b(
-            [&mut state0, &mut state1, &mut state2, &mut state3],
-            [&input0, &input1, &input2, &input3],
-            [&mut count0, &mut count1, &mut count2, &mut count3],
-            last_block,
-            last_node,
-            false,
-        );
-        test::black_box(&mut state0);
-        test::black_box(&mut state1);
-        test::black_box(&mut state2);
-        test::black_box(&mut state3);
+        let mut jobs = [
+            &mut Job {
+                state: guts::u64x8([1; 8]),
+                input: &input0,
+                count: 0,
+                last_block: true,
+                last_node: true,
+            },
+            &mut Job {
+                state: guts::u64x8([2; 8]),
+                input: &input1,
+                count: 0,
+                last_block: true,
+                last_node: true,
+            },
+            &mut Job {
+                state: guts::u64x8([3; 8]),
+                input: &input2,
+                count: 0,
+                last_block: true,
+                last_node: true,
+            },
+            &mut Job {
+                state: guts::u64x8([4; 8]),
+                input: &input3,
+                count: 0,
+                last_block: true,
+                last_node: true,
+            },
+        ];
+        benchmarks::compress4_loop_avx2_b(&mut jobs, false);
+        test::black_box(&mut jobs);
     });
 }
 
@@ -180,23 +201,25 @@ fn bench_compress2_loop_avx2_one_mb_b(b: &mut Bencher) {
     let len = (1 << 20) / 2;
     let input0 = make_input(b, len);
     let input1 = make_input(b, len);
-    let last_block = [true; 2];
-    let last_node = [true; 2];
     b.iter(|| unsafe {
-        let mut state0 = guts::u64x8([1; 8]);
-        let mut state1 = guts::u64x8([2; 8]);
-        let mut count0 = 0;
-        let mut count1 = 0;
-        benchmarks::compress2_loop_sse41_b(
-            [&mut state0, &mut state1],
-            [&input0, &input1],
-            [&mut count0, &mut count1],
-            last_block,
-            last_node,
-            false,
-        );
-        test::black_box(&mut state0);
-        test::black_box(&mut state1);
+        let mut jobs = [
+            &mut Job {
+                state: guts::u64x8([1; 8]),
+                input: &input0,
+                count: 0,
+                last_block: true,
+                last_node: true,
+            },
+            &mut Job {
+                state: guts::u64x8([2; 8]),
+                input: &input1,
+                count: 0,
+                last_block: true,
+                last_node: true,
+            },
+        ];
+        benchmarks::compress2_loop_sse41_b(&mut jobs, false);
+        test::black_box(&mut jobs);
     });
 }
 
@@ -222,10 +245,15 @@ fn bench_compress1_loop_avx2_one_mb_b(b: &mut Bencher) {
     let len = 1 << 20;
     let input0 = make_input(b, len);
     b.iter(|| unsafe {
-        let mut state0 = guts::u64x8([1; 8]);
-        let mut count0 = 0;
-        benchmarks::compress1_loop_avx2_b(&mut state0, &input0, &mut count0, true, true, false);
-        test::black_box(&mut state0);
+        let mut job = Job {
+            state: guts::u64x8([1; 8]),
+            input: &input0,
+            count: 0,
+            last_block: true,
+            last_node: true,
+        };
+        benchmarks::compress1_loop_avx2_b(&mut job, false);
+        test::black_box(&mut job);
     });
 }
 
@@ -362,7 +390,7 @@ fn bench_hash_many_4_blocks(b: &mut Bencher) {
     ];
     b.iter(|| {
         let mut outputs = [Hash::empty(), Hash::empty(), Hash::empty(), Hash::empty()];
-        hash_many(&inputs[..], &mut outputs[..], &params[..]);
+        hash_many::hash_many(&inputs[..], &mut outputs[..], &params[..]);
         test::black_box(&mut outputs);
     });
 }
@@ -378,7 +406,7 @@ fn bench_hash_many_4_mb(b: &mut Bencher) {
     let inputs = [&input0[..], &input1[..], &input2[..], &input3[..]];
     b.iter(|| {
         let mut outputs = [Hash::empty(), Hash::empty(), Hash::empty(), Hash::empty()];
-        hash_many(&inputs[..], &mut outputs[..], &params[..]);
+        hash_many::hash_many(&inputs[..], &mut outputs[..], &params[..]);
         test::black_box(&mut outputs);
     });
 }

@@ -1,3 +1,4 @@
+use crate::hash_many::Job;
 use crate::*;
 use core::mem;
 
@@ -128,31 +129,16 @@ impl Implementation {
         }
     }
 
-    pub fn compress1_loop_b(
-        &self,
-        state: &mut u64x8,
-        input: &[u8],
-        count: &mut u128,
-        last_block: bool,
-        last_node: bool,
-        parallel_stride: bool,
-    ) {
+    pub fn compress1_loop_b(&self, job: &mut Job, parallel_stride: bool) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => unsafe {
-                avx2::compress1_loop_b(state, input, count, last_block, last_node, parallel_stride);
+                avx2::compress1_loop_b(job, parallel_stride);
             },
             // Note that there's an SSE version of compress1 in the official C
             // implementation, but I haven't ported it yet.
             _ => {
-                portable::compress1_loop_b(
-                    state,
-                    input,
-                    count,
-                    last_block,
-                    last_node,
-                    parallel_stride,
-                );
+                portable::compress1_loop_b(job, parallel_stride);
             }
         }
     }
@@ -213,26 +199,11 @@ impl Implementation {
         }
     }
 
-    pub fn compress2_loop_b(
-        &self,
-        states: [&mut u64x8; 2],
-        inputs: [&[u8]; 2],
-        counts: [&mut u128; 2],
-        last_block: [bool; 2],
-        last_node: [bool; 2],
-        parallel_stride: bool,
-    ) -> usize {
+    pub fn compress2_loop_b(&self, jobs: &mut [&mut Job; 2], parallel_stride: bool) -> usize {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 | Platform::SSE41 => unsafe {
-                sse41::compress2_loop_b(
-                    states,
-                    inputs,
-                    counts,
-                    last_block,
-                    last_node,
-                    parallel_stride,
-                )
+                sse41::compress2_loop_b(jobs, parallel_stride)
             },
             _ => panic!("unsupported"),
         }
@@ -317,27 +288,10 @@ impl Implementation {
         }
     }
 
-    pub fn compress4_loop_b(
-        &self,
-        states: [&mut u64x8; 4],
-        inputs: [&[u8]; 4],
-        counts: [&mut u128; 4],
-        last_block: [bool; 4],
-        last_node: [bool; 4],
-        parallel_stride: bool,
-    ) -> usize {
+    pub fn compress4_loop_b(&self, jobs: &mut [&mut Job; 4], parallel_stride: bool) -> usize {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => unsafe {
-                avx2::compress4_loop_b(
-                    states,
-                    inputs,
-                    counts,
-                    last_block,
-                    last_node,
-                    parallel_stride,
-                )
-            },
+            Platform::AVX2 => unsafe { avx2::compress4_loop_b(jobs, parallel_stride) },
             _ => panic!("unsupported"),
         }
     }
@@ -693,8 +647,13 @@ mod test {
                 // Use the portable implementation, one block at a time, to
                 // compute the final state that we expect. Manually update the
                 // count ourselves.
-                let mut reference_state = input_state_words(0);
-                let mut reference_count = count;
+                let mut reference_job = Job {
+                    state: input_state_words(0),
+                    input: &[],
+                    count: count,
+                    last_block: false,
+                    last_node: false,
+                };
                 let total_blocks = invocations * blocks_per_invoc;
                 for block in 0..total_blocks {
                     let input_block =
@@ -705,24 +664,25 @@ mod test {
                     } else {
                         &input_block[..]
                     };
-                    portable::compress1_loop_b(
-                        &mut reference_state,
-                        input_slice,
-                        &mut reference_count,
-                        is_last_block && last_block,
-                        is_last_block && last_node,
-                        stride,
-                    );
+                    reference_job.input = input_slice;
+                    reference_job.last_block = is_last_block && last_block;
+                    reference_job.last_node = is_last_block && last_node;
+                    portable::compress1_loop_b(&mut reference_job, stride);
                 }
                 let expected_count = count
                     .wrapping_add((total_blocks * BLOCKBYTES) as u128)
                     .wrapping_sub(buffer_tail as u128);
-                assert_eq!(expected_count, reference_count);
+                assert_eq!(expected_count, reference_job.count);
 
                 // Do the same thing in batches with the implementation under
                 // test, and make sure they're the same.
-                let mut test_state = input_state_words(0);
-                let mut test_count = count;
+                let mut test_job = Job {
+                    state: input_state_words(0),
+                    input: &[],
+                    count: count,
+                    last_block: false,
+                    last_node: false,
+                };
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
                     let offset = invoc_num * blocks_per_invoc * padded_blockbytes(stride);
@@ -732,17 +692,13 @@ mod test {
                         len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
                     }
                     let input_slice = &input[offset..][..len];
-                    implementation.compress1_loop_b(
-                        &mut test_state,
-                        &input_slice,
-                        &mut test_count,
-                        is_last_invoc && last_block,
-                        is_last_invoc && last_node,
-                        stride,
-                    );
+                    test_job.input = input_slice;
+                    test_job.last_block = is_last_invoc && last_block;
+                    test_job.last_node = is_last_invoc && last_node;
+                    implementation.compress1_loop_b(&mut test_job, stride);
                 }
-                assert_eq!(reference_count, test_count);
-                assert_eq!(reference_state, test_state);
+                assert_eq!(reference_job.count, test_job.count);
+                assert_eq!(reference_job.state, test_job.state);
             },
         );
     }
@@ -871,29 +827,50 @@ mod test {
                 if buffer_tail != 0 {
                     len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
                 }
-                let mut reference_states = [input_state_words(0), input_state_words(1)];
-                let mut reference_counts = [count; 2];
-                for i in 0..reference_states.len() {
-                    portable::compress1_loop_b(
-                        &mut reference_states[i],
-                        &inputs[i][..len],
-                        &mut reference_counts[i],
+                let mut reference_jobs = [
+                    &mut Job {
+                        state: input_state_words(0),
+                        input: &inputs[0][..len],
+                        count,
                         last_block,
                         last_node,
-                        stride,
-                    );
+                    },
+                    &mut Job {
+                        state: input_state_words(1),
+                        input: &inputs[1][..len],
+                        count,
+                        last_block,
+                        last_node,
+                    },
+                ];
+                for job in &mut reference_jobs {
+                    portable::compress1_loop_b(job, stride);
                 }
                 let expected_count = count
                     .wrapping_add((total_blocks * BLOCKBYTES) as u128)
                     .wrapping_sub(buffer_tail as u128);
-                assert_eq!([expected_count; 2], reference_counts);
+                for job in &mut reference_jobs {
+                    assert_eq!(expected_count, job.count);
+                }
 
                 // Do the same thing with the implementation under test under
                 // test, and make sure the result is the same.
-                let mut test_state0 = input_state_words(0);
-                let mut test_state1 = input_state_words(1);
-                let mut test_count0 = count;
-                let mut test_count1 = count;
+                let mut test_jobs = [
+                    &mut Job {
+                        state: input_state_words(0),
+                        input: &[],
+                        count,
+                        last_block: false,
+                        last_node: false,
+                    },
+                    &mut Job {
+                        state: input_state_words(1),
+                        input: &[],
+                        count,
+                        last_block: false,
+                        last_node: false,
+                    },
+                ];
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
                     let offset = invoc_num * blocks_per_invoc * padded_blockbytes(stride);
@@ -901,20 +878,18 @@ mod test {
                     if is_last_invoc && buffer_tail != 0 {
                         len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
                     }
-                    let ret = implementation.compress2_loop_b(
-                        [&mut test_state0, &mut test_state1],
-                        [&inputs[0][offset..][..len], &inputs[1][offset..][..len]],
-                        [&mut test_count0, &mut test_count1],
-                        [is_last_invoc && last_block; 2],
-                        [is_last_invoc && last_node; 2],
-                        stride,
-                    );
+                    for i in 0..test_jobs.len() {
+                        test_jobs[i].input = &inputs[i][offset..][..len];
+                        test_jobs[i].last_block = is_last_invoc && last_block;
+                        test_jobs[i].last_node = is_last_invoc && last_node;
+                    }
+                    let ret = implementation.compress2_loop_b(&mut test_jobs, stride);
                     assert_eq!(rounded_up(len, stride), ret);
                 }
-                assert_eq!(reference_counts[0], test_count0);
-                assert_eq!(reference_counts[1], test_count1);
-                assert_eq!(reference_states[0], test_state0);
-                assert_eq!(reference_states[1], test_state1);
+                for i in 0..reference_jobs.len() {
+                    assert_eq!(reference_jobs[i].count, test_jobs[i].count);
+                    assert_eq!(reference_jobs[i].state, test_jobs[i].state);
+                }
             },
         );
     }
@@ -1050,38 +1025,78 @@ mod test {
                 if buffer_tail != 0 {
                     len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
                 }
-                let mut reference_states = [
-                    input_state_words(0),
-                    input_state_words(1),
-                    input_state_words(2),
-                    input_state_words(3),
-                ];
-                let mut reference_counts = [count; 4];
-                for i in 0..reference_states.len() {
-                    portable::compress1_loop_b(
-                        &mut reference_states[i],
-                        &inputs[i][..len],
-                        &mut reference_counts[i],
+                let mut reference_jobs = [
+                    &mut Job {
+                        state: input_state_words(0),
+                        input: &inputs[0][..len],
+                        count,
                         last_block,
                         last_node,
-                        stride,
-                    );
+                    },
+                    &mut Job {
+                        state: input_state_words(1),
+                        input: &inputs[1][..len],
+                        count,
+                        last_block,
+                        last_node,
+                    },
+                    &mut Job {
+                        state: input_state_words(2),
+                        input: &inputs[2][..len],
+                        count,
+                        last_block,
+                        last_node,
+                    },
+                    &mut Job {
+                        state: input_state_words(3),
+                        input: &inputs[3][..len],
+                        count,
+                        last_block,
+                        last_node,
+                    },
+                ];
+                for job in &mut reference_jobs {
+                    portable::compress1_loop_b(job, stride);
                 }
                 let expected_count = count
                     .wrapping_add((total_blocks * BLOCKBYTES) as u128)
                     .wrapping_sub(buffer_tail as u128);
-                assert_eq!([expected_count; 4], reference_counts);
+                for job in &mut reference_jobs {
+                    assert_eq!(expected_count, job.count);
+                }
 
                 // Do the same thing with the implementation under test under
                 // test, and make sure the result is the same.
-                let mut test_state0 = input_state_words(0);
-                let mut test_state1 = input_state_words(1);
-                let mut test_state2 = input_state_words(2);
-                let mut test_state3 = input_state_words(3);
-                let mut test_count0 = count;
-                let mut test_count1 = count;
-                let mut test_count2 = count;
-                let mut test_count3 = count;
+                let mut test_jobs = [
+                    &mut Job {
+                        state: input_state_words(0),
+                        input: &[],
+                        count,
+                        last_block: false,
+                        last_node: false,
+                    },
+                    &mut Job {
+                        state: input_state_words(1),
+                        input: &[],
+                        count,
+                        last_block: false,
+                        last_node: false,
+                    },
+                    &mut Job {
+                        state: input_state_words(2),
+                        input: &[],
+                        count,
+                        last_block: false,
+                        last_node: false,
+                    },
+                    &mut Job {
+                        state: input_state_words(3),
+                        input: &[],
+                        count,
+                        last_block: false,
+                        last_node: false,
+                    },
+                ];
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
                     let offset = invoc_num * blocks_per_invoc * padded_blockbytes(stride);
@@ -1089,39 +1104,18 @@ mod test {
                     if is_last_invoc && buffer_tail != 0 {
                         len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
                     }
-                    let ret = implementation.compress4_loop_b(
-                        [
-                            &mut test_state0,
-                            &mut test_state1,
-                            &mut test_state2,
-                            &mut test_state3,
-                        ],
-                        [
-                            &inputs[0][offset..][..len],
-                            &inputs[1][offset..][..len],
-                            &inputs[2][offset..][..len],
-                            &inputs[3][offset..][..len],
-                        ],
-                        [
-                            &mut test_count0,
-                            &mut test_count1,
-                            &mut test_count2,
-                            &mut test_count3,
-                        ],
-                        [is_last_invoc && last_block; 4],
-                        [is_last_invoc && last_node; 4],
-                        stride,
-                    );
+                    for i in 0..test_jobs.len() {
+                        test_jobs[i].input = &inputs[i][offset..][..len];
+                        test_jobs[i].last_block = is_last_invoc && last_block;
+                        test_jobs[i].last_node = is_last_invoc && last_node;
+                    }
+                    let ret = implementation.compress4_loop_b(&mut test_jobs, stride);
                     assert_eq!(rounded_up(len, stride), ret);
                 }
-                assert_eq!(reference_counts[0], test_count0);
-                assert_eq!(reference_counts[1], test_count1);
-                assert_eq!(reference_counts[2], test_count2);
-                assert_eq!(reference_counts[3], test_count3);
-                assert_eq!(reference_states[0], test_state0);
-                assert_eq!(reference_states[1], test_state1);
-                assert_eq!(reference_states[2], test_state2);
-                assert_eq!(reference_states[3], test_state3);
+                for i in 0..reference_jobs.len() {
+                    assert_eq!(reference_jobs[i].count, test_jobs[i].count);
+                    assert_eq!(reference_jobs[i].state, test_jobs[i].state);
+                }
             },
         );
     }

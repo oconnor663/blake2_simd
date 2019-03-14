@@ -136,8 +136,7 @@ mod sse41;
 
 pub mod blake2bp;
 pub mod guts;
-mod hash_many;
-pub use hash_many::hash_many;
+pub mod hash_many;
 
 use guts::{u64x8, Implementation};
 
