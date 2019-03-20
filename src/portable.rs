@@ -145,7 +145,8 @@ pub fn compress1_loop_b(job: &mut Job, parallel_stride: bool) {
     let mut offset = 0;
     let final_block_offset = guts::final_block_offset(job.input.len(), parallel_stride);
     let mut buffer = [0; BLOCKBYTES];
-    let (finblock, finblock_len) = guts::get_block(job.input, final_block_offset, &mut buffer);
+    let (finblock, finblock_len, _) =
+        guts::get_block(job.input, final_block_offset, &mut buffer, parallel_stride);
     let mut local_state = job.state;
     let mut local_count = job.count;
     while offset <= final_block_offset {

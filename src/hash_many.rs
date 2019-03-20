@@ -292,6 +292,16 @@ pub struct Job<'a> {
     pub count: u128,
     pub last_block: bool,
     pub last_node: bool,
+    pub hash_length: u8,
+}
+
+impl<'a> Job<'a> {
+    pub fn to_hash(&self) -> Hash {
+        Hash {
+            bytes: state_words_to_bytes(&self.state),
+            len: self.hash_length,
+        }
+    }
 }
 
 type JobsVec<'a, 'b> = ArrayVec<[&'a mut Job<'b>; guts::MAX_DEGREE]>;
@@ -401,6 +411,52 @@ mod test {
             for i in 0..LEN {
                 let expected = params[i].to_state().update(inputs[i]).finalize();
                 assert_eq!(&expected, &outputs[i]);
+            }
+        }
+    }
+
+    #[test]
+    fn test_hash_many_b() {
+        // Use a length of inputs that will exercise all of the power-of-two loops.
+        const LEN: usize = 2 * guts::MAX_DEGREE - 1;
+
+        // Rerun LEN inputs LEN different times, with the empty input starting in a
+        // different spot each time.
+        let mut input = [0; LEN * BLOCKBYTES];
+        paint_test_input(&mut input);
+        for start_offset in 0..LEN {
+            let mut inputs: [&[u8]; LEN] = [&[]; LEN];
+            for i in 0..LEN {
+                let chunks = (i + start_offset) % LEN;
+                inputs[i] = &input[..chunks * BLOCKBYTES];
+            }
+
+            let mut params: ArrayVec<[Params; LEN]> = ArrayVec::new();
+            for i in 0..LEN {
+                let mut param = Params::new();
+                param.node_offset(i as u64);
+                param.last_node(i % 2 == 1);
+                params.push(param);
+            }
+
+            let mut jobs: ArrayVec<[Job; LEN]> = ArrayVec::new();
+            for i in 0..LEN {
+                jobs.push(Job {
+                    state: params[i].to_state_words(),
+                    input: inputs[i],
+                    count: 0,
+                    last_block: true,
+                    last_node: params[i].last_node,
+                    hash_length: params[i].hash_length,
+                });
+            }
+
+            hash_many_b(&mut jobs, Implementation::detect(), false);
+
+            // Check the outputs.
+            for i in 0..LEN {
+                let expected = params[i].to_state().update(inputs[i]).finalize();
+                assert_eq!(expected, jobs[i].to_hash());
             }
         }
     }

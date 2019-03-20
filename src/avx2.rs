@@ -439,7 +439,8 @@ pub unsafe fn compress1_loop_b(job: &mut Job, parallel_stride: bool) {
     let mut offset = 0;
     let final_block_offset = guts::final_block_offset(job.input.len(), parallel_stride);
     let mut buffer = [0; BLOCKBYTES];
-    let (finblock, finblock_len) = guts::get_block(job.input, final_block_offset, &mut buffer);
+    let (finblock, finblock_len, _) =
+        guts::get_block(job.input, final_block_offset, &mut buffer, parallel_stride);
     let mut local_state = job.state;
     let mut local_count = job.count;
     while offset <= final_block_offset {
@@ -692,6 +693,8 @@ unsafe fn unsigned_cmpgt_epi64(a: __m256i, b: __m256i) -> __m256i {
 
 #[inline(always)]
 unsafe fn add_carry(lo: &mut __m256i, hi: &mut __m256i, x: __m256i) {
+    // TODO: Take advantage of the fact that only MAX-BLOCKSIZE will ever
+    // result in a carry?
     let old_lo = *lo;
     *lo = _mm256_add_epi64(*lo, x);
     let carries = _mm256_and_si256(unsigned_cmpgt_epi64(old_lo, *lo), _mm256_set1_epi64x(1));
@@ -959,25 +962,41 @@ pub unsafe fn compress4_loop_b(jobs: &mut [&mut Job; 4], parallel_stride: bool) 
     let mut buffer1 = [0; BLOCKBYTES];
     let mut buffer2 = [0; BLOCKBYTES];
     let mut buffer3 = [0; BLOCKBYTES];
-    let (finblock0, finblock_len0) =
-        guts::get_block(jobs[0].input, final_block_offset, &mut buffer0);
-    let (finblock1, finblock_len1) =
-        guts::get_block(jobs[1].input, final_block_offset, &mut buffer1);
-    let (finblock2, finblock_len2) =
-        guts::get_block(jobs[2].input, final_block_offset, &mut buffer2);
-    let (finblock3, finblock_len3) =
-        guts::get_block(jobs[3].input, final_block_offset, &mut buffer3);
+    let (finblock0, finblock_len0, is_end0) = guts::get_block(
+        jobs[0].input,
+        final_block_offset,
+        &mut buffer0,
+        parallel_stride,
+    );
+    let (finblock1, finblock_len1, is_end1) = guts::get_block(
+        jobs[1].input,
+        final_block_offset,
+        &mut buffer1,
+        parallel_stride,
+    );
+    let (finblock2, finblock_len2, is_end2) = guts::get_block(
+        jobs[2].input,
+        final_block_offset,
+        &mut buffer2,
+        parallel_stride,
+    );
+    let (finblock3, finblock_len3, is_end3) = guts::get_block(
+        jobs[3].input,
+        final_block_offset,
+        &mut buffer3,
+        parallel_stride,
+    );
     let finlastblockvec = load_flags_vec([
-        jobs[0].last_block,
-        jobs[1].last_block,
-        jobs[2].last_block,
-        jobs[3].last_block,
+        is_end0 && jobs[0].last_block,
+        is_end1 && jobs[1].last_block,
+        is_end2 && jobs[2].last_block,
+        is_end3 && jobs[3].last_block,
     ]);
     let finlastnodevec = load_flags_vec([
-        jobs[0].last_node,
-        jobs[1].last_node,
-        jobs[2].last_node,
-        jobs[3].last_node,
+        is_end0 && jobs[0].last_node,
+        is_end1 && jobs[1].last_node,
+        is_end2 && jobs[2].last_node,
+        is_end3 && jobs[3].last_node,
     ]);
     let fincountsinc = _mm256_setr_epi64x(
         finblock_len0 as i64,

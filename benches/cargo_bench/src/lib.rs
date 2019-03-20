@@ -119,6 +119,7 @@ fn bench_compress4_loop_avx2_one_block_b(b: &mut Bencher) {
                 count: 0,
                 last_block: true,
                 last_node: true,
+                hash_length: BLOCKBYTES as u8,
             },
             &mut Job {
                 state: guts::u64x8([2; 8]),
@@ -126,6 +127,7 @@ fn bench_compress4_loop_avx2_one_block_b(b: &mut Bencher) {
                 count: 0,
                 last_block: true,
                 last_node: true,
+                hash_length: BLOCKBYTES as u8,
             },
             &mut Job {
                 state: guts::u64x8([3; 8]),
@@ -133,6 +135,7 @@ fn bench_compress4_loop_avx2_one_block_b(b: &mut Bencher) {
                 count: 0,
                 last_block: true,
                 last_node: true,
+                hash_length: BLOCKBYTES as u8,
             },
             &mut Job {
                 state: guts::u64x8([4; 8]),
@@ -140,6 +143,7 @@ fn bench_compress4_loop_avx2_one_block_b(b: &mut Bencher) {
                 count: 0,
                 last_block: true,
                 last_node: true,
+                hash_length: BLOCKBYTES as u8,
             },
         ];
         benchmarks::compress4_loop_avx2_b(&mut jobs, false);
@@ -165,6 +169,7 @@ fn bench_compress4_loop_avx2_one_mb_b(b: &mut Bencher) {
                 count: 0,
                 last_block: true,
                 last_node: true,
+                hash_length: BLOCKBYTES as u8,
             },
             &mut Job {
                 state: guts::u64x8([2; 8]),
@@ -172,6 +177,7 @@ fn bench_compress4_loop_avx2_one_mb_b(b: &mut Bencher) {
                 count: 0,
                 last_block: true,
                 last_node: true,
+                hash_length: BLOCKBYTES as u8,
             },
             &mut Job {
                 state: guts::u64x8([3; 8]),
@@ -179,6 +185,7 @@ fn bench_compress4_loop_avx2_one_mb_b(b: &mut Bencher) {
                 count: 0,
                 last_block: true,
                 last_node: true,
+                hash_length: BLOCKBYTES as u8,
             },
             &mut Job {
                 state: guts::u64x8([4; 8]),
@@ -186,6 +193,7 @@ fn bench_compress4_loop_avx2_one_mb_b(b: &mut Bencher) {
                 count: 0,
                 last_block: true,
                 last_node: true,
+                hash_length: BLOCKBYTES as u8,
             },
         ];
         benchmarks::compress4_loop_avx2_b(&mut jobs, false);
@@ -209,6 +217,7 @@ fn bench_compress2_loop_avx2_one_mb_b(b: &mut Bencher) {
                 count: 0,
                 last_block: true,
                 last_node: true,
+                hash_length: BLOCKBYTES as u8,
             },
             &mut Job {
                 state: guts::u64x8([2; 8]),
@@ -216,6 +225,7 @@ fn bench_compress2_loop_avx2_one_mb_b(b: &mut Bencher) {
                 count: 0,
                 last_block: true,
                 last_node: true,
+                hash_length: BLOCKBYTES as u8,
             },
         ];
         benchmarks::compress2_loop_sse41_b(&mut jobs, false);
@@ -251,6 +261,7 @@ fn bench_compress1_loop_avx2_one_mb_b(b: &mut Bencher) {
             count: 0,
             last_block: true,
             last_node: true,
+            hash_length: BLOCKBYTES as u8,
         };
         benchmarks::compress1_loop_avx2_b(&mut job, false);
         test::black_box(&mut job);

@@ -410,16 +410,18 @@ pub(crate) fn get_block<'a>(
     input: &'a [u8],
     offset: usize,
     buffer: &'a mut [u8; BLOCKBYTES],
-) -> (&'a [u8; BLOCKBYTES], usize) {
+    parallel_stride: bool,
+) -> (&'a [u8; BLOCKBYTES], usize, bool) {
     debug_assert!(BLOCKBYTES < u8::max_value() as usize);
     debug_assert!(offset == 0 || offset < input.len());
     let start = cmp::min(offset, input.len());
+    let is_end = (input.len() - start) <= padded_blockbytes(parallel_stride);
     let len = cmp::min(BLOCKBYTES, input.len() - start);
     if input.len() - start >= BLOCKBYTES {
-        (array_ref!(input, start, BLOCKBYTES), BLOCKBYTES)
+        (array_ref!(input, start, BLOCKBYTES), BLOCKBYTES, is_end)
     } else {
         buffer[..len].copy_from_slice(&input[start..][..len]);
-        (buffer, len)
+        (buffer, len, is_end)
     }
 }
 
@@ -653,6 +655,7 @@ mod test {
                     count: count,
                     last_block: false,
                     last_node: false,
+                    hash_length: BLOCKBYTES as u8,
                 };
                 let total_blocks = invocations * blocks_per_invoc;
                 for block in 0..total_blocks {
@@ -682,6 +685,7 @@ mod test {
                     count: count,
                     last_block: false,
                     last_node: false,
+                    hash_length: BLOCKBYTES as u8,
                 };
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
@@ -834,6 +838,7 @@ mod test {
                         count,
                         last_block,
                         last_node,
+                        hash_length: BLOCKBYTES as u8,
                     },
                     &mut Job {
                         state: input_state_words(1),
@@ -841,6 +846,7 @@ mod test {
                         count,
                         last_block,
                         last_node,
+                        hash_length: BLOCKBYTES as u8,
                     },
                 ];
                 for job in &mut reference_jobs {
@@ -862,6 +868,7 @@ mod test {
                         count,
                         last_block: false,
                         last_node: false,
+                        hash_length: BLOCKBYTES as u8,
                     },
                     &mut Job {
                         state: input_state_words(1),
@@ -869,6 +876,7 @@ mod test {
                         count,
                         last_block: false,
                         last_node: false,
+                        hash_length: BLOCKBYTES as u8,
                     },
                 ];
                 for invoc_num in 0..invocations {
@@ -1032,6 +1040,7 @@ mod test {
                         count,
                         last_block,
                         last_node,
+                        hash_length: BLOCKBYTES as u8,
                     },
                     &mut Job {
                         state: input_state_words(1),
@@ -1039,6 +1048,7 @@ mod test {
                         count,
                         last_block,
                         last_node,
+                        hash_length: BLOCKBYTES as u8,
                     },
                     &mut Job {
                         state: input_state_words(2),
@@ -1046,6 +1056,7 @@ mod test {
                         count,
                         last_block,
                         last_node,
+                        hash_length: BLOCKBYTES as u8,
                     },
                     &mut Job {
                         state: input_state_words(3),
@@ -1053,6 +1064,7 @@ mod test {
                         count,
                         last_block,
                         last_node,
+                        hash_length: BLOCKBYTES as u8,
                     },
                 ];
                 for job in &mut reference_jobs {
@@ -1074,6 +1086,7 @@ mod test {
                         count,
                         last_block: false,
                         last_node: false,
+                        hash_length: BLOCKBYTES as u8,
                     },
                     &mut Job {
                         state: input_state_words(1),
@@ -1081,6 +1094,7 @@ mod test {
                         count,
                         last_block: false,
                         last_node: false,
+                        hash_length: BLOCKBYTES as u8,
                     },
                     &mut Job {
                         state: input_state_words(2),
@@ -1088,6 +1102,7 @@ mod test {
                         count,
                         last_block: false,
                         last_node: false,
+                        hash_length: BLOCKBYTES as u8,
                     },
                     &mut Job {
                         state: input_state_words(3),
@@ -1095,6 +1110,7 @@ mod test {
                         count,
                         last_block: false,
                         last_node: false,
+                        hash_length: BLOCKBYTES as u8,
                     },
                 ];
                 for invoc_num in 0..invocations {

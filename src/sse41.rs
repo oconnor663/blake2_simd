@@ -500,12 +500,22 @@ pub unsafe fn compress2_loop_b(jobs: &mut [&mut Job; 2], parallel_stride: bool) 
     let final_block_offset = guts::final_block_offset(min_len, parallel_stride);
     let mut buffer0 = [0; BLOCKBYTES];
     let mut buffer1 = [0; BLOCKBYTES];
-    let (finblock0, finblock_len0) =
-        guts::get_block(jobs[0].input, final_block_offset, &mut buffer0);
-    let (finblock1, finblock_len1) =
-        guts::get_block(jobs[1].input, final_block_offset, &mut buffer1);
-    let finlastblockvec = load_flags_vec([jobs[0].last_block, jobs[1].last_block]);
-    let finlastnodevec = load_flags_vec([jobs[0].last_node, jobs[1].last_node]);
+    let (finblock0, finblock_len0, is_end0) = guts::get_block(
+        jobs[0].input,
+        final_block_offset,
+        &mut buffer0,
+        parallel_stride,
+    );
+    let (finblock1, finblock_len1, is_end1) = guts::get_block(
+        jobs[1].input,
+        final_block_offset,
+        &mut buffer1,
+        parallel_stride,
+    );
+    let finlastblockvec =
+        load_flags_vec([is_end0 && jobs[0].last_block, is_end1 && jobs[1].last_block]);
+    let finlastnodevec =
+        load_flags_vec([is_end0 && jobs[0].last_node, is_end1 && jobs[1].last_node]);
     // There's no _mm_setr_epi64x, so note the arg order.
     let fincountsinc = _mm_set_epi64x(finblock_len1 as i64, finblock_len0 as i64);
     while offset <= final_block_offset {
