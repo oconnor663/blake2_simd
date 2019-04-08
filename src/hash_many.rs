@@ -1,4 +1,4 @@
-use crate::guts::{self, u64_flag, u64x2, u64x4, u64x8, Implementation};
+use crate::guts::{self, u64_flag, u64x2, u64x4, u64x8, Finalize, Implementation, Triple};
 use crate::state_words_to_bytes;
 use crate::Hash;
 use crate::Params;
@@ -304,10 +304,10 @@ impl<'a> Job<'a> {
     }
 }
 
-type JobsVec<'a, 'b> = ArrayVec<[&'a mut Job<'b>; guts::MAX_DEGREE]>;
+type JobsVec<'a, 'b> = ArrayVec<[Triple<'a, 'b>; guts::MAX_DEGREE]>;
 
 fn fill_jobs_vec<'a, 'b>(
-    jobs_iter: &mut impl Iterator<Item = &'a mut Job<'b>>,
+    jobs_iter: &mut impl Iterator<Item = Triple<'a, 'b>>,
     vec: &mut JobsVec<'a, 'b>,
 ) {
     while vec.len() < vec.capacity() {
@@ -332,16 +332,11 @@ fn advance_or_evict<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize, finished
     }
 }
 
-pub fn hash_many_b(jobs: &mut [Job], imp: Implementation, parallel_stride: bool) {
-    // sanity checks
-    for job in jobs.iter() {
-        if !job.last_block {
-            debug_assert!(!job.last_node);
-            debug_assert_eq!(0, job.input.len() % BLOCKBYTES);
-        }
-    }
-
-    let mut jobs_iter = jobs.iter_mut().fuse();
+pub fn hash_many_b<'a, 'b, I>(jobs: I, imp: Implementation, parallel_stride: bool)
+where
+    I: IntoIterator<Item = Triple<'a, 'b>>,
+{
+    let mut jobs_iter = jobs.into_iter().fuse();
     let mut jobs_vec = JobsVec::new();
     fill_jobs_vec(&mut jobs_iter, &mut jobs_vec);
 
@@ -363,9 +358,8 @@ pub fn hash_many_b(jobs: &mut [Job], imp: Implementation, parallel_stride: bool)
         }
     }
 
-    for job in jobs_vec.into_iter().chain(jobs_iter) {
-        imp.compress1_loop_b(job, parallel_stride);
-        job.input = &[];
+    for mut job in jobs_vec.into_iter().chain(jobs_iter) {
+        imp.compress1_loop_b(&mut job, parallel_stride);
     }
 }
 

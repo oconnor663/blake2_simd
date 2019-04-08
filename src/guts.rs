@@ -1,5 +1,5 @@
-use crate::hash_many::Job;
 use crate::*;
+use core::fmt;
 use core::mem;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -129,7 +129,7 @@ impl Implementation {
         }
     }
 
-    pub fn compress1_loop_b(&self, job: &mut Job, parallel_stride: bool) {
+    pub fn compress1_loop_b(&self, job: &mut Triple, parallel_stride: bool) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => unsafe {
@@ -199,7 +199,7 @@ impl Implementation {
         }
     }
 
-    pub fn compress2_loop_b(&self, jobs: &mut [&mut Job; 2], parallel_stride: bool) -> usize {
+    pub fn compress2_loop_b(&self, jobs: &mut [Triple; 2], parallel_stride: bool) -> usize {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 | Platform::SSE41 => unsafe {
@@ -288,7 +288,7 @@ impl Implementation {
         }
     }
 
-    pub fn compress4_loop_b(&self, jobs: &mut [&mut Job; 4], parallel_stride: bool) -> usize {
+    pub fn compress4_loop_b(&self, jobs: &mut [Triple; 4], parallel_stride: bool) -> usize {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => unsafe { avx2::compress4_loop_b(jobs, parallel_stride) },
@@ -384,6 +384,72 @@ impl core::ops::Deref for u64x8 {
 impl core::ops::DerefMut for u64x8 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Core {
+    pub words: u64x8,
+    pub count: u128,
+}
+
+// We don't derive(Debug), because we don't want unfinalized words to get
+// leaked accidentally. That could enable e.g. length extension attacks.
+impl fmt::Debug for Core {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Core {{ count: {} }}", self.count)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum Finalize {
+    NotYet,
+    YesOrdinary,
+    YesLastNode,
+}
+
+impl Finalize {
+    #[inline(always)]
+    pub fn last_block_flag(&self) -> bool {
+        match self {
+            Finalize::NotYet => false,
+            _ => true,
+        }
+    }
+
+    #[inline(always)]
+    pub fn last_node_flag(&self) -> bool {
+        match self {
+            Finalize::YesLastNode => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Triple<'a, 'b> {
+    pub core: &'a mut Core,
+    pub input: &'b [u8],
+    pub finalize: Finalize,
+    // The constructor contains debug asserts, so include a private field to
+    // force callers to use it.
+    _use_the_constructor_please: (),
+}
+
+impl<'a, 'b> Triple<'a, 'b> {
+    fn new(core: &'a mut Core, input: &'b [u8], finalize: Finalize) -> Triple<'a, 'b> {
+        if let Finalize::NotYet = finalize {
+            // Only the very last block is allowed to be shorter than
+            // BLOCKBYTES, so if we're not finalizing yet, the input must be an
+            // even multiple of BLOCKBYTES.
+            debug_assert_eq!(0, input.len() % BLOCKBYTES);
+        }
+        Triple {
+            core,
+            input,
+            finalize,
+            _use_the_constructor_please: (),
+        }
     }
 }
 

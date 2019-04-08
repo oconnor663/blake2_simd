@@ -4,8 +4,7 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 use super::*;
-use crate::guts::{u64_flag, u64x2, u64x8};
-use crate::hash_many::Job;
+use crate::guts::{u64_flag, u64x2, u64x8, Triple};
 use core::mem;
 
 #[inline(always)]
@@ -406,47 +405,71 @@ pub unsafe fn compress2_loop(
 }
 
 #[inline(always)]
-unsafe fn transpose_state_vecs(jobs: &[&mut Job; 2]) -> [__m128i; 8] {
+unsafe fn transpose_state_vecs(jobs: &[Triple; 2]) -> [__m128i; 8] {
     // Load all the state words into transposed vectors, where the first vector
     // has the first word of each state, etc. This is the form that 4-way
     // compression operates on, and transposing once at the beginning and once
     // at the end is more efficient that repeating it for each block. Note that
     // these loads are aligned, because u64x4 and u64x8 guarantee alignment.
     let [h0, h1] = transpose_vecs(
-        load_u64x2(&jobs[0].state.split()[0].split()[0]),
-        load_u64x2(&jobs[1].state.split()[0].split()[0]),
+        load_u64x2(&jobs[0].core.words.split()[0].split()[0]),
+        load_u64x2(&jobs[1].core.words.split()[0].split()[0]),
     );
     let [h2, h3] = transpose_vecs(
-        load_u64x2(&jobs[0].state.split()[0].split()[1]),
-        load_u64x2(&jobs[1].state.split()[0].split()[1]),
+        load_u64x2(&jobs[0].core.words.split()[0].split()[1]),
+        load_u64x2(&jobs[1].core.words.split()[0].split()[1]),
     );
     let [h4, h5] = transpose_vecs(
-        load_u64x2(&jobs[0].state.split()[1].split()[0]),
-        load_u64x2(&jobs[1].state.split()[1].split()[0]),
+        load_u64x2(&jobs[0].core.words.split()[1].split()[0]),
+        load_u64x2(&jobs[1].core.words.split()[1].split()[0]),
     );
     let [h6, h7] = transpose_vecs(
-        load_u64x2(&jobs[0].state.split()[1].split()[1]),
-        load_u64x2(&jobs[1].state.split()[1].split()[1]),
+        load_u64x2(&jobs[0].core.words.split()[1].split()[1]),
+        load_u64x2(&jobs[1].core.words.split()[1].split()[1]),
     );
     [h0, h1, h2, h3, h4, h5, h6, h7]
 }
 
 #[inline(always)]
-unsafe fn untranspose_state_vecs(h_vecs: &[__m128i; 8], jobs: &mut [&mut Job; 2]) {
+unsafe fn untranspose_state_vecs(h_vecs: &[__m128i; 8], jobs: &mut [Triple; 2]) {
     // Un-transpose the updated state vectors back into the caller's arrays.
     // These are aligned stores.
     let words = transpose_vecs(h_vecs[0], h_vecs[1]);
-    store_u64x2(words[0], &mut jobs[0].state.split_mut()[0].split_mut()[0]);
-    store_u64x2(words[1], &mut jobs[1].state.split_mut()[0].split_mut()[0]);
+    store_u64x2(
+        words[0],
+        &mut jobs[0].core.words.split_mut()[0].split_mut()[0],
+    );
+    store_u64x2(
+        words[1],
+        &mut jobs[1].core.words.split_mut()[0].split_mut()[0],
+    );
     let words = transpose_vecs(h_vecs[2], h_vecs[3]);
-    store_u64x2(words[0], &mut jobs[0].state.split_mut()[0].split_mut()[1]);
-    store_u64x2(words[1], &mut jobs[1].state.split_mut()[0].split_mut()[1]);
+    store_u64x2(
+        words[0],
+        &mut jobs[0].core.words.split_mut()[0].split_mut()[1],
+    );
+    store_u64x2(
+        words[1],
+        &mut jobs[1].core.words.split_mut()[0].split_mut()[1],
+    );
     let words = transpose_vecs(h_vecs[4], h_vecs[5]);
-    store_u64x2(words[0], &mut jobs[0].state.split_mut()[1].split_mut()[0]);
-    store_u64x2(words[1], &mut jobs[1].state.split_mut()[1].split_mut()[0]);
+    store_u64x2(
+        words[0],
+        &mut jobs[0].core.words.split_mut()[1].split_mut()[0],
+    );
+    store_u64x2(
+        words[1],
+        &mut jobs[1].core.words.split_mut()[1].split_mut()[0],
+    );
     let words = transpose_vecs(h_vecs[6], h_vecs[7]);
-    store_u64x2(words[0], &mut jobs[0].state.split_mut()[1].split_mut()[1]);
-    store_u64x2(words[1], &mut jobs[1].state.split_mut()[1].split_mut()[1]);
+    store_u64x2(
+        words[0],
+        &mut jobs[0].core.words.split_mut()[1].split_mut()[1],
+    );
+    store_u64x2(
+        words[1],
+        &mut jobs[1].core.words.split_mut()[1].split_mut()[1],
+    );
 }
 
 #[inline(always)]
@@ -469,20 +492,23 @@ unsafe fn transpose_msg_vecs(blocks: [&[u8; BLOCKBYTES]; 2]) -> [__m128i; 16] {
 }
 
 #[inline(always)]
-unsafe fn load_counts(jobs: &[&mut Job; 2]) -> (__m128i, __m128i) {
+unsafe fn load_counts(jobs: &[Triple; 2]) -> (__m128i, __m128i) {
     (
         // There's no _mm_setr_epi64x, so note the arg order.
-        _mm_set_epi64x(jobs[1].count as i64, jobs[0].count as i64),
-        _mm_set_epi64x((jobs[1].count >> 64) as i64, (jobs[0].count >> 64) as i64),
+        _mm_set_epi64x(jobs[1].core.count as i64, jobs[0].core.count as i64),
+        _mm_set_epi64x(
+            (jobs[1].core.count >> 64) as i64,
+            (jobs[0].core.count >> 64) as i64,
+        ),
     )
 }
 
 #[inline(always)]
-unsafe fn store_counts(lo: __m128i, hi: __m128i, jobs: &mut [&mut Job; 2]) {
+unsafe fn store_counts(lo: __m128i, hi: __m128i, jobs: &mut [Triple; 2]) {
     let lo_ints: [u64; 2] = core::mem::transmute(lo);
     let hi_ints: [u64; 2] = core::mem::transmute(hi);
-    jobs[0].count = lo_ints[0] as u128 | ((hi_ints[0] as u128) << 64);
-    jobs[1].count = lo_ints[1] as u128 | ((hi_ints[1] as u128) << 64);
+    jobs[0].core.count = lo_ints[0] as u128 | ((hi_ints[0] as u128) << 64);
+    jobs[1].core.count = lo_ints[1] as u128 | ((hi_ints[1] as u128) << 64);
 }
 
 #[inline(always)]
@@ -492,7 +518,7 @@ unsafe fn load_flags_vec(flags: [bool; 2]) -> __m128i {
 }
 
 #[target_feature(enable = "sse4.1")]
-pub unsafe fn compress2_loop_b(jobs: &mut [&mut Job; 2], parallel_stride: bool) -> usize {
+pub unsafe fn compress2_loop_b(jobs: &mut [Triple; 2], parallel_stride: bool) -> usize {
     let mut h_vecs = transpose_state_vecs(&jobs);
     let mut offset = 0;
     let (mut counts_lo, mut counts_hi) = load_counts(&jobs);
@@ -512,10 +538,14 @@ pub unsafe fn compress2_loop_b(jobs: &mut [&mut Job; 2], parallel_stride: bool) 
         &mut buffer1,
         parallel_stride,
     );
-    let finlastblockvec =
-        load_flags_vec([is_end0 && jobs[0].last_block, is_end1 && jobs[1].last_block]);
-    let finlastnodevec =
-        load_flags_vec([is_end0 && jobs[0].last_node, is_end1 && jobs[1].last_node]);
+    let finlastblockvec = load_flags_vec([
+        is_end0 && jobs[0].finalize.last_block_flag(),
+        is_end1 && jobs[1].finalize.last_block_flag(),
+    ]);
+    let finlastnodevec = load_flags_vec([
+        is_end0 && jobs[0].finalize.last_node_flag(),
+        is_end1 && jobs[1].finalize.last_node_flag(),
+    ]);
     // There's no _mm_setr_epi64x, so note the arg order.
     let fincountsinc = _mm_set_epi64x(finblock_len1 as i64, finblock_len0 as i64);
     while offset <= final_block_offset {
