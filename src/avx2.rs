@@ -5,7 +5,7 @@ use core::arch::x86_64::*;
 
 use super::*;
 use crate::guts;
-use crate::guts::{u64_flag, u64x4, u64x8, Triple};
+use crate::guts::{u64_flag, u64x4, u64x8, Job, Stride};
 
 #[inline(always)]
 unsafe fn load_u64x4(a: &u64x4) -> __m256i {
@@ -434,12 +434,12 @@ pub unsafe fn compress1_loop(
 }
 
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress1_loop_b(job: &mut Triple, parallel_stride: bool) {
+pub unsafe fn compress1_loop_b(job: Job, stride: Stride) {
     let mut offset = 0;
-    let final_block_offset = guts::final_block_offset(job.input.len(), parallel_stride);
+    let final_block_offset = guts::final_block_offset(job.input.len(), stride);
     let mut buffer = [0; BLOCKBYTES];
     let (finblock, finblock_len, _) =
-        guts::get_block(job.input, final_block_offset, &mut buffer, parallel_stride);
+        guts::get_block(job.input, final_block_offset, &mut buffer, stride);
     let mut local_state = job.core.words;
     let mut local_count = job.core.count;
     while offset <= final_block_offset {
@@ -462,7 +462,7 @@ pub unsafe fn compress1_loop_b(job: &mut Triple, parallel_stride: bool) {
             u64_flag(is_final_block && job.finalize.last_block_flag()),
             u64_flag(is_final_block && job.finalize.last_node_flag()),
         );
-        offset += guts::padded_blockbytes(parallel_stride);
+        offset += stride.padded_blockbytes();
     }
     job.core.words = local_state;
     job.core.count = local_count;
@@ -838,7 +838,7 @@ pub unsafe fn compress4_loop(
 }
 
 #[inline(always)]
-unsafe fn transpose_state_vecs(jobs: &[Triple; 4]) -> [__m256i; 8] {
+unsafe fn transpose_state_vecs(jobs: &[Job; 4]) -> [__m256i; 8] {
     // Load all the state words into transposed vectors, where the first vector
     // has the first word of each state, etc. This is the form that 4-way
     // compression operates on, and transposing once at the beginning and once
@@ -860,7 +860,7 @@ unsafe fn transpose_state_vecs(jobs: &[Triple; 4]) -> [__m256i; 8] {
 }
 
 #[inline(always)]
-unsafe fn untranspose_state_vecs(h_vecs: &[__m256i; 8], jobs: &mut [Triple; 4]) {
+unsafe fn untranspose_state_vecs(h_vecs: &[__m256i; 8], jobs: &mut [Job; 4]) {
     // Un-transpose the updated state vectors back into the caller's arrays.
     // These are aligned stores.
     let low_words = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
@@ -913,7 +913,7 @@ unsafe fn transpose_msg_vecs(blocks: [&[u8; BLOCKBYTES]; 4]) -> [__m256i; 16] {
 }
 
 #[inline(always)]
-unsafe fn load_counts(jobs: &[Triple; 4]) -> (__m256i, __m256i) {
+unsafe fn load_counts(jobs: &[Job; 4]) -> (__m256i, __m256i) {
     (
         _mm256_setr_epi64x(
             jobs[0].core.count as i64,
@@ -931,7 +931,7 @@ unsafe fn load_counts(jobs: &[Triple; 4]) -> (__m256i, __m256i) {
 }
 
 #[inline(always)]
-unsafe fn store_counts(lo: __m256i, hi: __m256i, jobs: &mut [Triple; 4]) {
+unsafe fn store_counts(lo: __m256i, hi: __m256i, jobs: &mut [Job; 4]) {
     let lo_ints: [u64; 4] = core::mem::transmute(lo);
     let hi_ints: [u64; 4] = core::mem::transmute(hi);
     jobs[0].core.count = lo_ints[0] as u128 | ((hi_ints[0] as u128) << 64);
@@ -950,41 +950,33 @@ unsafe fn load_flags_vec(flags: [bool; 4]) -> __m256i {
     )
 }
 
+#[inline(always)]
+unsafe fn offset_inputs(jobs: &mut [Job; 4], offset: usize) {
+    jobs[0].offset(offset);
+    jobs[1].offset(offset);
+    jobs[2].offset(offset);
+    jobs[3].offset(offset);
+}
+
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress4_loop_b(jobs: &mut [Triple; 4], parallel_stride: bool) -> usize {
+pub unsafe fn compress4_loop_b(jobs: &mut [Job; 4], stride: Stride) {
     let mut h_vecs = transpose_state_vecs(&jobs);
     let mut offset = 0;
     let (mut counts_lo, mut counts_hi) = load_counts(&jobs);
     let min_len = jobs.iter().map(|job| job.input.len()).min().unwrap();
-    let final_block_offset = guts::final_block_offset(min_len, parallel_stride);
+    let final_block_offset = guts::final_block_offset(min_len, stride);
     let mut buffer0 = [0; BLOCKBYTES];
     let mut buffer1 = [0; BLOCKBYTES];
     let mut buffer2 = [0; BLOCKBYTES];
     let mut buffer3 = [0; BLOCKBYTES];
-    let (finblock0, finblock_len0, is_end0) = guts::get_block(
-        jobs[0].input,
-        final_block_offset,
-        &mut buffer0,
-        parallel_stride,
-    );
-    let (finblock1, finblock_len1, is_end1) = guts::get_block(
-        jobs[1].input,
-        final_block_offset,
-        &mut buffer1,
-        parallel_stride,
-    );
-    let (finblock2, finblock_len2, is_end2) = guts::get_block(
-        jobs[2].input,
-        final_block_offset,
-        &mut buffer2,
-        parallel_stride,
-    );
-    let (finblock3, finblock_len3, is_end3) = guts::get_block(
-        jobs[3].input,
-        final_block_offset,
-        &mut buffer3,
-        parallel_stride,
-    );
+    let (finblock0, finblock_len0, is_end0) =
+        guts::get_block(jobs[0].input, final_block_offset, &mut buffer0, stride);
+    let (finblock1, finblock_len1, is_end1) =
+        guts::get_block(jobs[1].input, final_block_offset, &mut buffer1, stride);
+    let (finblock2, finblock_len2, is_end2) =
+        guts::get_block(jobs[2].input, final_block_offset, &mut buffer2, stride);
+    let (finblock3, finblock_len3, is_end3) =
+        guts::get_block(jobs[3].input, final_block_offset, &mut buffer3, stride);
     let finlastblockvec = load_flags_vec([
         is_end0 && jobs[0].finalize.last_block_flag(),
         is_end1 && jobs[1].finalize.last_block_flag(),
@@ -1039,10 +1031,10 @@ pub unsafe fn compress4_loop_b(jobs: &mut [Triple; 4], parallel_stride: bool) ->
             last_node_vec,
         );
 
-        offset = offset.saturating_add(guts::padded_blockbytes(parallel_stride));
+        offset = offset.saturating_add(stride.padded_blockbytes());
     }
 
-    store_counts(counts_lo, counts_hi, &mut *jobs);
-    untranspose_state_vecs(&h_vecs, &mut *jobs);
-    offset
+    offset_inputs(jobs, offset);
+    store_counts(counts_lo, counts_hi, jobs);
+    untranspose_state_vecs(&h_vecs, jobs);
 }

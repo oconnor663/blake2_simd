@@ -129,16 +129,16 @@ impl Implementation {
         }
     }
 
-    pub fn compress1_loop_b(&self, job: &mut Triple, parallel_stride: bool) {
+    pub fn compress1_loop_b(&self, job: Job, stride: Stride) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => unsafe {
-                avx2::compress1_loop_b(job, parallel_stride);
+                avx2::compress1_loop_b(job, stride);
             },
             // Note that there's an SSE version of compress1 in the official C
             // implementation, but I haven't ported it yet.
             _ => {
-                portable::compress1_loop_b(job, parallel_stride);
+                portable::compress1_loop_b(job, stride);
             }
         }
     }
@@ -199,12 +199,10 @@ impl Implementation {
         }
     }
 
-    pub fn compress2_loop_b(&self, jobs: &mut [Triple; 2], parallel_stride: bool) -> usize {
+    pub fn compress2_loop_b(&self, jobs: &mut [Job; 2], stride: Stride) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 | Platform::SSE41 => unsafe {
-                sse41::compress2_loop_b(jobs, parallel_stride)
-            },
+            Platform::AVX2 | Platform::SSE41 => unsafe { sse41::compress2_loop_b(jobs, stride) },
             _ => panic!("unsupported"),
         }
     }
@@ -288,10 +286,10 @@ impl Implementation {
         }
     }
 
-    pub fn compress4_loop_b(&self, jobs: &mut [Triple; 4], parallel_stride: bool) -> usize {
+    pub fn compress4_loop_b(&self, jobs: &mut [Job; 4], stride: Stride) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => unsafe { avx2::compress4_loop_b(jobs, parallel_stride) },
+            Platform::AVX2 => unsafe { avx2::compress4_loop_b(jobs, stride) },
             _ => panic!("unsupported"),
         }
     }
@@ -393,6 +391,15 @@ pub struct Core {
     pub count: u128,
 }
 
+impl Core {
+    pub fn to_hash(&self, length: usize) -> crate::Hash {
+        crate::Hash {
+            bytes: crate::state_words_to_bytes(&self.words),
+            len: length as u8,
+        }
+    }
+}
+
 // We don't derive(Debug), because we don't want unfinalized words to get
 // leaked accidentally. That could enable e.g. length extension attacks.
 impl fmt::Debug for Core {
@@ -401,7 +408,25 @@ impl fmt::Debug for Core {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stride {
+    // e.g. BLAKE2b
+    Normal,
+    // e.g. BLAKE2bp
+    Parallel,
+}
+
+impl Stride {
+    #[inline(always)]
+    pub fn padded_blockbytes(&self) -> usize {
+        match self {
+            Stride::Normal => BLOCKBYTES,
+            Stride::Parallel => crate::blake2bp::DEGREE * BLOCKBYTES,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Finalize {
     NotYet,
     YesOrdinary,
@@ -427,7 +452,7 @@ impl Finalize {
 }
 
 #[derive(Debug)]
-pub struct Triple<'a, 'b> {
+pub struct Job<'a, 'b> {
     pub core: &'a mut Core,
     pub input: &'b [u8],
     pub finalize: Finalize,
@@ -436,38 +461,35 @@ pub struct Triple<'a, 'b> {
     _use_the_constructor_please: (),
 }
 
-impl<'a, 'b> Triple<'a, 'b> {
-    fn new(core: &'a mut Core, input: &'b [u8], finalize: Finalize) -> Triple<'a, 'b> {
+impl<'a, 'b> Job<'a, 'b> {
+    pub fn new(core: &'a mut Core, input: &'b [u8], finalize: Finalize) -> Job<'a, 'b> {
         if let Finalize::NotYet = finalize {
             // Only the very last block is allowed to be shorter than
             // BLOCKBYTES, so if we're not finalizing yet, the input must be an
             // even multiple of BLOCKBYTES.
             debug_assert_eq!(0, input.len() % BLOCKBYTES);
         }
-        Triple {
+        Job {
             core,
             input,
             finalize,
             _use_the_constructor_please: (),
         }
     }
-}
 
-#[inline(always)]
-pub(crate) fn padded_blockbytes(parallel_stride: bool) -> usize {
-    if parallel_stride {
-        crate::blake2bp::DEGREE * BLOCKBYTES
-    } else {
-        BLOCKBYTES
+    #[inline(always)]
+    pub fn offset(&mut self, offset: usize) {
+        let start = cmp::min(self.input.len(), offset);
+        self.input = &self.input[start..]
     }
 }
 
 // Note that even an empty input has a final block at offset 0, which will wind
 // up being all zeros.
 #[inline(always)]
-pub(crate) fn final_block_offset(min_len: usize, parallel_stride: bool) -> usize {
+pub(crate) fn final_block_offset(min_len: usize, stride: Stride) -> usize {
     let final_byte = min_len.saturating_sub(1);
-    final_byte - (final_byte % padded_blockbytes(parallel_stride))
+    final_byte - (final_byte % stride.padded_blockbytes())
 }
 
 // Returns (block, len).
@@ -476,12 +498,12 @@ pub(crate) fn get_block<'a>(
     input: &'a [u8],
     offset: usize,
     buffer: &'a mut [u8; BLOCKBYTES],
-    parallel_stride: bool,
+    stride: Stride,
 ) -> (&'a [u8; BLOCKBYTES], usize, bool) {
     debug_assert!(BLOCKBYTES < u8::max_value() as usize);
     debug_assert!(offset == 0 || offset < input.len());
     let start = cmp::min(offset, input.len());
-    let is_end = (input.len() - start) <= padded_blockbytes(parallel_stride);
+    let is_end = (input.len() - start) <= stride.padded_blockbytes();
     let len = cmp::min(BLOCKBYTES, input.len() - start);
     if input.len() - start >= BLOCKBYTES {
         (array_ref!(input, start, BLOCKBYTES), BLOCKBYTES, is_end)
@@ -596,7 +618,7 @@ mod test {
 
     fn exercise_cases_b<F>(mut f: F)
     where
-        F: FnMut(usize, usize, u128, bool, bool, bool, usize),
+        F: FnMut(usize, usize, u128, Finalize, Stride, usize),
     {
         // Chose counts to hit the relevant overflow cases.
         let counts = &[
@@ -607,47 +629,45 @@ mod test {
         for invocations in 1..=2 {
             for blocks_per_invoc in 1..=3 {
                 for &count in counts {
-                    for &last_block in &[true, false] {
-                        for &last_node in &[true, false] {
-                            for &stride in &[true, false] {
-                                for &buffer_tail in &[0, 1, BLOCKBYTES - 1, BLOCKBYTES] {
-                                    // eprintln!("\ncase -----");
-                                    // dbg!(invocations);
-                                    // dbg!(blocks_per_invoc);
-                                    // dbg!(count);
-                                    // dbg!(last_block);
-                                    // dbg!(last_node);
-                                    // dbg!(stride);
-                                    // dbg!(buffer_tail);
-                                    // Skip the empty block case when there's
-                                    // more than a single block of input. It's
-                                    // not really valid, and our test reference
-                                    // doesn't do the right thing either.
-                                    if invocations * blocks_per_invoc != 1
-                                        && buffer_tail == BLOCKBYTES
-                                    {
-                                        continue;
-                                    }
-                                    // Skip last_node=true when last_block=false.
-                                    // We assert against doing that.
-                                    if last_node && !last_block {
-                                        continue;
-                                    }
-                                    // Skip non-zero buffer tails when last_block=false.
-                                    // We assert against doing that.
-                                    if !last_block && buffer_tail != 0 {
-                                        continue;
-                                    }
-                                    f(
-                                        invocations,
-                                        blocks_per_invoc,
-                                        count,
-                                        last_block,
-                                        last_node,
-                                        stride,
-                                        buffer_tail,
-                                    );
+                    for &finalize in &[
+                        Finalize::NotYet,
+                        Finalize::YesOrdinary,
+                        Finalize::YesLastNode,
+                    ] {
+                        for &stride in &[Stride::Normal, Stride::Parallel] {
+                            for &buffer_tail in &[0, 1, BLOCKBYTES - 1, BLOCKBYTES] {
+                                // eprintln!("\ncase -----");
+                                // dbg!(invocations);
+                                // dbg!(blocks_per_invoc);
+                                // dbg!(count);
+                                // dbg!(finalize);
+                                // dbg!(stride);
+                                // dbg!(buffer_tail);
+
+                                // Skip the empty block case when there's more
+                                // than a single block of input. It's not
+                                // really valid, and our test reference doesn't
+                                // do the right thing either.
+                                if invocations * blocks_per_invoc != 1 && buffer_tail == BLOCKBYTES
+                                {
+                                    continue;
                                 }
+                                // Skip non-zero buffer tails when not
+                                // finalizing. We assert against doing that.
+                                if let Finalize::NotYet = finalize {
+                                    if buffer_tail != 0 {
+                                        continue;
+                                    }
+                                }
+
+                                f(
+                                    invocations,
+                                    blocks_per_invoc,
+                                    count,
+                                    finalize,
+                                    stride,
+                                    buffer_tail,
+                                );
                             }
                         }
                     }
@@ -711,64 +731,65 @@ mod test {
         let mut input = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input);
         exercise_cases_b(
-            |invocations, blocks_per_invoc, count, last_block, last_node, stride, buffer_tail| {
+            |invocations, blocks_per_invoc, count, finalize, stride, buffer_tail| {
                 // Use the portable implementation, one block at a time, to
-                // compute the final state that we expect. Manually update the
-                // count ourselves.
-                let mut reference_job = Job {
-                    state: input_state_words(0),
-                    input: &[],
-                    count: count,
-                    last_block: false,
-                    last_node: false,
-                    hash_length: BLOCKBYTES as u8,
+                // compute the final state that we expect.
+                let mut reference_core = Core {
+                    words: input_state_words(0),
+                    count,
                 };
                 let total_blocks = invocations * blocks_per_invoc;
                 for block in 0..total_blocks {
                     let input_block =
-                        array_ref!(&input, block * padded_blockbytes(stride), BLOCKBYTES);
+                        array_ref!(&input, block * stride.padded_blockbytes(), BLOCKBYTES);
                     let is_last_block = block == total_blocks - 1;
                     let input_slice = if is_last_block {
                         &input_block[..BLOCKBYTES - buffer_tail]
                     } else {
                         &input_block[..]
                     };
-                    reference_job.input = input_slice;
-                    reference_job.last_block = is_last_block && last_block;
-                    reference_job.last_node = is_last_block && last_node;
-                    portable::compress1_loop_b(&mut reference_job, stride);
+                    let maybe_finalize = if !is_last_block {
+                        Finalize::NotYet
+                    } else {
+                        finalize
+                    };
+                    portable::compress1_loop_b(
+                        Job::new(&mut reference_core, input_slice, maybe_finalize),
+                        stride,
+                    );
                 }
                 let expected_count = count
                     .wrapping_add((total_blocks * BLOCKBYTES) as u128)
                     .wrapping_sub(buffer_tail as u128);
-                assert_eq!(expected_count, reference_job.count);
+                assert_eq!(expected_count, reference_core.count);
 
                 // Do the same thing in batches with the implementation under
                 // test, and make sure they're the same.
-                let mut test_job = Job {
-                    state: input_state_words(0),
-                    input: &[],
-                    count: count,
-                    last_block: false,
-                    last_node: false,
-                    hash_length: BLOCKBYTES as u8,
+                let mut test_core = Core {
+                    words: input_state_words(0),
+                    count,
                 };
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
-                    let offset = invoc_num * blocks_per_invoc * padded_blockbytes(stride);
-                    let mut len = blocks_per_invoc * padded_blockbytes(stride);
+                    let offset = invoc_num * blocks_per_invoc * stride.padded_blockbytes();
+                    let mut len = blocks_per_invoc * stride.padded_blockbytes();
                     if is_last_invoc {
                         // Buffer tail cuts into the input block itself, not into its stride padding.
-                        len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
+                        len = len - stride.padded_blockbytes() + BLOCKBYTES - buffer_tail;
                     }
                     let input_slice = &input[offset..][..len];
-                    test_job.input = input_slice;
-                    test_job.last_block = is_last_invoc && last_block;
-                    test_job.last_node = is_last_invoc && last_node;
-                    implementation.compress1_loop_b(&mut test_job, stride);
+                    let maybe_finalize = if !is_last_invoc {
+                        Finalize::NotYet
+                    } else {
+                        finalize
+                    };
+                    implementation.compress1_loop_b(
+                        Job::new(&mut test_core, input_slice, maybe_finalize),
+                        stride,
+                    );
                 }
-                assert_eq!(reference_job.count, test_job.count);
-                assert_eq!(reference_job.state, test_job.state);
+                assert_eq!(reference_core.count, test_core.count);
+                assert_eq!(reference_core.words, test_core.words);
             },
         );
     }
@@ -873,96 +894,80 @@ mod test {
             },
         );
     }
-    fn rounded_up(len: usize, stride: bool) -> usize {
-        // An empty input still counts as a full padded block of offset.
-        let padded = padded_blockbytes(stride);
-        if len == 0 {
-            padded
-        } else if len % padded != 0 {
-            len - (len % padded) + padded
-        } else {
-            len
-        }
-    }
+
     fn exercise_compress2_loop_b(implementation: Implementation) {
         let mut input_buffer = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input_buffer);
         let inputs = [&input_buffer[0..], &input_buffer[1..]];
         exercise_cases_b(
-            |invocations, blocks_per_invoc, count, last_block, last_node, stride, buffer_tail| {
+            |invocations, blocks_per_invoc, count, finalize, stride, buffer_tail| {
                 // Use the portable compress1_loop implementation to compute a
                 // reference state for each input separately.
                 let total_blocks = invocations * blocks_per_invoc;
-                let mut len = total_blocks * padded_blockbytes(stride);
+                let mut len = total_blocks * stride.padded_blockbytes();
                 if buffer_tail != 0 {
-                    len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
+                    len = len - stride.padded_blockbytes() + BLOCKBYTES - buffer_tail;
                 }
-                let mut reference_jobs = [
-                    &mut Job {
-                        state: input_state_words(0),
-                        input: &inputs[0][..len],
+                let mut reference_cores = [
+                    Core {
+                        words: input_state_words(0),
                         count,
-                        last_block,
-                        last_node,
-                        hash_length: BLOCKBYTES as u8,
                     },
-                    &mut Job {
-                        state: input_state_words(1),
-                        input: &inputs[1][..len],
+                    Core {
+                        words: input_state_words(1),
                         count,
-                        last_block,
-                        last_node,
-                        hash_length: BLOCKBYTES as u8,
                     },
                 ];
-                for job in &mut reference_jobs {
-                    portable::compress1_loop_b(job, stride);
+                for i in 0..reference_cores.len() {
+                    portable::compress1_loop_b(
+                        Job::new(&mut reference_cores[i], &inputs[i][..len], finalize),
+                        stride,
+                    );
                 }
                 let expected_count = count
                     .wrapping_add((total_blocks * BLOCKBYTES) as u128)
                     .wrapping_sub(buffer_tail as u128);
-                for job in &mut reference_jobs {
-                    assert_eq!(expected_count, job.count);
+                for core in &reference_cores {
+                    assert_eq!(expected_count, core.count);
                 }
 
                 // Do the same thing with the implementation under test under
                 // test, and make sure the result is the same.
-                let mut test_jobs = [
-                    &mut Job {
-                        state: input_state_words(0),
-                        input: &[],
+                let mut test_cores = [
+                    Core {
+                        words: input_state_words(0),
                         count,
-                        last_block: false,
-                        last_node: false,
-                        hash_length: BLOCKBYTES as u8,
                     },
-                    &mut Job {
-                        state: input_state_words(1),
-                        input: &[],
+                    Core {
+                        words: input_state_words(1),
                         count,
-                        last_block: false,
-                        last_node: false,
-                        hash_length: BLOCKBYTES as u8,
                     },
                 ];
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
-                    let offset = invoc_num * blocks_per_invoc * padded_blockbytes(stride);
-                    let mut len = blocks_per_invoc * padded_blockbytes(stride);
+                    let offset = invoc_num * blocks_per_invoc * stride.padded_blockbytes();
+                    let mut len = blocks_per_invoc * stride.padded_blockbytes();
                     if is_last_invoc && buffer_tail != 0 {
-                        len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
+                        len = len - stride.padded_blockbytes() + BLOCKBYTES - buffer_tail;
                     }
-                    for i in 0..test_jobs.len() {
-                        test_jobs[i].input = &inputs[i][offset..][..len];
-                        test_jobs[i].last_block = is_last_invoc && last_block;
-                        test_jobs[i].last_node = is_last_invoc && last_node;
+                    let maybe_finalize = if !is_last_invoc {
+                        Finalize::NotYet
+                    } else {
+                        finalize
+                    };
+                    let &mut [ref mut core0, ref mut core1] = &mut test_cores;
+                    let mut jobs = [
+                        Job::new(core0, &inputs[0][offset..][..len], maybe_finalize),
+                        Job::new(core1, &inputs[1][offset..][..len], maybe_finalize),
+                    ];
+                    implementation.compress2_loop_b(&mut jobs, stride);
+                    for job in &jobs {
+                        assert!(job.input.is_empty());
                     }
-                    let ret = implementation.compress2_loop_b(&mut test_jobs, stride);
-                    assert_eq!(rounded_up(len, stride), ret);
                 }
-                for i in 0..reference_jobs.len() {
-                    assert_eq!(reference_jobs[i].count, test_jobs[i].count);
-                    assert_eq!(reference_jobs[i].state, test_jobs[i].state);
+                for (reference, test) in reference_cores.iter().zip(&test_cores) {
+                    assert_eq!(reference.count, test.count);
+                    assert_eq!(reference.words, test.words);
                 }
             },
         );
@@ -1081,6 +1086,7 @@ mod test {
             },
         );
     }
+
     fn exercise_compress4_loop_b(implementation: Implementation) {
         let mut input_buffer = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input_buffer);
@@ -1091,112 +1097,93 @@ mod test {
             &input_buffer[3..],
         ];
         exercise_cases_b(
-            |invocations, blocks_per_invoc, count, last_block, last_node, stride, buffer_tail| {
+            |invocations, blocks_per_invoc, count, finalize, stride, buffer_tail| {
                 // Use the portable compress1_loop implementation to compute a
                 // reference state for each input separately.
                 let total_blocks = invocations * blocks_per_invoc;
-                let mut len = total_blocks * padded_blockbytes(stride);
+                let mut len = total_blocks * stride.padded_blockbytes();
                 if buffer_tail != 0 {
-                    len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
+                    len = len - stride.padded_blockbytes() + BLOCKBYTES - buffer_tail;
                 }
-                let mut reference_jobs = [
-                    &mut Job {
-                        state: input_state_words(0),
-                        input: &inputs[0][..len],
+                let mut reference_cores = [
+                    Core {
+                        words: input_state_words(0),
                         count,
-                        last_block,
-                        last_node,
-                        hash_length: BLOCKBYTES as u8,
                     },
-                    &mut Job {
-                        state: input_state_words(1),
-                        input: &inputs[1][..len],
+                    Core {
+                        words: input_state_words(1),
                         count,
-                        last_block,
-                        last_node,
-                        hash_length: BLOCKBYTES as u8,
                     },
-                    &mut Job {
-                        state: input_state_words(2),
-                        input: &inputs[2][..len],
+                    Core {
+                        words: input_state_words(2),
                         count,
-                        last_block,
-                        last_node,
-                        hash_length: BLOCKBYTES as u8,
                     },
-                    &mut Job {
-                        state: input_state_words(3),
-                        input: &inputs[3][..len],
+                    Core {
+                        words: input_state_words(3),
                         count,
-                        last_block,
-                        last_node,
-                        hash_length: BLOCKBYTES as u8,
                     },
                 ];
-                for job in &mut reference_jobs {
-                    portable::compress1_loop_b(job, stride);
+                for i in 0..reference_cores.len() {
+                    portable::compress1_loop_b(
+                        Job::new(&mut reference_cores[i], &inputs[i][..len], finalize),
+                        stride,
+                    );
                 }
                 let expected_count = count
                     .wrapping_add((total_blocks * BLOCKBYTES) as u128)
                     .wrapping_sub(buffer_tail as u128);
-                for job in &mut reference_jobs {
-                    assert_eq!(expected_count, job.count);
+                for core in &reference_cores {
+                    assert_eq!(expected_count, core.count);
                 }
 
                 // Do the same thing with the implementation under test under
                 // test, and make sure the result is the same.
-                let mut test_jobs = [
-                    &mut Job {
-                        state: input_state_words(0),
-                        input: &[],
+                let mut test_cores = [
+                    Core {
+                        words: input_state_words(0),
                         count,
-                        last_block: false,
-                        last_node: false,
-                        hash_length: BLOCKBYTES as u8,
                     },
-                    &mut Job {
-                        state: input_state_words(1),
-                        input: &[],
+                    Core {
+                        words: input_state_words(1),
                         count,
-                        last_block: false,
-                        last_node: false,
-                        hash_length: BLOCKBYTES as u8,
                     },
-                    &mut Job {
-                        state: input_state_words(2),
-                        input: &[],
+                    Core {
+                        words: input_state_words(2),
                         count,
-                        last_block: false,
-                        last_node: false,
-                        hash_length: BLOCKBYTES as u8,
                     },
-                    &mut Job {
-                        state: input_state_words(3),
-                        input: &[],
+                    Core {
+                        words: input_state_words(3),
                         count,
-                        last_block: false,
-                        last_node: false,
-                        hash_length: BLOCKBYTES as u8,
                     },
                 ];
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
-                    let offset = invoc_num * blocks_per_invoc * padded_blockbytes(stride);
-                    let mut len = blocks_per_invoc * padded_blockbytes(stride);
+                    let offset = invoc_num * blocks_per_invoc * stride.padded_blockbytes();
+                    let mut len = blocks_per_invoc * stride.padded_blockbytes();
                     if is_last_invoc && buffer_tail != 0 {
-                        len = len - padded_blockbytes(stride) + BLOCKBYTES - buffer_tail;
+                        len = len - stride.padded_blockbytes() + BLOCKBYTES - buffer_tail;
                     }
-                    for i in 0..test_jobs.len() {
-                        test_jobs[i].input = &inputs[i][offset..][..len];
-                        test_jobs[i].last_block = is_last_invoc && last_block;
-                        test_jobs[i].last_node = is_last_invoc && last_node;
+                    let maybe_finalize = if !is_last_invoc {
+                        Finalize::NotYet
+                    } else {
+                        finalize
+                    };
+                    let &mut [ref mut core0, ref mut core1, ref mut core2, ref mut core3] =
+                        &mut test_cores;
+                    let mut jobs = [
+                        Job::new(core0, &inputs[0][offset..][..len], maybe_finalize),
+                        Job::new(core1, &inputs[1][offset..][..len], maybe_finalize),
+                        Job::new(core2, &inputs[2][offset..][..len], maybe_finalize),
+                        Job::new(core3, &inputs[3][offset..][..len], maybe_finalize),
+                    ];
+                    implementation.compress4_loop_b(&mut jobs, stride);
+                    for job in &jobs {
+                        assert!(job.input.is_empty());
                     }
-                    let ret = implementation.compress4_loop_b(&mut test_jobs, stride);
-                    assert_eq!(rounded_up(len, stride), ret);
                 }
-                for i in 0..reference_jobs.len() {
-                    assert_eq!(reference_jobs[i].count, test_jobs[i].count);
-                    assert_eq!(reference_jobs[i].state, test_jobs[i].state);
+                for (reference, test) in reference_cores.iter().zip(&test_cores) {
+                    assert_eq!(reference.count, test.count);
+                    assert_eq!(reference.words, test.words);
                 }
             },
         );

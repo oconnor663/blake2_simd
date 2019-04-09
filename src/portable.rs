@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
-use crate::guts::{u64_flag, u64x8, Triple};
+use crate::guts::{u64_flag, u64x8, Job, Stride};
 
 // G is the mixing function, called eight times per round in the compression
 // function. V is the 16-word state vector of the compression function, usually
@@ -140,12 +140,12 @@ pub fn compress1_loop(
     }
 }
 
-pub fn compress1_loop_b(job: &mut Triple, parallel_stride: bool) {
+pub fn compress1_loop_b(job: Job, stride: Stride) {
     let mut offset = 0;
-    let final_block_offset = guts::final_block_offset(job.input.len(), parallel_stride);
+    let final_block_offset = guts::final_block_offset(job.input.len(), stride);
     let mut buffer = [0; BLOCKBYTES];
     let (finblock, finblock_len, _) =
-        guts::get_block(job.input, final_block_offset, &mut buffer, parallel_stride);
+        guts::get_block(job.input, final_block_offset, &mut buffer, stride);
     let mut local_state = job.core.words;
     let mut local_count = job.core.count;
     while offset <= final_block_offset {
@@ -165,7 +165,7 @@ pub fn compress1_loop_b(job: &mut Triple, parallel_stride: bool) {
             u64_flag(is_final_block && job.finalize.last_block_flag()),
             u64_flag(is_final_block && job.finalize.last_node_flag()),
         );
-        offset += guts::padded_blockbytes(parallel_stride);
+        offset += stride.padded_blockbytes();
     }
     job.core.words = local_state;
     job.core.count = local_count;
