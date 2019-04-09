@@ -422,10 +422,9 @@ impl fmt::Debug for Params {
 /// ```
 #[derive(Clone)]
 pub struct State {
-    h: u64x8,
+    core: guts::Core,
     buf: Block,
     buflen: u8,
-    count: u128,
     last_node: bool,
     hash_length: u8,
     implementation: Implementation,
@@ -439,10 +438,12 @@ impl State {
 
     fn with_params(params: &Params) -> Self {
         let mut state = Self {
-            h: params.to_state_words(),
+            core: guts::Core {
+                words: params.to_state_words(),
+                count: 0,
+            },
             buf: [0; BLOCKBYTES],
             buflen: 0,
-            count: 0,
             last_node: params.last_node,
             hash_length: params.hash_length,
             implementation: Implementation::detect(),
@@ -469,17 +470,10 @@ impl State {
         if self.buflen > 0 {
             self.fill_buf(input);
             if !input.is_empty() {
-                self.implementation.compress1_loop(
-                    &mut self.h,
-                    &self.buf,
-                    self.count,
-                    0,
-                    0,
-                    1,
-                    1,
-                    0,
+                self.implementation.compress1_loop_b(
+                    guts::Job::new(&mut self.core, &self.buf, guts::Finalize::NotYet),
+                    guts::Stride::Normal,
                 );
-                self.count += BLOCKBYTES as u128;
                 self.buflen = 0;
             }
         }
@@ -491,13 +485,14 @@ impl State {
         self.compress_buffer_if_possible(&mut input);
         // While there's more than a block of input left (which also means we cleared the buffer
         // above), compress blocks directly without copying.
-        let blocks = input.len().saturating_sub(1) / BLOCKBYTES;
-        if blocks > 0 {
-            self.implementation
-                .compress1_loop(&mut self.h, input, self.count, 0, 0, blocks, 1, 0);
-            let bytes = blocks * BLOCKBYTES;
-            self.count += bytes as u128;
-            input = &input[bytes..];
+        let mut end = input.len().saturating_sub(1);
+        end -= end % BLOCKBYTES;
+        if end > 0 {
+            self.implementation.compress1_loop_b(
+                guts::Job::new(&mut self.core, &input[..end], guts::Finalize::NotYet),
+                guts::Stride::Normal,
+            );
+            input = &input[end..];
         }
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
         // Note that this represents some copying overhead, which in theory we could avoid in
@@ -510,24 +505,19 @@ impl State {
 
     /// Finalize the state and return a `Hash`. This method is idempotent, and calling it multiple
     /// times will give the same result. It's also possible to `update` with more input in between.
-    pub fn finalize(&mut self) -> Hash {
-        for i in self.buflen as usize..BLOCKBYTES {
-            self.buf[i] = 0;
-        }
-        let last_node = if self.last_node { !0 } else { 0 };
-        let mut h_copy = self.h;
-        self.implementation.compress1_loop(
-            &mut h_copy,
-            &self.buf,
-            self.count,
-            !0,
-            last_node,
-            1,
-            1,
-            BLOCKBYTES - self.buflen as usize,
+    pub fn finalize(&self) -> Hash {
+        let finalize = if self.last_node {
+            guts::Finalize::YesLastNode
+        } else {
+            guts::Finalize::YesOrdinary
+        };
+        let mut core_copy = self.core;
+        self.implementation.compress1_loop_b(
+            guts::Job::new(&mut core_copy, &self.buf[..self.buflen as usize], finalize),
+            guts::Stride::Normal,
         );
         Hash {
-            bytes: state_words_to_bytes(&h_copy),
+            bytes: state_words_to_bytes(&core_copy.words),
             len: self.hash_length,
         }
     }
@@ -547,7 +537,7 @@ impl State {
 
     /// Return the total number of bytes input so far.
     pub fn count(&self) -> u128 {
-        self.count + self.buflen as u128
+        self.core.count + self.buflen as u128
     }
 }
 
@@ -585,7 +575,9 @@ impl fmt::Debug for State {
         write!(
             f,
             "State {{ count: {}, hash_length: {}, last_node: {} }}",
-            self.count, self.hash_length, self.last_node,
+            self.count(),
+            self.hash_length,
+            self.last_node,
         )
     }
 }
