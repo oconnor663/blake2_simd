@@ -7,7 +7,7 @@ extern crate libsodium_ffi;
 extern crate openssl;
 extern crate test;
 
-use blake2b_simd::guts::{Core, Finalize, Job, Stride};
+use blake2b_simd::guts::{Finalize, Job, Stride};
 use blake2b_simd::*;
 use test::Bencher;
 
@@ -111,28 +111,16 @@ fn bench_compress4_loop_avx2_one_block_b(b: &mut Bencher) {
     let input1 = make_input(b, BLOCKBYTES);
     let input2 = make_input(b, BLOCKBYTES);
     let input3 = make_input(b, BLOCKBYTES);
-    let mut core0 = Core {
-        words: guts::u64x8([1; 8]),
-        count: 0,
-    };
-    let mut core1 = Core {
-        words: guts::u64x8([2; 8]),
-        count: 0,
-    };
-    let mut core2 = Core {
-        words: guts::u64x8([3; 8]),
-        count: 0,
-    };
-    let mut core3 = Core {
-        words: guts::u64x8([4; 8]),
-        count: 0,
-    };
+    let mut words0 = guts::u64x8([1; 8]);
+    let mut words1 = guts::u64x8([2; 8]);
+    let mut words2 = guts::u64x8([3; 8]);
+    let mut words3 = guts::u64x8([4; 8]);
     b.iter(|| unsafe {
         let mut jobs = [
-            Job::new(&mut core0, &input0, Finalize::YesOrdinary),
-            Job::new(&mut core1, &input1, Finalize::YesOrdinary),
-            Job::new(&mut core2, &input2, Finalize::YesOrdinary),
-            Job::new(&mut core3, &input3, Finalize::YesOrdinary),
+            Job::new(&mut words0, 0, &input0, Finalize::YesOrdinary),
+            Job::new(&mut words1, 0, &input1, Finalize::YesOrdinary),
+            Job::new(&mut words2, 0, &input2, Finalize::YesOrdinary),
+            Job::new(&mut words3, 0, &input3, Finalize::YesOrdinary),
         ];
         benchmarks::compress4_loop_avx2_b(&mut jobs, Stride::Normal);
     });
@@ -148,28 +136,16 @@ fn bench_compress4_loop_avx2_one_mb_b(b: &mut Bencher) {
     let input1 = make_input(b, len);
     let input2 = make_input(b, len);
     let input3 = make_input(b, len);
-    let mut core0 = Core {
-        words: guts::u64x8([1; 8]),
-        count: 0,
-    };
-    let mut core1 = Core {
-        words: guts::u64x8([2; 8]),
-        count: 0,
-    };
-    let mut core2 = Core {
-        words: guts::u64x8([3; 8]),
-        count: 0,
-    };
-    let mut core3 = Core {
-        words: guts::u64x8([4; 8]),
-        count: 0,
-    };
+    let mut words0 = guts::u64x8([1; 8]);
+    let mut words1 = guts::u64x8([2; 8]);
+    let mut words2 = guts::u64x8([3; 8]);
+    let mut words3 = guts::u64x8([4; 8]);
     b.iter(|| unsafe {
         let mut jobs = [
-            Job::new(&mut core0, &input0, Finalize::YesOrdinary),
-            Job::new(&mut core1, &input1, Finalize::YesOrdinary),
-            Job::new(&mut core2, &input2, Finalize::YesOrdinary),
-            Job::new(&mut core3, &input3, Finalize::YesOrdinary),
+            Job::new(&mut words0, 0, &input0, Finalize::YesOrdinary),
+            Job::new(&mut words1, 0, &input1, Finalize::YesOrdinary),
+            Job::new(&mut words2, 0, &input2, Finalize::YesOrdinary),
+            Job::new(&mut words3, 0, &input3, Finalize::YesOrdinary),
         ];
         benchmarks::compress4_loop_avx2_b(&mut jobs, Stride::Normal);
     });
@@ -183,18 +159,12 @@ fn bench_compress2_loop_avx2_one_mb_b(b: &mut Bencher) {
     let len = (1 << 20) / 2;
     let input0 = make_input(b, len);
     let input1 = make_input(b, len);
-    let mut core0 = Core {
-        words: guts::u64x8([1; 8]),
-        count: 0,
-    };
-    let mut core1 = Core {
-        words: guts::u64x8([2; 8]),
-        count: 0,
-    };
+    let mut words0 = guts::u64x8([1; 8]);
+    let mut words1 = guts::u64x8([2; 8]);
     b.iter(|| unsafe {
         let mut jobs = [
-            Job::new(&mut core0, &input0, Finalize::YesOrdinary),
-            Job::new(&mut core1, &input1, Finalize::YesOrdinary),
+            Job::new(&mut words0, 0, &input0, Finalize::YesOrdinary),
+            Job::new(&mut words1, 0, &input1, Finalize::YesOrdinary),
         ];
         benchmarks::compress2_loop_sse41_b(&mut jobs, Stride::Normal);
     });
@@ -221,12 +191,9 @@ fn bench_compress1_loop_avx2_one_mb_b(b: &mut Bencher) {
     }
     let len = 1 << 20;
     let input0 = make_input(b, len);
-    let mut core0 = Core {
-        words: guts::u64x8([1; 8]),
-        count: 0,
-    };
+    let mut words0 = guts::u64x8([1; 8]);
     b.iter(|| unsafe {
-        let job = Job::new(&mut core0, &input0, Finalize::YesOrdinary);
+        let job = Job::new(&mut words0, 0, &input0, Finalize::YesOrdinary);
         benchmarks::compress1_loop_avx2_b(job, Stride::Normal);
     });
 }
