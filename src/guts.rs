@@ -1,5 +1,4 @@
 use crate::*;
-use core::fmt;
 use core::mem;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -385,29 +384,6 @@ impl core::ops::DerefMut for u64x8 {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Core {
-    pub words: u64x8,
-    pub count: u128,
-}
-
-impl Core {
-    pub fn to_hash(&self, length: usize) -> crate::Hash {
-        crate::Hash {
-            bytes: crate::state_words_to_bytes(&self.words),
-            len: length as u8,
-        }
-    }
-}
-
-// We don't derive(Debug), because we don't want unfinalized words to get
-// leaked accidentally. That could enable e.g. length extension attacks.
-impl fmt::Debug for Core {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Core {{ count: {} }}", self.count)
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stride {
     // e.g. BLAKE2b
@@ -451,9 +427,9 @@ impl Finalize {
     }
 }
 
-#[derive(Debug)]
 pub struct Job<'a, 'b> {
-    pub core: &'a mut Core,
+    pub words: &'a mut u64x8,
+    pub count: u128,
     pub input: &'b [u8],
     pub finalize: Finalize,
     // The constructor contains debug asserts, so include a private field to
@@ -462,7 +438,12 @@ pub struct Job<'a, 'b> {
 }
 
 impl<'a, 'b> Job<'a, 'b> {
-    pub fn new(core: &'a mut Core, input: &'b [u8], finalize: Finalize) -> Job<'a, 'b> {
+    pub fn new(
+        words: &'a mut u64x8,
+        count: u128,
+        input: &'b [u8],
+        finalize: Finalize,
+    ) -> Job<'a, 'b> {
         if let Finalize::NotYet = finalize {
             // Only the very last block is allowed to be shorter than
             // BLOCKBYTES, so if we're not finalizing yet, the input must be an
@@ -470,7 +451,8 @@ impl<'a, 'b> Job<'a, 'b> {
             debug_assert_eq!(0, input.len() % BLOCKBYTES);
         }
         Job {
-            core,
+            words,
+            count,
             input,
             finalize,
             _use_the_constructor_please: (),
@@ -480,7 +462,8 @@ impl<'a, 'b> Job<'a, 'b> {
     #[inline(always)]
     pub fn offset(&mut self, offset: usize) {
         let start = cmp::min(self.input.len(), offset);
-        self.input = &self.input[start..]
+        self.input = &self.input[start..];
+        self.count = self.count.wrapping_add(offset as u128);
     }
 }
 
@@ -734,10 +717,8 @@ mod test {
             |invocations, blocks_per_invoc, count, finalize, stride, buffer_tail| {
                 // Use the portable implementation, one block at a time, to
                 // compute the final state that we expect.
-                let mut reference_core = Core {
-                    words: input_state_words(0),
-                    count,
-                };
+                let mut reference_words = input_state_words(0);
+                let mut reference_count = count;
                 let total_blocks = invocations * blocks_per_invoc;
                 for block in 0..total_blocks {
                     let input_block =
@@ -754,21 +735,21 @@ mod test {
                         finalize
                     };
                     portable::compress1_loop_b(
-                        Job::new(&mut reference_core, input_slice, maybe_finalize),
+                        Job::new(
+                            &mut reference_words,
+                            reference_count,
+                            input_slice,
+                            maybe_finalize,
+                        ),
                         stride,
                     );
+                    reference_count = reference_count.wrapping_add(BLOCKBYTES as u128);
                 }
-                let expected_count = count
-                    .wrapping_add((total_blocks * BLOCKBYTES) as u128)
-                    .wrapping_sub(buffer_tail as u128);
-                assert_eq!(expected_count, reference_core.count);
 
                 // Do the same thing in batches with the implementation under
                 // test, and make sure they're the same.
-                let mut test_core = Core {
-                    words: input_state_words(0),
-                    count,
-                };
+                let mut test_words = input_state_words(0);
+                let mut test_count = count;
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
                     let offset = invoc_num * blocks_per_invoc * stride.padded_blockbytes();
@@ -784,12 +765,12 @@ mod test {
                         finalize
                     };
                     implementation.compress1_loop_b(
-                        Job::new(&mut test_core, input_slice, maybe_finalize),
+                        Job::new(&mut test_words, test_count, input_slice, maybe_finalize),
                         stride,
                     );
+                    test_count = test_count.wrapping_add((blocks_per_invoc * BLOCKBYTES) as u128);
                 }
-                assert_eq!(reference_core.count, test_core.count);
-                assert_eq!(reference_core.words, test_core.words);
+                assert_eq!(reference_words, test_words);
             },
         );
     }
@@ -908,41 +889,18 @@ mod test {
                 if buffer_tail != 0 {
                     len = len - stride.padded_blockbytes() + BLOCKBYTES - buffer_tail;
                 }
-                let mut reference_cores = [
-                    Core {
-                        words: input_state_words(0),
-                        count,
-                    },
-                    Core {
-                        words: input_state_words(1),
-                        count,
-                    },
-                ];
-                for i in 0..reference_cores.len() {
+                let mut reference_words = [input_state_words(0), input_state_words(1)];
+                for i in 0..reference_words.len() {
                     portable::compress1_loop_b(
-                        Job::new(&mut reference_cores[i], &inputs[i][..len], finalize),
+                        Job::new(&mut reference_words[i], count, &inputs[i][..len], finalize),
                         stride,
                     );
-                }
-                let expected_count = count
-                    .wrapping_add((total_blocks * BLOCKBYTES) as u128)
-                    .wrapping_sub(buffer_tail as u128);
-                for core in &reference_cores {
-                    assert_eq!(expected_count, core.count);
                 }
 
                 // Do the same thing with the implementation under test under
                 // test, and make sure the result is the same.
-                let mut test_cores = [
-                    Core {
-                        words: input_state_words(0),
-                        count,
-                    },
-                    Core {
-                        words: input_state_words(1),
-                        count,
-                    },
-                ];
+                let mut test_words = [input_state_words(0), input_state_words(1)];
+                let mut test_count = count;
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
                     let offset = invoc_num * blocks_per_invoc * stride.padded_blockbytes();
@@ -955,20 +913,28 @@ mod test {
                     } else {
                         finalize
                     };
-                    let &mut [ref mut core0, ref mut core1] = &mut test_cores;
+                    let &mut [ref mut words0, ref mut words1] = &mut test_words;
                     let mut jobs = [
-                        Job::new(core0, &inputs[0][offset..][..len], maybe_finalize),
-                        Job::new(core1, &inputs[1][offset..][..len], maybe_finalize),
+                        Job::new(
+                            words0,
+                            test_count,
+                            &inputs[0][offset..][..len],
+                            maybe_finalize,
+                        ),
+                        Job::new(
+                            words1,
+                            test_count,
+                            &inputs[1][offset..][..len],
+                            maybe_finalize,
+                        ),
                     ];
                     implementation.compress2_loop_b(&mut jobs, stride);
+                    test_count = test_count.wrapping_add((blocks_per_invoc * BLOCKBYTES) as u128);
                     for job in &jobs {
                         assert!(job.input.is_empty());
                     }
                 }
-                for (reference, test) in reference_cores.iter().zip(&test_cores) {
-                    assert_eq!(reference.count, test.count);
-                    assert_eq!(reference.words, test.words);
-                }
+                assert_eq!(reference_words, test_words);
             },
         );
     }
@@ -1105,57 +1071,28 @@ mod test {
                 if buffer_tail != 0 {
                     len = len - stride.padded_blockbytes() + BLOCKBYTES - buffer_tail;
                 }
-                let mut reference_cores = [
-                    Core {
-                        words: input_state_words(0),
-                        count,
-                    },
-                    Core {
-                        words: input_state_words(1),
-                        count,
-                    },
-                    Core {
-                        words: input_state_words(2),
-                        count,
-                    },
-                    Core {
-                        words: input_state_words(3),
-                        count,
-                    },
+                let mut reference_words = [
+                    input_state_words(0),
+                    input_state_words(1),
+                    input_state_words(2),
+                    input_state_words(3),
                 ];
-                for i in 0..reference_cores.len() {
+                for i in 0..reference_words.len() {
                     portable::compress1_loop_b(
-                        Job::new(&mut reference_cores[i], &inputs[i][..len], finalize),
+                        Job::new(&mut reference_words[i], count, &inputs[i][..len], finalize),
                         stride,
                     );
-                }
-                let expected_count = count
-                    .wrapping_add((total_blocks * BLOCKBYTES) as u128)
-                    .wrapping_sub(buffer_tail as u128);
-                for core in &reference_cores {
-                    assert_eq!(expected_count, core.count);
                 }
 
                 // Do the same thing with the implementation under test under
                 // test, and make sure the result is the same.
-                let mut test_cores = [
-                    Core {
-                        words: input_state_words(0),
-                        count,
-                    },
-                    Core {
-                        words: input_state_words(1),
-                        count,
-                    },
-                    Core {
-                        words: input_state_words(2),
-                        count,
-                    },
-                    Core {
-                        words: input_state_words(3),
-                        count,
-                    },
+                let mut test_words = [
+                    input_state_words(0),
+                    input_state_words(1),
+                    input_state_words(2),
+                    input_state_words(3),
                 ];
+                let mut test_count = count;
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
                     let offset = invoc_num * blocks_per_invoc * stride.padded_blockbytes();
@@ -1168,23 +1105,41 @@ mod test {
                     } else {
                         finalize
                     };
-                    let &mut [ref mut core0, ref mut core1, ref mut core2, ref mut core3] =
-                        &mut test_cores;
+                    let &mut [ref mut words0, ref mut words1, ref mut words2, ref mut words3] =
+                        &mut test_words;
                     let mut jobs = [
-                        Job::new(core0, &inputs[0][offset..][..len], maybe_finalize),
-                        Job::new(core1, &inputs[1][offset..][..len], maybe_finalize),
-                        Job::new(core2, &inputs[2][offset..][..len], maybe_finalize),
-                        Job::new(core3, &inputs[3][offset..][..len], maybe_finalize),
+                        Job::new(
+                            words0,
+                            test_count,
+                            &inputs[0][offset..][..len],
+                            maybe_finalize,
+                        ),
+                        Job::new(
+                            words1,
+                            test_count,
+                            &inputs[1][offset..][..len],
+                            maybe_finalize,
+                        ),
+                        Job::new(
+                            words2,
+                            test_count,
+                            &inputs[2][offset..][..len],
+                            maybe_finalize,
+                        ),
+                        Job::new(
+                            words3,
+                            test_count,
+                            &inputs[3][offset..][..len],
+                            maybe_finalize,
+                        ),
                     ];
                     implementation.compress4_loop_b(&mut jobs, stride);
+                    test_count = test_count.wrapping_add((blocks_per_invoc * BLOCKBYTES) as u128);
                     for job in &jobs {
                         assert!(job.input.is_empty());
                     }
                 }
-                for (reference, test) in reference_cores.iter().zip(&test_cores) {
-                    assert_eq!(reference.count, test.count);
-                    assert_eq!(reference.words, test.words);
-                }
+                assert_eq!(reference_words, test_words);
             },
         );
     }

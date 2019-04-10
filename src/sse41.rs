@@ -412,20 +412,20 @@ unsafe fn transpose_state_vecs(jobs: &[Job; 2]) -> [__m128i; 8] {
     // at the end is more efficient that repeating it for each block. Note that
     // these loads are aligned, because u64x4 and u64x8 guarantee alignment.
     let [h0, h1] = transpose_vecs(
-        load_u64x2(&jobs[0].core.words.split()[0].split()[0]),
-        load_u64x2(&jobs[1].core.words.split()[0].split()[0]),
+        load_u64x2(&jobs[0].words.split()[0].split()[0]),
+        load_u64x2(&jobs[1].words.split()[0].split()[0]),
     );
     let [h2, h3] = transpose_vecs(
-        load_u64x2(&jobs[0].core.words.split()[0].split()[1]),
-        load_u64x2(&jobs[1].core.words.split()[0].split()[1]),
+        load_u64x2(&jobs[0].words.split()[0].split()[1]),
+        load_u64x2(&jobs[1].words.split()[0].split()[1]),
     );
     let [h4, h5] = transpose_vecs(
-        load_u64x2(&jobs[0].core.words.split()[1].split()[0]),
-        load_u64x2(&jobs[1].core.words.split()[1].split()[0]),
+        load_u64x2(&jobs[0].words.split()[1].split()[0]),
+        load_u64x2(&jobs[1].words.split()[1].split()[0]),
     );
     let [h6, h7] = transpose_vecs(
-        load_u64x2(&jobs[0].core.words.split()[1].split()[1]),
-        load_u64x2(&jobs[1].core.words.split()[1].split()[1]),
+        load_u64x2(&jobs[0].words.split()[1].split()[1]),
+        load_u64x2(&jobs[1].words.split()[1].split()[1]),
     );
     [h0, h1, h2, h3, h4, h5, h6, h7]
 }
@@ -435,41 +435,17 @@ unsafe fn untranspose_state_vecs(h_vecs: &[__m128i; 8], jobs: &mut [Job; 2]) {
     // Un-transpose the updated state vectors back into the caller's arrays.
     // These are aligned stores.
     let words = transpose_vecs(h_vecs[0], h_vecs[1]);
-    store_u64x2(
-        words[0],
-        &mut jobs[0].core.words.split_mut()[0].split_mut()[0],
-    );
-    store_u64x2(
-        words[1],
-        &mut jobs[1].core.words.split_mut()[0].split_mut()[0],
-    );
+    store_u64x2(words[0], &mut jobs[0].words.split_mut()[0].split_mut()[0]);
+    store_u64x2(words[1], &mut jobs[1].words.split_mut()[0].split_mut()[0]);
     let words = transpose_vecs(h_vecs[2], h_vecs[3]);
-    store_u64x2(
-        words[0],
-        &mut jobs[0].core.words.split_mut()[0].split_mut()[1],
-    );
-    store_u64x2(
-        words[1],
-        &mut jobs[1].core.words.split_mut()[0].split_mut()[1],
-    );
+    store_u64x2(words[0], &mut jobs[0].words.split_mut()[0].split_mut()[1]);
+    store_u64x2(words[1], &mut jobs[1].words.split_mut()[0].split_mut()[1]);
     let words = transpose_vecs(h_vecs[4], h_vecs[5]);
-    store_u64x2(
-        words[0],
-        &mut jobs[0].core.words.split_mut()[1].split_mut()[0],
-    );
-    store_u64x2(
-        words[1],
-        &mut jobs[1].core.words.split_mut()[1].split_mut()[0],
-    );
+    store_u64x2(words[0], &mut jobs[0].words.split_mut()[1].split_mut()[0]);
+    store_u64x2(words[1], &mut jobs[1].words.split_mut()[1].split_mut()[0]);
     let words = transpose_vecs(h_vecs[6], h_vecs[7]);
-    store_u64x2(
-        words[0],
-        &mut jobs[0].core.words.split_mut()[1].split_mut()[1],
-    );
-    store_u64x2(
-        words[1],
-        &mut jobs[1].core.words.split_mut()[1].split_mut()[1],
-    );
+    store_u64x2(words[0], &mut jobs[0].words.split_mut()[1].split_mut()[1]);
+    store_u64x2(words[1], &mut jobs[1].words.split_mut()[1].split_mut()[1]);
 }
 
 #[inline(always)]
@@ -495,20 +471,9 @@ unsafe fn transpose_msg_vecs(blocks: [&[u8; BLOCKBYTES]; 2]) -> [__m128i; 16] {
 unsafe fn load_counts(jobs: &[Job; 2]) -> (__m128i, __m128i) {
     (
         // There's no _mm_setr_epi64x, so note the arg order.
-        _mm_set_epi64x(jobs[1].core.count as i64, jobs[0].core.count as i64),
-        _mm_set_epi64x(
-            (jobs[1].core.count >> 64) as i64,
-            (jobs[0].core.count >> 64) as i64,
-        ),
+        _mm_set_epi64x(jobs[1].count as i64, jobs[0].count as i64),
+        _mm_set_epi64x((jobs[1].count >> 64) as i64, (jobs[0].count >> 64) as i64),
     )
-}
-
-#[inline(always)]
-unsafe fn store_counts(lo: __m128i, hi: __m128i, jobs: &mut [Job; 2]) {
-    let lo_ints: [u64; 2] = core::mem::transmute(lo);
-    let hi_ints: [u64; 2] = core::mem::transmute(hi);
-    jobs[0].core.count = lo_ints[0] as u128 | ((hi_ints[0] as u128) << 64);
-    jobs[1].core.count = lo_ints[1] as u128 | ((hi_ints[1] as u128) << 64);
 }
 
 #[inline(always)]
@@ -518,7 +483,7 @@ unsafe fn load_flags_vec(flags: [bool; 2]) -> __m128i {
 }
 
 #[inline(always)]
-unsafe fn offset_inputs(jobs: &mut [Job; 2], offset: usize) {
+unsafe fn offset_jobs(jobs: &mut [Job; 2], offset: usize) {
     jobs[0].offset(offset);
     jobs[1].offset(offset);
 }
@@ -583,7 +548,6 @@ pub unsafe fn compress2_loop_b(jobs: &mut [Job; 2], stride: Stride) {
         offset = offset.saturating_add(stride.padded_blockbytes());
     }
 
-    offset_inputs(jobs, offset);
-    store_counts(counts_lo, counts_hi, jobs);
     untranspose_state_vecs(&h_vecs, jobs);
+    offset_jobs(jobs, offset);
 }

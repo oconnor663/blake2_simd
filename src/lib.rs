@@ -422,7 +422,8 @@ impl fmt::Debug for Params {
 /// ```
 #[derive(Clone)]
 pub struct State {
-    core: guts::Core,
+    words: guts::u64x8,
+    count: u128,
     buf: Block,
     buflen: u8,
     last_node: bool,
@@ -438,10 +439,8 @@ impl State {
 
     fn with_params(params: &Params) -> Self {
         let mut state = Self {
-            core: guts::Core {
-                words: params.to_state_words(),
-                count: 0,
-            },
+            words: params.to_state_words(),
+            count: 0,
             buf: [0; BLOCKBYTES],
             buflen: 0,
             last_node: params.last_node,
@@ -471,9 +470,15 @@ impl State {
             self.fill_buf(input);
             if !input.is_empty() {
                 self.implementation.compress1_loop_b(
-                    guts::Job::new(&mut self.core, &self.buf, guts::Finalize::NotYet),
+                    guts::Job::new(
+                        &mut self.words,
+                        self.count,
+                        &self.buf,
+                        guts::Finalize::NotYet,
+                    ),
                     guts::Stride::Normal,
                 );
+                self.count += BLOCKBYTES as u128;
                 self.buflen = 0;
             }
         }
@@ -489,9 +494,15 @@ impl State {
         end -= end % BLOCKBYTES;
         if end > 0 {
             self.implementation.compress1_loop_b(
-                guts::Job::new(&mut self.core, &input[..end], guts::Finalize::NotYet),
+                guts::Job::new(
+                    &mut self.words,
+                    self.count,
+                    &input[..end],
+                    guts::Finalize::NotYet,
+                ),
                 guts::Stride::Normal,
             );
+            self.count += end as u128;
             input = &input[end..];
         }
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
@@ -511,13 +522,18 @@ impl State {
         } else {
             guts::Finalize::YesOrdinary
         };
-        let mut core_copy = self.core;
+        let mut words_copy = self.words;
         self.implementation.compress1_loop_b(
-            guts::Job::new(&mut core_copy, &self.buf[..self.buflen as usize], finalize),
+            guts::Job::new(
+                &mut words_copy,
+                self.count,
+                &self.buf[..self.buflen as usize],
+                finalize,
+            ),
             guts::Stride::Normal,
         );
         Hash {
-            bytes: state_words_to_bytes(&core_copy.words),
+            bytes: state_words_to_bytes(&words_copy),
             len: self.hash_length,
         }
     }
@@ -537,7 +553,7 @@ impl State {
 
     /// Return the total number of bytes input so far.
     pub fn count(&self) -> u128 {
-        self.core.count + self.buflen as u128
+        self.count.wrapping_add(self.buflen as u128)
     }
 }
 

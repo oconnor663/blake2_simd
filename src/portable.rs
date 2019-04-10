@@ -146,27 +146,26 @@ pub fn compress1_loop_b(job: Job, stride: Stride) {
     let mut buffer = [0; BLOCKBYTES];
     let (finblock, finblock_len, _) =
         guts::get_block(job.input, final_block_offset, &mut buffer, stride);
-    let mut local_state = job.core.words;
-    let mut local_count = job.core.count;
+    let mut local_words = *job.words;
+    let mut count = job.count;
     while offset <= final_block_offset {
         let is_final_block = offset == final_block_offset;
         let block;
         if is_final_block {
             block = finblock;
-            local_count = local_count.wrapping_add(finblock_len as u128);
+            count = count.wrapping_add(finblock_len as u128);
         } else {
             block = array_ref!(job.input, offset, BLOCKBYTES);
-            local_count = local_count.wrapping_add(BLOCKBYTES as u128);
+            count = count.wrapping_add(BLOCKBYTES as u128);
         }
         compress_block(
-            &mut local_state,
+            &mut local_words,
             block,
-            local_count,
+            count,
             u64_flag(is_final_block && job.finalize.last_block_flag()),
             u64_flag(is_final_block && job.finalize.last_node_flag()),
         );
         offset += stride.padded_blockbytes();
     }
-    job.core.words = local_state;
-    job.core.count = local_count;
+    *job.words = local_words;
 }

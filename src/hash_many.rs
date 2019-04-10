@@ -1,6 +1,4 @@
-use crate::guts::{
-    self, u64_flag, u64x2, u64x4, u64x8, Core, Finalize, Implementation, Job, Stride,
-};
+use crate::guts::{self, u64_flag, u64x2, u64x4, u64x8, Finalize, Implementation, Job, Stride};
 use crate::state_words_to_bytes;
 use crate::Hash;
 use crate::Params;
@@ -345,7 +343,7 @@ where
 }
 
 pub struct HashManyJob<'a> {
-    core: Core,
+    words: u64x8,
     finalize: Finalize,
     hash_length: u8,
     input: &'a [u8],
@@ -354,10 +352,7 @@ pub struct HashManyJob<'a> {
 impl<'a> HashManyJob<'a> {
     pub fn new(params: &Params, input: &'a [u8]) -> Self {
         Self {
-            core: guts::Core {
-                words: params.to_state_words(),
-                count: 0,
-            },
+            words: params.to_state_words(),
             finalize: if params.last_node {
                 guts::Finalize::YesLastNode
             } else {
@@ -371,7 +366,7 @@ impl<'a> HashManyJob<'a> {
     pub fn to_hash(&self) -> Hash {
         // TODO: assert this isn't called early
         Hash {
-            bytes: state_words_to_bytes(&self.core.words),
+            bytes: state_words_to_bytes(&self.words),
             len: self.hash_length,
         }
     }
@@ -385,7 +380,7 @@ where
     let imp = Implementation::detect();
     let jobs = hash_many_jobs
         .into_iter()
-        .map(|j| Job::new(&mut j.core, j.input, j.finalize));
+        .map(|j| Job::new(&mut j.words, 0, j.input, j.finalize));
     hash_many_inner(jobs, imp, Stride::Normal);
 }
 
