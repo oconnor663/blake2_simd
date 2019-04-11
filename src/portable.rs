@@ -109,38 +109,7 @@ fn compress_block(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, lastn
     h[7] ^= v[7] ^ v[15];
 }
 
-pub fn compress1_loop(
-    state: &mut u64x8,
-    input: &[u8],
-    mut count: u128,
-    last_block: u64,
-    last_node: u64,
-    mut blocks: usize,
-    stride: usize,
-    buffer_tail: usize,
-) {
-    let mut offset = 0;
-    while blocks > 0 {
-        // This probably incurs a bounds check, but portable.rs is 100% safe,
-        // and that's more valuable than eeking out a little more performance
-        // here. The SIMD implementations do make this sort of optimization.
-        let block = array_ref!(input, offset, BLOCKBYTES);
-        count = count.wrapping_add(BLOCKBYTES as u128);
-        if blocks == 1 {
-            count = count.wrapping_sub(buffer_tail as u128);
-        }
-        let (maybe_last_block, maybe_last_node) = if blocks == 1 {
-            (last_block, last_node)
-        } else {
-            (0, 0)
-        };
-        compress_block(state, block, count, maybe_last_block, maybe_last_node);
-        offset += stride * BLOCKBYTES;
-        blocks -= 1;
-    }
-}
-
-pub fn compress1_loop_b(job: Job, stride: Stride) {
+pub fn compress1_loop(job: Job, stride: Stride) {
     let mut offset = 0;
     let final_block_offset = guts::final_block_offset(job.input.len(), stride);
     let mut buffer = [0; BLOCKBYTES];

@@ -30,11 +30,6 @@ unsafe fn add(a: __m256i, b: __m256i) -> __m256i {
 }
 
 #[inline(always)]
-unsafe fn sub(a: __m256i, b: __m256i) -> __m256i {
-    _mm256_sub_epi64(a, b)
-}
-
-#[inline(always)]
 unsafe fn xor(a: __m256i, b: __m256i) -> __m256i {
     _mm256_xor_si256(a, b)
 }
@@ -398,43 +393,7 @@ unsafe fn compress_block(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64
 }
 
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress1_loop(
-    state: &mut u64x8,
-    input: &[u8],
-    mut count: u128,
-    last_block: u64,
-    last_node: u64,
-    mut blocks: usize,
-    stride: usize,
-    buffer_tail: usize,
-) {
-    // Check the input length once to avoid bounds checks in the loop below.
-    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input.len());
-
-    let mut offset = 0;
-    while blocks > 0 {
-        // An unchecked pointer deref, guarded by the assert above.
-        let block = &*(input.as_ptr().add(offset) as *const Block);
-
-        count = count.wrapping_add(BLOCKBYTES as u128);
-        if blocks == 1 {
-            count = count.wrapping_sub(buffer_tail as u128);
-        }
-        let (maybe_last_block, maybe_last_node) = if blocks == 1 {
-            (last_block, last_node)
-        } else {
-            (0, 0)
-        };
-
-        compress_block(state, block, count, maybe_last_block, maybe_last_node);
-
-        offset += stride * BLOCKBYTES;
-        blocks -= 1;
-    }
-}
-
-#[target_feature(enable = "avx2")]
-pub unsafe fn compress1_loop_b(job: Job, stride: Stride) {
+pub unsafe fn compress1_loop(job: Job, stride: Stride) {
     let mut offset = 0;
     let final_block_offset = guts::final_block_offset(job.input.len(), stride);
     let mut buffer = [0; BLOCKBYTES];
@@ -697,143 +656,6 @@ unsafe fn add_carry(lo: &mut __m256i, hi: &mut __m256i, x: __m256i) {
     *hi = _mm256_add_epi64(*hi, carries);
 }
 
-#[target_feature(enable = "avx2")]
-pub unsafe fn compress4_loop(
-    state0: &mut u64x8,
-    state1: &mut u64x8,
-    state2: &mut u64x8,
-    state3: &mut u64x8,
-    input0: &[u8],
-    input1: &[u8],
-    input2: &[u8],
-    input3: &[u8],
-    count_low: &u64x4,
-    count_high: &u64x4,
-    last_block: &u64x4,
-    last_node: &u64x4,
-    mut blocks: usize,
-    stride: usize,
-    buffer_tail: &u64x4,
-) {
-    // Check the input slice lengths once here. The main loop will do unaligned
-    // loads without any further bounds checks.
-    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input0.len());
-    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input1.len());
-    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input2.len());
-    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input3.len());
-
-    // Load all the state words into transposed vectors, where the first vector
-    // has the first word of each state, etc. This is the form that 4-way
-    // compression operates on, and transposing once at the beginning and once
-    // at the end is more efficient that repeating it for each block. Note that
-    // these loads are aligned, because u64x4 and u64x8 guarantee alignment.
-    let [h0, h1, h2, h3] = transpose_vecs(
-        load_u64x4(&state0.split()[0]),
-        load_u64x4(&state1.split()[0]),
-        load_u64x4(&state2.split()[0]),
-        load_u64x4(&state3.split()[0]),
-    );
-    let [h4, h5, h6, h7] = transpose_vecs(
-        load_u64x4(&state0.split()[1]),
-        load_u64x4(&state1.split()[1]),
-        load_u64x4(&state2.split()[1]),
-        load_u64x4(&state3.split()[1]),
-    );
-    let mut h_vecs = [h0, h1, h2, h3, h4, h5, h6, h7];
-    let mut count_low_vec = load_u64x4(count_low);
-    let mut count_high_vec = load_u64x4(count_high);
-    let mut offset = 0;
-
-    while blocks > 0 {
-        // Load all the message words into transposed vectors also. Message
-        // loads are unaligned, because these are arbitrary byte pointers from
-        // the caller. On modern chips though, there's not much of a
-        // performance penalty for unaligned loads.
-        let block0 = input0.as_ptr().add(offset) as *const __m256i;
-        let block1 = input1.as_ptr().add(offset) as *const __m256i;
-        let block2 = input2.as_ptr().add(offset) as *const __m256i;
-        let block3 = input3.as_ptr().add(offset) as *const __m256i;
-        let [m0, m1, m2, m3] = transpose_vecs(
-            _mm256_loadu_si256(block0.add(0)),
-            _mm256_loadu_si256(block1.add(0)),
-            _mm256_loadu_si256(block2.add(0)),
-            _mm256_loadu_si256(block3.add(0)),
-        );
-        let [m4, m5, m6, m7] = transpose_vecs(
-            _mm256_loadu_si256(block0.add(1)),
-            _mm256_loadu_si256(block1.add(1)),
-            _mm256_loadu_si256(block2.add(1)),
-            _mm256_loadu_si256(block3.add(1)),
-        );
-        let [m8, m9, m10, m11] = transpose_vecs(
-            _mm256_loadu_si256(block0.add(2)),
-            _mm256_loadu_si256(block1.add(2)),
-            _mm256_loadu_si256(block2.add(2)),
-            _mm256_loadu_si256(block3.add(2)),
-        );
-        let [m12, m13, m14, m15] = transpose_vecs(
-            _mm256_loadu_si256(block0.add(3)),
-            _mm256_loadu_si256(block1.add(3)),
-            _mm256_loadu_si256(block2.add(3)),
-            _mm256_loadu_si256(block3.add(3)),
-        );
-        let m_vecs = [
-            m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15,
-        ];
-
-        // Add BLOCKBYTES to the low count bits.
-        let old_count_low_vec = count_low_vec;
-        count_low_vec = add(count_low_vec, _mm256_set1_epi64x(BLOCKBYTES as i64));
-        // If this is the last block, subtract the buffer tails.
-        if blocks == 1 {
-            count_low_vec = sub(count_low_vec, load_u64x4(buffer_tail));
-        }
-        // Finally if any of the low counts overflowed (after accounting for
-        // the buffer tails), increment the corresponding high counts.
-        count_high_vec = add(
-            count_high_vec,
-            _mm256_and_si256(
-                unsigned_cmpgt_epi64(old_count_low_vec, count_low_vec),
-                _mm256_set1_epi64x(1),
-            ),
-        );
-
-        // Compressions before the last one always use zero for the
-        // finalization flags. The last one will use what the caller supplied,
-        // which could also be zero if the input isn't finished.
-        let (last_block_vec, last_node_vec) = if blocks == 1 {
-            (load_u64x4(last_block), load_u64x4(last_node))
-        } else {
-            (_mm256_set1_epi64x(0), _mm256_set1_epi64x(0))
-        };
-
-        compress4_transposed_inline(
-            &mut h_vecs,
-            &m_vecs,
-            count_low_vec,
-            count_high_vec,
-            last_block_vec,
-            last_node_vec,
-        );
-
-        offset += BLOCKBYTES * stride;
-        blocks -= 1;
-    }
-
-    // Un-transpose the updated state vectors back into the caller's arrays.
-    // These are aligned stores.
-    let low_words = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
-    store_u64x4(low_words[0], &mut state0.split_mut()[0]);
-    store_u64x4(low_words[1], &mut state1.split_mut()[0]);
-    store_u64x4(low_words[2], &mut state2.split_mut()[0]);
-    store_u64x4(low_words[3], &mut state3.split_mut()[0]);
-    let high_words = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
-    store_u64x4(high_words[0], &mut state0.split_mut()[1]);
-    store_u64x4(high_words[1], &mut state1.split_mut()[1]);
-    store_u64x4(high_words[2], &mut state2.split_mut()[1]);
-    store_u64x4(high_words[3], &mut state3.split_mut()[1]);
-}
-
 #[inline(always)]
 unsafe fn transpose_state_vecs(jobs: &[Job; 4]) -> [__m256i; 8] {
     // Load all the state words into transposed vectors, where the first vector
@@ -946,7 +768,7 @@ unsafe fn offset_jobs(jobs: &mut [Job; 4], offset: usize) {
 }
 
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress4_loop_b(jobs: &mut [Job; 4], stride: Stride) {
+pub unsafe fn compress4_loop(jobs: &mut [Job; 4], stride: Stride) {
     let mut h_vecs = transpose_state_vecs(&jobs);
     let mut offset = 0;
     let (mut counts_lo, mut counts_hi) = load_counts(&jobs);

@@ -86,209 +86,32 @@ impl Implementation {
         }
     }
 
-    pub fn compress1_loop(
-        &self,
-        state: &mut u64x8,
-        input: &[u8],
-        count: u128,
-        last_block: u64,
-        last_node: u64,
-        blocks: usize,
-        stride: usize,
-        buffer_tail: usize,
-    ) {
+    pub fn compress1_loop(&self, job: Job, stride: Stride) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => unsafe {
-                avx2::compress1_loop(
-                    state,
-                    input,
-                    count,
-                    last_block,
-                    last_node,
-                    blocks,
-                    stride,
-                    buffer_tail,
-                );
+                avx2::compress1_loop(job, stride);
             },
             // Note that there's an SSE version of compress1 in the official C
             // implementation, but I haven't ported it yet.
             _ => {
-                portable::compress1_loop(
-                    state,
-                    input,
-                    count,
-                    last_block,
-                    last_node,
-                    blocks,
-                    stride,
-                    buffer_tail,
-                );
+                portable::compress1_loop(job, stride);
             }
         }
     }
 
-    pub fn compress1_loop_b(&self, job: Job, stride: Stride) {
+    pub fn compress2_loop(&self, jobs: &mut [Job; 2], stride: Stride) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => unsafe {
-                avx2::compress1_loop_b(job, stride);
-            },
-            // Note that there's an SSE version of compress1 in the official C
-            // implementation, but I haven't ported it yet.
-            _ => {
-                portable::compress1_loop_b(job, stride);
-            }
-        }
-    }
-
-    pub fn compress2_loop(
-        &self,
-        state0: &mut u64x8,
-        state1: &mut u64x8,
-        input0: &[u8],
-        input1: &[u8],
-        count_low: &u64x2,
-        count_high: &u64x2,
-        last_block: &u64x2,
-        last_node: &u64x2,
-        blocks: usize,
-        stride: usize,
-        buffer_tail: &u64x2,
-    ) {
-        match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 | Platform::SSE41 => unsafe {
-                sse41::compress2_loop(
-                    state0,
-                    state1,
-                    input0,
-                    input1,
-                    count_low,
-                    count_high,
-                    last_block,
-                    last_node,
-                    blocks,
-                    stride,
-                    buffer_tail,
-                );
-            },
-            Platform::Portable => {
-                self.compress1_loop(
-                    state0,
-                    input0,
-                    count_low[0] as u128 + ((count_high[0] as u128) << 64),
-                    last_block[0],
-                    last_node[0],
-                    blocks,
-                    stride,
-                    buffer_tail[0] as usize,
-                );
-                self.compress1_loop(
-                    state1,
-                    input1,
-                    count_low[1] as u128 + ((count_high[1] as u128) << 64),
-                    last_block[1],
-                    last_node[1],
-                    blocks,
-                    stride,
-                    buffer_tail[1] as usize,
-                );
-            }
-        }
-    }
-
-    pub fn compress2_loop_b(&self, jobs: &mut [Job; 2], stride: Stride) {
-        match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 | Platform::SSE41 => unsafe { sse41::compress2_loop_b(jobs, stride) },
+            Platform::AVX2 | Platform::SSE41 => unsafe { sse41::compress2_loop(jobs, stride) },
             _ => panic!("unsupported"),
         }
     }
 
-    pub fn compress4_loop(
-        &self,
-        state0: &mut u64x8,
-        state1: &mut u64x8,
-        state2: &mut u64x8,
-        state3: &mut u64x8,
-        input0: &[u8],
-        input1: &[u8],
-        input2: &[u8],
-        input3: &[u8],
-        count_low: &u64x4,
-        count_high: &u64x4,
-        last_block: &u64x4,
-        last_node: &u64x4,
-        blocks: usize,
-        stride: usize,
-        buffer_tail: &u64x4,
-    ) {
+    pub fn compress4_loop(&self, jobs: &mut [Job; 4], stride: Stride) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => unsafe {
-                avx2::compress4_loop(
-                    state0,
-                    state1,
-                    state2,
-                    state3,
-                    input0,
-                    input1,
-                    input2,
-                    input3,
-                    count_low,
-                    count_high,
-                    last_block,
-                    last_node,
-                    blocks,
-                    stride,
-                    buffer_tail,
-                );
-            },
-            _ => {
-                // Performance note: Would it be faster to add a compress4_loop
-                // interface to the sse41 implementation, which used a single
-                // loop to process the inputs together instead of one after the
-                // other? For BLAKE2bp it probably would be, because you'll get
-                // better cache performance by traversing the input once
-                // instead of twice. But for tree hashes probably not, since
-                // the inputs are usually adjacent or nearly-adjacent rather
-                // than overlapping. Tree hash performance is our priority
-                // here, and also doing things this way is simpler.
-                self.compress2_loop(
-                    state0,
-                    state1,
-                    input0,
-                    input1,
-                    &count_low.split()[0],
-                    &count_high.split()[0],
-                    &last_block.split()[0],
-                    &last_node.split()[0],
-                    blocks,
-                    stride,
-                    &buffer_tail.split()[0],
-                );
-                self.compress2_loop(
-                    state2,
-                    state3,
-                    input2,
-                    input3,
-                    &count_low.split()[1],
-                    &count_high.split()[1],
-                    &last_block.split()[1],
-                    &last_node.split()[1],
-                    blocks,
-                    stride,
-                    &buffer_tail.split()[1],
-                );
-            }
-        }
-    }
-
-    pub fn compress4_loop_b(&self, jobs: &mut [Job; 4], stride: Stride) {
-        match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => unsafe { avx2::compress4_loop_b(jobs, stride) },
+            Platform::AVX2 => unsafe { avx2::compress4_loop(jobs, stride) },
             _ => panic!("unsupported"),
         }
     }
@@ -551,56 +374,6 @@ mod test {
 
     fn exercise_cases<F>(mut f: F)
     where
-        F: FnMut(usize, usize, u128, bool, bool, usize, usize),
-    {
-        // Chose counts to hit the relevant overflow cases.
-        let counts = &[
-            0u128,
-            (1u128 << 64) - BLOCKBYTES as u128,
-            0u128.wrapping_sub(BLOCKBYTES as u128),
-        ];
-        for invocations in 1..=2 {
-            for blocks_per_invoc in 1..=3 {
-                for &count in counts {
-                    for &last_block in &[true, false] {
-                        for &last_node in &[true, false] {
-                            for stride in 1..=3 {
-                                for &buffer_tail in &[0, 1, BLOCKBYTES - 1, BLOCKBYTES] {
-                                    if invocations * blocks_per_invoc != 1
-                                        && buffer_tail == BLOCKBYTES
-                                    {
-                                        // Skip the empty block case when there's more than a single
-                                        // block of input. We have asserts preventing that.
-                                        continue;
-                                    }
-                                    // eprintln!("\ncase -----");
-                                    // dbg!(invocations);
-                                    // dbg!(blocks_per_invoc);
-                                    // dbg!(count);
-                                    // dbg!(last_block);
-                                    // dbg!(last_node);
-                                    // dbg!(stride);
-                                    // dbg!(buffer_tail);
-                                    f(
-                                        invocations,
-                                        blocks_per_invoc,
-                                        count,
-                                        last_block,
-                                        last_node,
-                                        stride,
-                                        buffer_tail,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn exercise_cases_b<F>(mut f: F)
-    where
         F: FnMut(usize, usize, u128, Finalize, Stride, usize),
     {
         // Chose counts to hit the relevant overflow cases.
@@ -669,51 +442,6 @@ mod test {
         let mut input = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input);
         exercise_cases(
-            |invocations, blocks_per_invoc, count, last_block, last_node, stride, buffer_tail| {
-                // Use the portable implementation, one block at a time, to
-                // compute the final state that we expect.
-                let mut reference_state = input_state_words(0);
-                for block in 0..invocations * blocks_per_invoc {
-                    let input_block = array_ref!(&input, block * stride * BLOCKBYTES, BLOCKBYTES);
-                    let is_last_block = block == invocations * blocks_per_invoc - 1;
-                    let maybe_tail = if is_last_block { buffer_tail } else { 0 };
-                    portable::compress1_loop(
-                        &mut reference_state,
-                        input_block,
-                        count.wrapping_add((block * BLOCKBYTES) as u128),
-                        u64_flag(is_last_block && last_block),
-                        u64_flag(is_last_block && last_node),
-                        1, // blocks, one at a time
-                        stride,
-                        maybe_tail,
-                    );
-                }
-
-                // Do the same thing with the implementation
-                // under test, and make sure they're the same.
-                let mut test_state = input_state_words(0);
-                for invocation in 0..invocations {
-                    let is_last_invoc = invocation == invocations - 1;
-                    let maybe_tail = if is_last_invoc { buffer_tail } else { 0 };
-                    implementation.compress1_loop(
-                        &mut test_state,
-                        &input[invocation * blocks_per_invoc * stride * BLOCKBYTES..],
-                        count.wrapping_add((invocation * blocks_per_invoc * BLOCKBYTES) as u128),
-                        u64_flag(is_last_invoc && last_block),
-                        u64_flag(is_last_invoc && last_node),
-                        blocks_per_invoc,
-                        stride,
-                        maybe_tail,
-                    );
-                }
-                assert_eq!(reference_state, test_state);
-            },
-        );
-    }
-    fn exercise_compress1_loop_b(implementation: Implementation) {
-        let mut input = [0; 100 * BLOCKBYTES];
-        paint_test_input(&mut input);
-        exercise_cases_b(
             |invocations, blocks_per_invoc, count, finalize, stride, buffer_tail| {
                 // Use the portable implementation, one block at a time, to
                 // compute the final state that we expect.
@@ -734,7 +462,7 @@ mod test {
                     } else {
                         finalize
                     };
-                    portable::compress1_loop_b(
+                    portable::compress1_loop(
                         Job::new(
                             &mut reference_words,
                             reference_count,
@@ -764,7 +492,7 @@ mod test {
                     } else {
                         finalize
                     };
-                    implementation.compress1_loop_b(
+                    implementation.compress1_loop(
                         Job::new(&mut test_words, test_count, input_slice, maybe_finalize),
                         stride,
                     );
@@ -797,90 +525,12 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_compress1_loop_portable_b() {
-        exercise_compress1_loop_b(Implementation::portable());
-    }
-
-    #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn test_compress1_loop_sse41_b() {
-        // Currently this just falls back to portable, but we test it anyway.
-        if let Some(imp) = Implementation::sse41_if_supported() {
-            exercise_compress1_loop_b(imp);
-        }
-    }
-
-    #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn test_compress1_loop_avx2_b() {
-        if let Some(imp) = Implementation::avx2_if_supported() {
-            exercise_compress1_loop_b(imp);
-        }
-    }
-
     // Similar to exercise_compress1_loop above.
     fn exercise_compress2_loop(implementation: Implementation) {
         let mut input_buffer = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input_buffer);
         let inputs = [&input_buffer[0..], &input_buffer[1..]];
         exercise_cases(
-            |invocations, blocks_per_invoc, count, last_block, last_node, stride, buffer_tail| {
-                // Use the portable compress1_loop implementation to compute a
-                // reference state for each input separately.
-                let mut reference_states = [input_state_words(0), input_state_words(1)];
-                for i in 0..reference_states.len() {
-                    portable::compress1_loop(
-                        &mut reference_states[i],
-                        inputs[i],
-                        count,
-                        u64_flag(last_block),
-                        u64_flag(last_node),
-                        invocations * blocks_per_invoc,
-                        stride,
-                        buffer_tail,
-                    );
-                }
-
-                // Do the same thing in parallel with the
-                // implementation under test under test, and
-                // make sure the result is the same.
-                let mut test_state0 = input_state_words(0);
-                let mut test_state1 = input_state_words(1);
-                for invocation in 0..invocations {
-                    let is_last_invoc = invocation == invocations - 1;
-                    let invoc_count =
-                        count.wrapping_add((invocation * blocks_per_invoc * BLOCKBYTES) as u128);
-                    let count_low = u64x2([invoc_count as u64; 2]);
-                    let count_high = u64x2([(invoc_count >> 64) as u64; 2]);
-                    let last_block = u64x2([u64_flag(is_last_invoc && last_block); 2]);
-                    let last_node = u64x2([u64_flag(is_last_invoc && last_node); 2]);
-                    let maybe_tail = u64x2([if is_last_invoc { buffer_tail as u64 } else { 0 }; 2]);
-                    implementation.compress2_loop(
-                        &mut test_state0,
-                        &mut test_state1,
-                        &inputs[0][invocation * blocks_per_invoc * stride * BLOCKBYTES..],
-                        &inputs[1][invocation * blocks_per_invoc * stride * BLOCKBYTES..],
-                        &count_low,
-                        &count_high,
-                        &last_block,
-                        &last_node,
-                        blocks_per_invoc,
-                        stride,
-                        &maybe_tail,
-                    );
-                }
-                assert_eq!(reference_states[0], test_state0);
-                assert_eq!(reference_states[1], test_state1);
-            },
-        );
-    }
-
-    fn exercise_compress2_loop_b(implementation: Implementation) {
-        let mut input_buffer = [0; 100 * BLOCKBYTES];
-        paint_test_input(&mut input_buffer);
-        let inputs = [&input_buffer[0..], &input_buffer[1..]];
-        exercise_cases_b(
             |invocations, blocks_per_invoc, count, finalize, stride, buffer_tail| {
                 // Use the portable compress1_loop implementation to compute a
                 // reference state for each input separately.
@@ -891,7 +541,7 @@ mod test {
                 }
                 let mut reference_words = [input_state_words(0), input_state_words(1)];
                 for i in 0..reference_words.len() {
-                    portable::compress1_loop_b(
+                    portable::compress1_loop(
                         Job::new(&mut reference_words[i], count, &inputs[i][..len], finalize),
                         stride,
                     );
@@ -928,7 +578,7 @@ mod test {
                             maybe_finalize,
                         ),
                     ];
-                    implementation.compress2_loop_b(&mut jobs, stride);
+                    implementation.compress2_loop(&mut jobs, stride);
                     test_count = test_count.wrapping_add((blocks_per_invoc * BLOCKBYTES) as u128);
                     for job in &jobs {
                         assert!(job.input.is_empty());
@@ -937,11 +587,6 @@ mod test {
                 assert_eq!(reference_words, test_words);
             },
         );
-    }
-
-    #[test]
-    fn test_compress2_loop_portable() {
-        exercise_compress2_loop(Implementation::portable());
     }
 
     #[test]
@@ -961,23 +606,6 @@ mod test {
         }
     }
 
-    #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn test_compress2_loop_sse41_b() {
-        if let Some(imp) = Implementation::sse41_if_supported() {
-            exercise_compress2_loop_b(imp);
-        }
-    }
-
-    #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn test_compress2_loop_avx2_b() {
-        // Currently this just falls back to SSE4.1, but we test it anyway.
-        if let Some(imp) = Implementation::avx2_if_supported() {
-            exercise_compress2_loop_b(imp);
-        }
-    }
-
     // Similar to exercise_compress1_loop above.
     fn exercise_compress4_loop(implementation: Implementation) {
         let mut input_buffer = [0; 100 * BLOCKBYTES];
@@ -989,80 +617,6 @@ mod test {
             &input_buffer[3..],
         ];
         exercise_cases(
-            |invocations, blocks_per_invoc, count, last_block, last_node, stride, buffer_tail| {
-                // Use the portable compress1_loop implementation to compute a
-                // reference state for each input separately.
-                let mut reference_states = [
-                    input_state_words(0),
-                    input_state_words(1),
-                    input_state_words(2),
-                    input_state_words(3),
-                ];
-                for i in 0..reference_states.len() {
-                    portable::compress1_loop(
-                        &mut reference_states[i],
-                        inputs[i],
-                        count,
-                        u64_flag(last_block),
-                        u64_flag(last_node),
-                        invocations * blocks_per_invoc,
-                        stride,
-                        buffer_tail,
-                    );
-                }
-
-                // Do the same thing in parallel with the
-                // implementation under test under test, and
-                // make sure the result is the same.
-                let mut test_state0 = input_state_words(0);
-                let mut test_state1 = input_state_words(1);
-                let mut test_state2 = input_state_words(2);
-                let mut test_state3 = input_state_words(3);
-                for invocation in 0..invocations {
-                    let is_last_invoc = invocation == invocations - 1;
-                    let invoc_count =
-                        count.wrapping_add((invocation * blocks_per_invoc * BLOCKBYTES) as u128);
-                    let count_low = u64x4([invoc_count as u64; 4]);
-                    let count_high = u64x4([(invoc_count >> 64) as u64; 4]);
-                    let last_block = u64x4([u64_flag(is_last_invoc && last_block); 4]);
-                    let last_node = u64x4([u64_flag(is_last_invoc && last_node); 4]);
-                    let maybe_tail = u64x4([if is_last_invoc { buffer_tail as u64 } else { 0 }; 4]);
-                    implementation.compress4_loop(
-                        &mut test_state0,
-                        &mut test_state1,
-                        &mut test_state2,
-                        &mut test_state3,
-                        &inputs[0][invocation * blocks_per_invoc * stride * BLOCKBYTES..],
-                        &inputs[1][invocation * blocks_per_invoc * stride * BLOCKBYTES..],
-                        &inputs[2][invocation * blocks_per_invoc * stride * BLOCKBYTES..],
-                        &inputs[3][invocation * blocks_per_invoc * stride * BLOCKBYTES..],
-                        &count_low,
-                        &count_high,
-                        &last_block,
-                        &last_node,
-                        blocks_per_invoc,
-                        stride,
-                        &maybe_tail,
-                    );
-                }
-                assert_eq!(reference_states[0], test_state0);
-                assert_eq!(reference_states[1], test_state1);
-                assert_eq!(reference_states[2], test_state2);
-                assert_eq!(reference_states[3], test_state3);
-            },
-        );
-    }
-
-    fn exercise_compress4_loop_b(implementation: Implementation) {
-        let mut input_buffer = [0; 100 * BLOCKBYTES];
-        paint_test_input(&mut input_buffer);
-        let inputs = [
-            &input_buffer[0..],
-            &input_buffer[1..],
-            &input_buffer[2..],
-            &input_buffer[3..],
-        ];
-        exercise_cases_b(
             |invocations, blocks_per_invoc, count, finalize, stride, buffer_tail| {
                 // Use the portable compress1_loop implementation to compute a
                 // reference state for each input separately.
@@ -1078,7 +632,7 @@ mod test {
                     input_state_words(3),
                 ];
                 for i in 0..reference_words.len() {
-                    portable::compress1_loop_b(
+                    portable::compress1_loop(
                         Job::new(&mut reference_words[i], count, &inputs[i][..len], finalize),
                         stride,
                     );
@@ -1133,7 +687,7 @@ mod test {
                             maybe_finalize,
                         ),
                     ];
-                    implementation.compress4_loop_b(&mut jobs, stride);
+                    implementation.compress4_loop(&mut jobs, stride);
                     test_count = test_count.wrapping_add((blocks_per_invoc * BLOCKBYTES) as u128);
                     for job in &jobs {
                         assert!(job.input.is_empty());
@@ -1145,32 +699,10 @@ mod test {
     }
 
     #[test]
-    fn test_compress4_loop_portable() {
-        exercise_compress4_loop(Implementation::portable());
-    }
-
-    #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn test_compress4_loop_sse41() {
-        // Currently this just falls back to portable, but we test it anyway.
-        if let Some(imp) = Implementation::sse41_if_supported() {
-            exercise_compress4_loop(imp);
-        }
-    }
-
-    #[test]
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn test_compress4_loop_avx2() {
         if let Some(imp) = Implementation::avx2_if_supported() {
             exercise_compress4_loop(imp);
-        }
-    }
-
-    #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn test_compress4_loop_avx2_b() {
-        if let Some(imp) = Implementation::avx2_if_supported() {
-            exercise_compress4_loop_b(imp);
         }
     }
 }

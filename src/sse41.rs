@@ -4,7 +4,7 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 use super::*;
-use crate::guts::{u64_flag, u64x2, u64x8, Job, Stride};
+use crate::guts::{u64_flag, u64x2, Job, Stride};
 use core::mem;
 
 #[inline(always)]
@@ -22,11 +22,6 @@ unsafe fn store_u64x2(a: __m128i, dest: &mut u64x2) {
 #[inline(always)]
 unsafe fn add(a: __m128i, b: __m128i) -> __m128i {
     _mm_add_epi64(a, b)
-}
-
-#[inline(always)]
-unsafe fn sub(a: __m128i, b: __m128i) -> __m128i {
-    _mm_sub_epi64(a, b)
 }
 
 #[inline(always)]
@@ -257,153 +252,6 @@ unsafe fn add_carry(lo: &mut __m128i, hi: &mut __m128i, x: __m128i) {
     *hi = _mm_add_epi64(*hi, carries);
 }
 
-#[target_feature(enable = "sse4.1")]
-pub unsafe fn compress2_loop(
-    state0: &mut u64x8,
-    state1: &mut u64x8,
-    input0: &[u8],
-    input1: &[u8],
-    count_low: &u64x2,
-    count_high: &u64x2,
-    last_block: &u64x2,
-    last_node: &u64x2,
-    mut blocks: usize,
-    stride: usize,
-    buffer_tail: &u64x2,
-) {
-    // Check the input slice lengths once here. The main loop will do unaligned
-    // loads without any further bounds checks.
-    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input0.len());
-    assert!(BLOCKBYTES * (stride * (blocks - 1) + 1) <= input1.len());
-
-    // Load all the state words into transposed vectors, where the first vector
-    // has the first word of each state, etc. This is the form that 2-way
-    // compression operates on, and transposing once at the beginning and once
-    // at the end is more efficient that repeating it for each block. Note that
-    // these loads are aligned, because u64x2 and u64x8 guarantee alignment.
-    let [h0, h1] = transpose_vecs(
-        load_u64x2(&state0.split()[0].split()[0]),
-        load_u64x2(&state1.split()[0].split()[0]),
-    );
-    let [h2, h3] = transpose_vecs(
-        load_u64x2(&state0.split()[0].split()[1]),
-        load_u64x2(&state1.split()[0].split()[1]),
-    );
-    let [h4, h5] = transpose_vecs(
-        load_u64x2(&state0.split()[1].split()[0]),
-        load_u64x2(&state1.split()[1].split()[0]),
-    );
-    let [h6, h7] = transpose_vecs(
-        load_u64x2(&state0.split()[1].split()[1]),
-        load_u64x2(&state1.split()[1].split()[1]),
-    );
-    let mut h_vecs = [h0, h1, h2, h3, h4, h5, h6, h7];
-    let mut count_low_vec = load_u64x2(count_low);
-    let mut count_high_vec = load_u64x2(count_high);
-    let mut offset = 0;
-
-    while blocks > 0 {
-        // Load all the message words into transposed vectors also. Message
-        // loads are unaligned, because these are arbitrary byte pointers from
-        // the caller. On modern chips though, there's not much of a
-        // performance penalty for unaligned loads.
-        let block0 = input0.as_ptr().add(offset) as *const __m128i;
-        let block1 = input1.as_ptr().add(offset) as *const __m128i;
-        let [m0, m1] = transpose_vecs(
-            _mm_loadu_si128(block0.add(0)),
-            _mm_loadu_si128(block1.add(0)),
-        );
-        let [m2, m3] = transpose_vecs(
-            _mm_loadu_si128(block0.add(1)),
-            _mm_loadu_si128(block1.add(1)),
-        );
-        let [m4, m5] = transpose_vecs(
-            _mm_loadu_si128(block0.add(2)),
-            _mm_loadu_si128(block1.add(2)),
-        );
-        let [m6, m7] = transpose_vecs(
-            _mm_loadu_si128(block0.add(3)),
-            _mm_loadu_si128(block1.add(3)),
-        );
-        let [m8, m9] = transpose_vecs(
-            _mm_loadu_si128(block0.add(4)),
-            _mm_loadu_si128(block1.add(4)),
-        );
-        let [m10, m11] = transpose_vecs(
-            _mm_loadu_si128(block0.add(5)),
-            _mm_loadu_si128(block1.add(5)),
-        );
-        let [m12, m13] = transpose_vecs(
-            _mm_loadu_si128(block0.add(6)),
-            _mm_loadu_si128(block1.add(6)),
-        );
-        let [m14, m15] = transpose_vecs(
-            _mm_loadu_si128(block0.add(7)),
-            _mm_loadu_si128(block1.add(7)),
-        );
-        let m_vecs = [
-            m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15,
-        ];
-
-        // Add BLOCKBYTES to the low count bits.
-        let old_count_low_vec = count_low_vec;
-        count_low_vec = add(count_low_vec, _mm_set1_epi64x(BLOCKBYTES as i64));
-        // If this is the last block, subtract the buffer tails.
-        if blocks == 1 {
-            count_low_vec = sub(count_low_vec, load_u64x2(buffer_tail));
-        }
-        // Finally if any of the low counts overflowed (after accounting for
-        // the buffer tails), increment the corresponding high counts.
-        count_high_vec = add(
-            count_high_vec,
-            _mm_and_si128(
-                unsigned_cmpgt_epi64(old_count_low_vec, count_low_vec),
-                _mm_set1_epi64x(1),
-            ),
-        );
-
-        // Compressions before the last one always use zero for the
-        // finalization flags. The last one will use what the caller supplied,
-        // which could also be zero if the input isn't finished.
-        let (last_block_vec, last_node_vec) = if blocks == 1 {
-            (
-                // Again, u64x4 guarantees alignment, so we do an aligned load.
-                load_u64x2(last_block),
-                load_u64x2(last_node),
-            )
-        } else {
-            (_mm_set1_epi64x(0), _mm_set1_epi64x(0))
-        };
-
-        compress2_transposed_inline(
-            &mut h_vecs,
-            &m_vecs,
-            count_low_vec,
-            count_high_vec,
-            last_block_vec,
-            last_node_vec,
-        );
-
-        offset += BLOCKBYTES * stride;
-        blocks -= 1;
-    }
-
-    // Un-transpose the updated state vectors back into the caller's arrays.
-    // These are aligned stores.
-    let words = transpose_vecs(h_vecs[0], h_vecs[1]);
-    store_u64x2(words[0], &mut state0.split_mut()[0].split_mut()[0]);
-    store_u64x2(words[1], &mut state1.split_mut()[0].split_mut()[0]);
-    let words = transpose_vecs(h_vecs[2], h_vecs[3]);
-    store_u64x2(words[0], &mut state0.split_mut()[0].split_mut()[1]);
-    store_u64x2(words[1], &mut state1.split_mut()[0].split_mut()[1]);
-    let words = transpose_vecs(h_vecs[4], h_vecs[5]);
-    store_u64x2(words[0], &mut state0.split_mut()[1].split_mut()[0]);
-    store_u64x2(words[1], &mut state1.split_mut()[1].split_mut()[0]);
-    let words = transpose_vecs(h_vecs[6], h_vecs[7]);
-    store_u64x2(words[0], &mut state0.split_mut()[1].split_mut()[1]);
-    store_u64x2(words[1], &mut state1.split_mut()[1].split_mut()[1]);
-}
-
 #[inline(always)]
 unsafe fn transpose_state_vecs(jobs: &[Job; 2]) -> [__m128i; 8] {
     // Load all the state words into transposed vectors, where the first vector
@@ -489,7 +337,7 @@ unsafe fn offset_jobs(jobs: &mut [Job; 2], offset: usize) {
 }
 
 #[target_feature(enable = "sse4.1")]
-pub unsafe fn compress2_loop_b(jobs: &mut [Job; 2], stride: Stride) {
+pub unsafe fn compress2_loop(jobs: &mut [Job; 2], stride: Stride) {
     let mut h_vecs = transpose_state_vecs(&jobs);
     let mut offset = 0;
     let (mut counts_lo, mut counts_hi) = load_counts(&jobs);

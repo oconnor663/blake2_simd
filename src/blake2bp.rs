@@ -381,7 +381,7 @@ impl State {
                 // implementations, so we can call it directly without checking
                 // anything. Also stride doesn't really matter here, because
                 // this is just one block.
-                self.implementation.compress1_loop_b(job, Stride::Parallel);
+                self.implementation.compress1_loop(job, Stride::Parallel);
             }
         }
 
@@ -403,7 +403,7 @@ impl State {
         // Again compress1_loop is always available, but here we have two
         // blocks so stride matters.
         let job = guts::Job::new(&mut root_words_copy, 0, &block, Finalize::YesLastNode);
-        self.implementation.compress1_loop_b(job, Stride::Normal);
+        self.implementation.compress1_loop(job, Stride::Normal);
         Hash {
             bytes: crate::state_words_to_bytes(&root_words_copy),
             len: self.hash_length,
