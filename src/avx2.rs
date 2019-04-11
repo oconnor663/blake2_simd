@@ -691,8 +691,6 @@ unsafe fn unsigned_cmpgt_epi64(a: __m256i, b: __m256i) -> __m256i {
 
 #[inline(always)]
 unsafe fn add_carry(lo: &mut __m256i, hi: &mut __m256i, x: __m256i) {
-    // TODO: Take advantage of the fact that only MAX-BLOCKSIZE will ever
-    // result in a carry?
     let old_lo = *lo;
     *lo = _mm256_add_epi64(*lo, x);
     let carries = _mm256_and_si256(unsigned_cmpgt_epi64(old_lo, *lo), _mm256_set1_epi64x(1));
