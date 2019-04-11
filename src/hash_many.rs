@@ -25,6 +25,7 @@ fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize) {
         // Strictly greater is important here, otherwise we'd get an extra empty
         // block hashed in.
         if vec[i].input.is_empty() {
+            // TODO: Make a guarantee about hashing inputs in order?
             vec.swap_remove(i);
         }
     }
