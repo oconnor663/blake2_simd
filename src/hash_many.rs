@@ -11,8 +11,9 @@ type JobsVec<'a, 'b> = ArrayVec<[Job<'a, 'b>; guts::MAX_DEGREE]>;
 fn fill_jobs_vec<'a, 'b>(
     jobs_iter: &mut impl Iterator<Item = Job<'a, 'b>>,
     vec: &mut JobsVec<'a, 'b>,
+    target_len: usize,
 ) {
-    while vec.len() < vec.capacity() {
+    while vec.len() < target_len {
         if let Some(job) = jobs_iter.next() {
             vec.push(job);
         } else {
@@ -22,13 +23,17 @@ fn fill_jobs_vec<'a, 'b>(
 }
 
 fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize) {
-    // Iterate backwards so that swap_remove doesn't swap in a finished job.
-    for i in (vec.len() - num_jobs..vec.len()).rev() {
-        // Strictly greater is important here, otherwise we'd get an extra empty
-        // block hashed in.
+    // Iterate backwards so that removal doesn't cause an out-of-bounds panic.
+    for i in (0..num_jobs).rev() {
+        // Note that is_empty() is only valid because we know all these jobs
+        // have been run at least once. Otherwise we could confuse the empty
+        // input for a finished job, which would be incorrect.
         if vec[i].input.is_empty() {
-            // TODO: Make a guarantee about hashing inputs in order?
-            vec.swap_remove(i);
+            // Note that calling remove() repeatedly has some overhead, because
+            // later elements need to be shifted up. However, the JobsVec is
+            // small, and this approach guarantees that jobs are encountered in
+            // order.
+            vec.remove(i);
         }
     }
 }
@@ -37,25 +42,32 @@ pub fn hash_many_inner<'a, 'b, I>(jobs: I, imp: Implementation, stride: Stride)
 where
     I: IntoIterator<Item = Job<'a, 'b>>,
 {
+    // Fuse is important for correctness, since each of these blocks tries to
+    // advance the iterator, even if a previous block emptied it.
     let mut jobs_iter = jobs.into_iter().fuse();
     let mut jobs_vec = JobsVec::new();
-    fill_jobs_vec(&mut jobs_iter, &mut jobs_vec);
 
     if imp.degree() >= 4 {
-        while jobs_vec.len() >= 4 {
-            let jobs_array = array_mut_ref!(jobs_vec, jobs_vec.len() - 4, 4);
+        loop {
+            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 4);
+            if jobs_vec.len() < 4 {
+                break;
+            }
+            let jobs_array = array_mut_ref!(jobs_vec, 0, 4);
             imp.compress4_loop(jobs_array, stride);
             evict_finished(&mut jobs_vec, 4);
-            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec);
         }
     }
 
     if imp.degree() >= 2 {
-        while jobs_vec.len() >= 2 {
-            let jobs_array = array_mut_ref!(jobs_vec, jobs_vec.len() - 2, 2);
+        loop {
+            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 2);
+            if jobs_vec.len() < 2 {
+                break;
+            }
+            let jobs_array = array_mut_ref!(jobs_vec, 0, 2);
             imp.compress2_loop(jobs_array, stride);
             evict_finished(&mut jobs_vec, 2);
-            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec);
         }
     }
 
