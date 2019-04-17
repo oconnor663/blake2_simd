@@ -1,3 +1,17 @@
+//! This module provides interfaces for hashing multiple inputs at once. This
+//! can be more efficient than hashing inputs one at a time, because it reduces
+//! the overhead of using SIMD. The throughput of these interfaces is
+//! comparable to BLAKE2bp, about two times the the throughput of BLAKE2b when
+//! AVX2 is available.
+//!
+//! This implementation keeps working in parallel even when inputs are of
+//! different lengths, by managing a working set of jobs whose input isn't yet
+//! exhausted. However, if one or two inputs are much longer than the others,
+//! and they're encountered only at the end, there might not be any remaining
+//! work to parallelize them with. In this case, sorting the inputs
+//! longest-first can minimize the time spent falling back to slower serial
+//! hashing.
+
 use crate::guts::{self, u64x8, Finalize, Implementation, Job, Stride};
 use crate::state_words_to_bytes;
 use crate::Hash;
