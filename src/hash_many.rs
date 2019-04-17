@@ -120,6 +120,7 @@ impl<'a> HashManyJob<'a> {
     }
 }
 
+/// TODO: this is incorrect with respect to secret keys.
 pub fn hash_many<'a, 'b, I>(hash_many_jobs: I)
 where
     'b: 'a,
@@ -192,10 +193,13 @@ mod test {
 
             let mut params: ArrayVec<[Params; LEN]> = ArrayVec::new();
             for i in 0..LEN {
-                let mut param = Params::new();
-                param.node_offset(i as u64);
-                param.last_node(i % 2 == 1);
-                params.push(param);
+                let mut p = Params::new();
+                p.node_offset(i as u64);
+                if i % 2 == 1 {
+                    p.last_node(true);
+                    p.key(b"foo");
+                }
+                params.push(p);
             }
 
             let mut jobs: ArrayVec<[HashManyJob; LEN]> = ArrayVec::new();
@@ -231,10 +235,13 @@ mod test {
 
             let mut params: ArrayVec<[Params; LEN]> = ArrayVec::new();
             for i in 0..LEN {
-                let mut param = Params::new();
-                param.node_offset(i as u64);
-                param.last_node(i % 2 == 1);
-                params.push(param);
+                let mut p = Params::new();
+                p.node_offset(i as u64);
+                if i % 2 == 1 {
+                    p.last_node(true);
+                    p.key(b"foo");
+                }
+                params.push(p);
             }
 
             let mut states: ArrayVec<[State; LEN]> = ArrayVec::new();
