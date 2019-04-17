@@ -7,7 +7,6 @@ extern crate libsodium_ffi;
 extern crate openssl;
 extern crate test;
 
-use blake2b_simd::guts::{Finalize, Job, Stride};
 use blake2b_simd::*;
 use test::Bencher;
 
@@ -101,89 +100,6 @@ fn bench_openssl_sha512_one_mb(b: &mut Bencher) {
     let input = make_input(b, MB);
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), &input));
 }
-
-#[bench]
-fn bench_compress4_loop_avx2_one_block(b: &mut Bencher) {
-    if guts::Implementation::avx2_if_supported().is_none() {
-        return;
-    }
-    let input0 = make_input(b, BLOCKBYTES);
-    let input1 = make_input(b, BLOCKBYTES);
-    let input2 = make_input(b, BLOCKBYTES);
-    let input3 = make_input(b, BLOCKBYTES);
-    let mut words0 = guts::u64x8([1; 8]);
-    let mut words1 = guts::u64x8([2; 8]);
-    let mut words2 = guts::u64x8([3; 8]);
-    let mut words3 = guts::u64x8([4; 8]);
-    b.iter(|| unsafe {
-        let mut jobs = [
-            Job::new(&mut words0, 0, &input0, Finalize::YesOrdinary),
-            Job::new(&mut words1, 0, &input1, Finalize::YesOrdinary),
-            Job::new(&mut words2, 0, &input2, Finalize::YesOrdinary),
-            Job::new(&mut words3, 0, &input3, Finalize::YesOrdinary),
-        ];
-        benchmarks::compress4_loop_avx2(&mut jobs, Stride::Normal);
-    });
-}
-
-#[bench]
-fn bench_compress4_loop_avx2_one_mb(b: &mut Bencher) {
-    if guts::Implementation::avx2_if_supported().is_none() {
-        return;
-    }
-    let len = (1 << 20) / 4;
-    let input0 = make_input(b, len);
-    let input1 = make_input(b, len);
-    let input2 = make_input(b, len);
-    let input3 = make_input(b, len);
-    let mut words0 = guts::u64x8([1; 8]);
-    let mut words1 = guts::u64x8([2; 8]);
-    let mut words2 = guts::u64x8([3; 8]);
-    let mut words3 = guts::u64x8([4; 8]);
-    b.iter(|| unsafe {
-        let mut jobs = [
-            Job::new(&mut words0, 0, &input0, Finalize::YesOrdinary),
-            Job::new(&mut words1, 0, &input1, Finalize::YesOrdinary),
-            Job::new(&mut words2, 0, &input2, Finalize::YesOrdinary),
-            Job::new(&mut words3, 0, &input3, Finalize::YesOrdinary),
-        ];
-        benchmarks::compress4_loop_avx2(&mut jobs, Stride::Normal);
-    });
-}
-
-#[bench]
-fn bench_compress2_loop_avx2_one_mb(b: &mut Bencher) {
-    if guts::Implementation::avx2_if_supported().is_none() {
-        return;
-    }
-    let len = (1 << 20) / 2;
-    let input0 = make_input(b, len);
-    let input1 = make_input(b, len);
-    let mut words0 = guts::u64x8([1; 8]);
-    let mut words1 = guts::u64x8([2; 8]);
-    b.iter(|| unsafe {
-        let mut jobs = [
-            Job::new(&mut words0, 0, &input0, Finalize::YesOrdinary),
-            Job::new(&mut words1, 0, &input1, Finalize::YesOrdinary),
-        ];
-        benchmarks::compress2_loop_sse41(&mut jobs, Stride::Normal);
-    });
-}
-
-#[bench]
-fn bench_compress1_loop_avx2_one_mb(b: &mut Bencher) {
-    if guts::Implementation::avx2_if_supported().is_none() {
-        return;
-    }
-    let len = 1 << 20;
-    let input0 = make_input(b, len);
-    let mut words0 = guts::u64x8([1; 8]);
-    b.iter(|| unsafe {
-        let job = Job::new(&mut words0, 0, &input0, Finalize::YesOrdinary);
-        benchmarks::compress1_loop_avx2(job, Stride::Normal);
-    });
-}
-
 #[bench]
 fn bench_hash_many_4x_block(b: &mut Bencher) {
     let params = Params::new();
@@ -195,12 +111,12 @@ fn bench_hash_many_4x_block(b: &mut Bencher) {
     ];
     b.iter(|| {
         let mut jobs = [
-            hash_many::HashManyJob::new(&params, &inputs[0]),
-            hash_many::HashManyJob::new(&params, &inputs[1]),
-            hash_many::HashManyJob::new(&params, &inputs[2]),
-            hash_many::HashManyJob::new(&params, &inputs[3]),
+            many::HashManyJob::new(&params, &inputs[0]),
+            many::HashManyJob::new(&params, &inputs[1]),
+            many::HashManyJob::new(&params, &inputs[2]),
+            many::HashManyJob::new(&params, &inputs[3]),
         ];
-        hash_many::hash_many(jobs.iter_mut());
+        many::hash_many(jobs.iter_mut());
         [
             jobs[0].to_hash(),
             jobs[1].to_hash(),
@@ -221,12 +137,12 @@ fn bench_hash_many_4x_4096(b: &mut Bencher) {
     ];
     b.iter(|| {
         let mut jobs = [
-            hash_many::HashManyJob::new(&params, &inputs[0]),
-            hash_many::HashManyJob::new(&params, &inputs[1]),
-            hash_many::HashManyJob::new(&params, &inputs[2]),
-            hash_many::HashManyJob::new(&params, &inputs[3]),
+            many::HashManyJob::new(&params, &inputs[0]),
+            many::HashManyJob::new(&params, &inputs[1]),
+            many::HashManyJob::new(&params, &inputs[2]),
+            many::HashManyJob::new(&params, &inputs[3]),
         ];
-        hash_many::hash_many(jobs.iter_mut());
+        many::hash_many(jobs.iter_mut());
         [
             jobs[0].to_hash(),
             jobs[1].to_hash(),
@@ -247,12 +163,12 @@ fn bench_hash_many_4x_1mb(b: &mut Bencher) {
     ];
     b.iter(|| {
         let mut jobs = [
-            hash_many::HashManyJob::new(&params, &inputs[0]),
-            hash_many::HashManyJob::new(&params, &inputs[1]),
-            hash_many::HashManyJob::new(&params, &inputs[2]),
-            hash_many::HashManyJob::new(&params, &inputs[3]),
+            many::HashManyJob::new(&params, &inputs[0]),
+            many::HashManyJob::new(&params, &inputs[1]),
+            many::HashManyJob::new(&params, &inputs[2]),
+            many::HashManyJob::new(&params, &inputs[3]),
         ];
-        hash_many::hash_many(jobs.iter_mut());
+        many::hash_many(jobs.iter_mut());
         [
             jobs[0].to_hash(),
             jobs[1].to_hash(),

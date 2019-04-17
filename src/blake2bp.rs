@@ -22,7 +22,7 @@
 //! ```
 
 use crate::guts::{self, Finalize, Stride};
-use crate::hash_many;
+use crate::many;
 use crate::Hash;
 use crate::Params as Blake2bParams;
 use crate::BLOCKBYTES;
@@ -248,7 +248,7 @@ impl State {
         let jobs = leaves.iter_mut().enumerate().map(|(i, words)| {
             guts::Job::new(words, *count, &input[i * BLOCKBYTES..], Finalize::NotYet)
         });
-        hash_many::hash_many_inner(jobs, implementation, Stride::Parallel);
+        many::hash_many_inner(jobs, implementation, Stride::Parallel);
         // Note that count is the bytes input *per-leaf*.
         *count = count.wrapping_add((input.len() / DEGREE) as u128);
     }
@@ -361,7 +361,7 @@ impl State {
             });
 
         // Run the group compression jobs.
-        hash_many::hash_many_inner(jobs, self.implementation, Stride::Parallel);
+        many::hash_many_inner(jobs, self.implementation, Stride::Parallel);
 
         // We just finished all the batch compressions we could. Some of the
         // leaves (though note, never the last one) might have one more block

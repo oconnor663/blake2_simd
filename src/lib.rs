@@ -135,8 +135,8 @@ mod portable;
 mod sse41;
 
 pub mod blake2bp;
-pub mod guts;
-pub mod hash_many;
+mod guts;
+pub mod many;
 
 use guts::{u64x8, Implementation};
 
@@ -623,15 +623,6 @@ impl Hash {
     pub fn to_hex(&self) -> HexString {
         bytes_to_hex(self.as_bytes())
     }
-
-    /// Create a `Hash` with no bytes in it. This is intended for initalizing
-    /// outputs for `hash_many`.
-    pub fn empty() -> Self {
-        Self {
-            bytes: [0; OUTBYTES],
-            len: 0,
-        }
-    }
 }
 
 fn bytes_to_hex(bytes: &[u8]) -> HexString {
@@ -690,13 +681,6 @@ fn paint_test_input(buf: &mut [u8]) {
 // This module is pub for internal benchmarks only. Please don't use it.
 #[doc(hidden)]
 pub mod benchmarks {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use crate::avx2::compress1_loop as compress1_loop_avx2;
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use crate::avx2::compress4_loop as compress4_loop_avx2;
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    pub use crate::sse41::compress2_loop as compress2_loop_sse41;
-
     pub fn force_portable(state: &mut crate::State) {
         state.implementation = crate::guts::Implementation::portable();
     }

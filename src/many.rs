@@ -1,6 +1,7 @@
-//! This module provides interfaces for hashing multiple inputs at once. This
-//! can be more efficient than hashing inputs one at a time, because it reduces
-//! the overhead of using SIMD. The throughput of these interfaces is
+//! Interfaces for efficiently hashing multiple inputs at once.
+//!
+//! This can be more efficient than hashing inputs one at a time, because it
+//! reduces the overhead of using SIMD. The throughput of these interfaces is
 //! comparable to BLAKE2bp, about two times the the throughput of BLAKE2b when
 //! AVX2 is available.
 //!
@@ -11,6 +12,32 @@
 //! work to parallelize them with. In this case, sorting the inputs
 //! longest-first can minimize the time spent falling back to slower serial
 //! hashing.
+//!
+//! # Example
+//!
+//! ```
+//! use blake2b_simd::{blake2b, State, hash_many::update_many};
+//!
+//! let mut states = [
+//!     State::new(),
+//!     State::new(),
+//!     State::new(),
+//!     State::new(),
+//! ];
+//!
+//! let mut inputs = [
+//!     &b"foo"[..],
+//!     &b"bar"[..],
+//!     &b"baz"[..],
+//!     &b"bing"[..],
+//! ];
+//!
+//! update_many(states.iter_mut().zip(inputs.iter().cloned()));
+//!
+//! for (state, input) in states.iter_mut().zip(inputs.iter()) {
+//!     assert_eq!(blake2b(input), state.finalize());
+//! }
+//! ```
 
 use crate::guts::{self, u64x8, Finalize, Implementation, Job, Stride};
 use crate::state_words_to_bytes;
@@ -52,7 +79,7 @@ fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize) {
     }
 }
 
-pub fn hash_many_inner<'a, 'b, I>(jobs: I, imp: Implementation, stride: Stride)
+pub(crate) fn hash_many_inner<'a, 'b, I>(jobs: I, imp: Implementation, stride: Stride)
 where
     I: IntoIterator<Item = Job<'a, 'b>>,
 {
