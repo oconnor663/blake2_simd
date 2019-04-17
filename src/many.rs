@@ -32,7 +32,7 @@
 //!     &b"bing"[..],
 //! ];
 //!
-//! update_many(states.iter_mut().zip(inputs.iter().cloned()));
+//! update_many(states.iter_mut().zip(inputs.iter()));
 //!
 //! for (state, input) in states.iter_mut().zip(inputs.iter()) {
 //!     assert_eq!(blake2b(input), state.finalize());
@@ -114,13 +114,41 @@ where
     }
 }
 
-pub fn update_many<'a, 'b, I>(pairs: I)
+/// Update any number of `State` objects at once.
+///
+/// # Example
+///
+/// ```
+/// use blake2b_simd::{blake2b, State, many::update_many};
+///
+/// let mut states = [
+///     State::new(),
+///     State::new(),
+///     State::new(),
+///     State::new(),
+/// ];
+///
+/// let mut inputs = [
+///     &b"foo"[..],
+///     &b"bar"[..],
+///     &b"baz"[..],
+///     &b"bing"[..],
+/// ];
+///
+/// update_many(states.iter_mut().zip(inputs.iter()));
+///
+/// for (state, input) in states.iter_mut().zip(inputs.iter()) {
+///     assert_eq!(blake2b(input), state.finalize());
+/// }
+/// ```
+pub fn update_many<'a, 'b, I, T>(pairs: I)
 where
-    'b: 'a,
-    I: IntoIterator<Item = (&'a mut State, &'b [u8])>,
+    I: IntoIterator<Item = (&'a mut State, &'b T)>,
+    T: 'b + AsRef<[u8]> + ?Sized,
 {
     let imp = Implementation::detect();
-    let jobs = pairs.into_iter().flat_map(|(state, mut input)| {
+    let jobs = pairs.into_iter().flat_map(|(state, input_t)| {
+        let mut input = input_t.as_ref();
         // For each pair, if the State has some input in its buffer, try to
         // finish that buffer. If there wasn't enough input to do that --
         // or if the input was empty to begin with -- skip this pair.
@@ -190,8 +218,8 @@ mod test {
             }
 
             // Run each input twice through, to exercise buffering.
-            update_many(states.iter_mut().zip(inputs.iter().cloned()));
-            update_many(states.iter_mut().zip(inputs.iter().cloned()));
+            update_many(states.iter_mut().zip(inputs.iter()));
+            update_many(states.iter_mut().zip(inputs.iter()));
 
             // Check the outputs.
             for i in 0..LEN {

@@ -110,7 +110,7 @@ fn bench_blake2b_update_many_4x_block(b: &mut Bencher) {
         make_input(b, BLOCKBYTES),
     ];
     b.iter(|| {
-        many::update_many(states.iter_mut().zip(inputs.iter().map(|v| v.as_slice())));
+        many::update_many(states.iter_mut().zip(inputs.iter()));
     });
     test::black_box(&states);
 }
@@ -125,7 +125,7 @@ fn bench_blake2b_update_many_4x_4096(b: &mut Bencher) {
         make_input(b, 4096),
     ];
     b.iter(|| {
-        many::update_many(states.iter_mut().zip(inputs.iter().map(|v| v.as_slice())));
+        many::update_many(states.iter_mut().zip(inputs.iter()));
     });
     test::black_box(&states);
 }
@@ -140,7 +140,7 @@ fn bench_blake2b_update_many_4x_1mb(b: &mut Bencher) {
         make_input(b, MB),
     ];
     b.iter(|| {
-        many::update_many(states.iter_mut().zip(inputs.iter().map(|v| v.as_slice())));
+        many::update_many(states.iter_mut().zip(inputs.iter()));
     });
     test::black_box(&states);
 }
