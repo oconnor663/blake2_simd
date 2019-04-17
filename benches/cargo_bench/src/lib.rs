@@ -101,8 +101,8 @@ fn bench_openssl_sha512_one_mb(b: &mut Bencher) {
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), &input));
 }
 #[bench]
-fn bench_hash_many_4x_block(b: &mut Bencher) {
-    let params = Params::new();
+fn bench_blake2b_update_many_4x_block(b: &mut Bencher) {
+    let mut states = [State::new(), State::new(), State::new(), State::new()];
     let inputs = [
         make_input(b, BLOCKBYTES),
         make_input(b, BLOCKBYTES),
@@ -110,25 +110,14 @@ fn bench_hash_many_4x_block(b: &mut Bencher) {
         make_input(b, BLOCKBYTES),
     ];
     b.iter(|| {
-        let mut jobs = [
-            many::HashManyJob::new(&params, &inputs[0]),
-            many::HashManyJob::new(&params, &inputs[1]),
-            many::HashManyJob::new(&params, &inputs[2]),
-            many::HashManyJob::new(&params, &inputs[3]),
-        ];
-        many::hash_many(jobs.iter_mut());
-        [
-            jobs[0].to_hash(),
-            jobs[1].to_hash(),
-            jobs[2].to_hash(),
-            jobs[3].to_hash(),
-        ]
+        many::update_many(states.iter_mut().zip(inputs.iter().map(|v| v.as_slice())));
     });
+    test::black_box(&states);
 }
 
 #[bench]
-fn bench_hash_many_4x_4096(b: &mut Bencher) {
-    let params = Params::new();
+fn bench_blake2b_update_many_4x_4096(b: &mut Bencher) {
+    let mut states = [State::new(), State::new(), State::new(), State::new()];
     let inputs = [
         make_input(b, 4096),
         make_input(b, 4096),
@@ -136,25 +125,14 @@ fn bench_hash_many_4x_4096(b: &mut Bencher) {
         make_input(b, 4096),
     ];
     b.iter(|| {
-        let mut jobs = [
-            many::HashManyJob::new(&params, &inputs[0]),
-            many::HashManyJob::new(&params, &inputs[1]),
-            many::HashManyJob::new(&params, &inputs[2]),
-            many::HashManyJob::new(&params, &inputs[3]),
-        ];
-        many::hash_many(jobs.iter_mut());
-        [
-            jobs[0].to_hash(),
-            jobs[1].to_hash(),
-            jobs[2].to_hash(),
-            jobs[3].to_hash(),
-        ]
+        many::update_many(states.iter_mut().zip(inputs.iter().map(|v| v.as_slice())));
     });
+    test::black_box(&states);
 }
 
 #[bench]
-fn bench_hash_many_4x_1mb(b: &mut Bencher) {
-    let params = Params::new();
+fn bench_blake2b_update_many_4x_1mb(b: &mut Bencher) {
+    let mut states = [State::new(), State::new(), State::new(), State::new()];
     let inputs = [
         make_input(b, MB),
         make_input(b, MB),
@@ -162,18 +140,7 @@ fn bench_hash_many_4x_1mb(b: &mut Bencher) {
         make_input(b, MB),
     ];
     b.iter(|| {
-        let mut jobs = [
-            many::HashManyJob::new(&params, &inputs[0]),
-            many::HashManyJob::new(&params, &inputs[1]),
-            many::HashManyJob::new(&params, &inputs[2]),
-            many::HashManyJob::new(&params, &inputs[3]),
-        ];
-        many::hash_many(jobs.iter_mut());
-        [
-            jobs[0].to_hash(),
-            jobs[1].to_hash(),
-            jobs[2].to_hash(),
-            jobs[3].to_hash(),
-        ]
+        many::update_many(states.iter_mut().zip(inputs.iter().map(|v| v.as_slice())));
     });
+    test::black_box(&states);
 }

@@ -16,7 +16,7 @@
 //! # Example
 //!
 //! ```
-//! use blake2b_simd::{blake2b, State, hash_many::update_many};
+//! use blake2b_simd::{blake2b, State, many::update_many};
 //!
 //! let mut states = [
 //!     State::new(),
@@ -39,10 +39,7 @@
 //! }
 //! ```
 
-use crate::guts::{self, u64x8, Finalize, Implementation, Job, Stride};
-use crate::state_words_to_bytes;
-use crate::Hash;
-use crate::Params;
+use crate::guts::{self, Finalize, Implementation, Job, Stride};
 use crate::State;
 use crate::BLOCKBYTES;
 use arrayvec::ArrayVec;
@@ -117,49 +114,6 @@ where
     }
 }
 
-pub struct HashManyJob<'a> {
-    words: u64x8,
-    finalize: Finalize,
-    hash_length: u8,
-    input: &'a [u8],
-}
-
-impl<'a> HashManyJob<'a> {
-    pub fn new(params: &Params, input: &'a [u8]) -> Self {
-        Self {
-            words: params.to_state_words(),
-            finalize: if params.last_node {
-                guts::Finalize::YesLastNode
-            } else {
-                guts::Finalize::YesOrdinary
-            },
-            hash_length: params.hash_length,
-            input,
-        }
-    }
-
-    pub fn to_hash(&self) -> Hash {
-        // TODO: assert this isn't called early
-        Hash {
-            bytes: state_words_to_bytes(&self.words),
-            len: self.hash_length,
-        }
-    }
-}
-
-/// TODO: this is incorrect with respect to secret keys.
-pub fn hash_many<'a, 'b, I>(hash_many_jobs: I)
-where
-    'b: 'a,
-    I: IntoIterator<Item = &'a mut HashManyJob<'b>>,
-{
-    let imp = Implementation::detect();
-    let jobs = hash_many_jobs
-        .into_iter()
-        .map(|j| Job::new(&mut j.words, 0, j.input, j.finalize));
-    hash_many_inner(jobs, imp, Stride::Normal);
-}
-
 pub fn update_many<'a, 'b, I>(pairs: I)
 where
     'b: 'a,
@@ -199,50 +153,9 @@ mod test {
     use super::*;
     use crate::guts;
     use crate::paint_test_input;
+    use crate::Params;
     use crate::BLOCKBYTES;
     use arrayvec::ArrayVec;
-
-    #[test]
-    fn test_hash_many() {
-        // Use a length of inputs that will exercise all of the power-of-two loops.
-        const LEN: usize = 2 * guts::MAX_DEGREE - 1;
-
-        // Rerun LEN inputs LEN different times, with the empty input starting in a
-        // different spot each time.
-        let mut input = [0; LEN * BLOCKBYTES];
-        paint_test_input(&mut input);
-        for start_offset in 0..LEN {
-            let mut inputs: [&[u8]; LEN] = [&[]; LEN];
-            for i in 0..LEN {
-                let chunks = (i + start_offset) % LEN;
-                inputs[i] = &input[..chunks * BLOCKBYTES];
-            }
-
-            let mut params: ArrayVec<[Params; LEN]> = ArrayVec::new();
-            for i in 0..LEN {
-                let mut p = Params::new();
-                p.node_offset(i as u64);
-                if i % 2 == 1 {
-                    p.last_node(true);
-                    p.key(b"foo");
-                }
-                params.push(p);
-            }
-
-            let mut jobs: ArrayVec<[HashManyJob; LEN]> = ArrayVec::new();
-            for i in 0..LEN {
-                jobs.push(HashManyJob::new(&params[i], inputs[i]));
-            }
-
-            hash_many(&mut jobs);
-
-            // Check the outputs.
-            for i in 0..LEN {
-                let expected = params[i].to_state().update(inputs[i]).finalize();
-                assert_eq!(expected, jobs[i].to_hash());
-            }
-        }
-    }
 
     #[test]
     fn test_update_many() {
