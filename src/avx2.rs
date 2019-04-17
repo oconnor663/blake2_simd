@@ -589,7 +589,10 @@ unsafe fn transpose_vecs(
     [abcd_0, abcd_1, abcd_2, abcd_3]
 }
 
-#[inline(always)]
+// If this function is inline(always), build times go up by 10 seconds! But at
+// the same time there doesn't seem to be any performance benefit from
+// whatever's going on there.
+#[target_feature(enable = "avx2")]
 unsafe fn compress4_transposed_inline(
     h_vecs: &mut [__m256i; 8],
     msg_vecs: &[__m256i; 16],

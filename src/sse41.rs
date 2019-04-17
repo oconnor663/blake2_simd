@@ -175,7 +175,9 @@ unsafe fn blake2b_round_2x(v: &mut [__m128i; 16], m: &[__m128i; 16], r: usize) {
     v[4] = rot63(v[4]);
 }
 
-#[inline(always)]
+// Making this function inline(always) doesn't hose the build time like we see
+// in avx2.rs, but we follow the same pattern for consistency.
+#[target_feature(enable = "sse4.1")]
 unsafe fn compress2_transposed_inline(
     h_vecs: &mut [__m128i; 8],
     msg_vecs: &[__m128i; 16],
