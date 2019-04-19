@@ -39,7 +39,10 @@
 //! }
 //! ```
 
-use crate::guts::{self, Finalize, Implementation, Job, Stride};
+use crate::guts::{self, u64x8, Finalize, Implementation, Job, Stride};
+use crate::state_words_to_bytes;
+use crate::Hash;
+use crate::Params;
 use crate::State;
 use crate::BLOCKBYTES;
 use arrayvec::ArrayVec;
@@ -176,14 +179,120 @@ where
     hash_many_inner(jobs, imp, Stride::Normal);
 }
 
+pub struct HashManyJob<'a> {
+    words: u64x8,
+    count: u128,
+    finalize: Finalize,
+    hash_length: u8,
+    input: &'a [u8],
+    was_run: bool,
+}
+
+impl<'a> HashManyJob<'a> {
+    pub fn new(params: &'a Params, mut input: &'a [u8]) -> Self {
+        let mut words = params.to_state_words();
+        let mut count = 0;
+        let finalize = if params.last_node {
+            guts::Finalize::YesLastNode
+        } else {
+            guts::Finalize::YesOrdinary
+        };
+        // If we have a key and other input, just hash the key block into the
+        // words here during construction. However, if there's no further
+        // input, use the key block as the input instead.
+        if params.key_length > 0 {
+            if input.is_empty() {
+                input = &params.key_block;
+            } else {
+                Implementation::detect().compress1_loop(
+                    Job::new(&mut words, 0, &params.key_block, Finalize::NotYet),
+                    Stride::Normal,
+                );
+                count = BLOCKBYTES as u128;
+            }
+        }
+        Self {
+            words,
+            count,
+            finalize,
+            hash_length: params.hash_length,
+            input,
+            was_run: false,
+        }
+    }
+
+    pub fn to_hash(&self) -> Hash {
+        assert!(self.was_run, "job hasn't been run yet");
+        Hash {
+            bytes: state_words_to_bytes(&self.words),
+            len: self.hash_length,
+        }
+    }
+}
+
+pub fn hash_many<'a, 'b, I>(hash_many_jobs: I)
+where
+    'b: 'a,
+    I: IntoIterator<Item = &'a mut HashManyJob<'b>>,
+{
+    let imp = Implementation::detect();
+    let jobs = hash_many_jobs.into_iter().map(|j| {
+        assert!(!j.was_run, "job has already been run");
+        j.was_run = true;
+        Job::new(&mut j.words, j.count, j.input, j.finalize)
+    });
+    hash_many_inner(jobs, imp, Stride::Normal);
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::guts;
     use crate::paint_test_input;
-    use crate::Params;
     use crate::BLOCKBYTES;
     use arrayvec::ArrayVec;
+
+    #[test]
+    fn test_hash_many() {
+        // Use a length of inputs that will exercise all of the power-of-two loops.
+        const LEN: usize = 2 * guts::MAX_DEGREE - 1;
+
+        // Rerun LEN inputs LEN different times, with the empty input starting in a
+        // different spot each time.
+        let mut input = [0; LEN * BLOCKBYTES];
+        paint_test_input(&mut input);
+        for start_offset in 0..LEN {
+            let mut inputs: [&[u8]; LEN] = [&[]; LEN];
+            for i in 0..LEN {
+                let chunks = (i + start_offset) % LEN;
+                inputs[i] = &input[..chunks * BLOCKBYTES];
+            }
+
+            let mut params: ArrayVec<[Params; LEN]> = ArrayVec::new();
+            for i in 0..LEN {
+                let mut p = Params::new();
+                p.node_offset(i as u64);
+                if i % 2 == 1 {
+                    p.last_node(true);
+                    p.key(b"foo");
+                }
+                params.push(p);
+            }
+
+            let mut jobs: ArrayVec<[HashManyJob; LEN]> = ArrayVec::new();
+            for i in 0..LEN {
+                jobs.push(HashManyJob::new(&params[i], inputs[i]));
+            }
+
+            hash_many(&mut jobs);
+
+            // Check the outputs.
+            for i in 0..LEN {
+                let expected = params[i].to_state().update(inputs[i]).finalize();
+                assert_eq!(expected, jobs[i].to_hash());
+            }
+        }
+    }
 
     #[test]
     fn test_update_many() {

@@ -139,3 +139,55 @@ fn bench_blake2b_update_many_4x_1mb(b: &mut Bencher) {
         ]
     });
 }
+
+#[bench]
+fn bench_blake2b_hash_many_4x_4096(b: &mut Bencher) {
+    let inputs = [
+        make_input(b, 4096),
+        make_input(b, 4096),
+        make_input(b, 4096),
+        make_input(b, 4096),
+    ];
+    let params = Params::new();
+    b.iter(|| {
+        let mut jobs = [
+            many::HashManyJob::new(&params, &inputs[0]),
+            many::HashManyJob::new(&params, &inputs[1]),
+            many::HashManyJob::new(&params, &inputs[2]),
+            many::HashManyJob::new(&params, &inputs[3]),
+        ];
+        many::hash_many(jobs.iter_mut());
+        [
+            jobs[0].to_hash(),
+            jobs[1].to_hash(),
+            jobs[2].to_hash(),
+            jobs[3].to_hash(),
+        ]
+    });
+}
+
+#[bench]
+fn bench_blake2b_hash_many_4x_1mb(b: &mut Bencher) {
+    let inputs = [
+        make_input(b, MB),
+        make_input(b, MB),
+        make_input(b, MB),
+        make_input(b, MB),
+    ];
+    let params = Params::new();
+    b.iter(|| {
+        let mut jobs = [
+            many::HashManyJob::new(&params, &inputs[0]),
+            many::HashManyJob::new(&params, &inputs[1]),
+            many::HashManyJob::new(&params, &inputs[2]),
+            many::HashManyJob::new(&params, &inputs[3]),
+        ];
+        many::hash_many(jobs.iter_mut());
+        [
+            jobs[0].to_hash(),
+            jobs[1].to_hash(),
+            jobs[2].to_hash(),
+            jobs[3].to_hash(),
+        ]
+    });
+}

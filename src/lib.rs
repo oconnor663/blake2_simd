@@ -218,7 +218,7 @@ pub fn blake2b(input: &[u8]) -> Hash {
 pub struct Params {
     hash_length: u8,
     key_length: u8,
-    key: [u8; KEYBYTES],
+    key_block: [u8; BLOCKBYTES],
     salt: [u8; SALTBYTES],
     personal: [u8; PERSONALBYTES],
     fanout: u8,
@@ -283,8 +283,8 @@ impl Params {
     pub fn key(&mut self, key: &[u8]) -> &mut Self {
         assert!(key.len() <= KEYBYTES, "Bad key length: {}", key.len());
         self.key_length = key.len() as u8;
-        self.key = [0; KEYBYTES];
-        self.key[..key.len()].copy_from_slice(key);
+        self.key_block = [0; BLOCKBYTES];
+        self.key_block[..key.len()].copy_from_slice(key);
         self
     }
 
@@ -367,7 +367,7 @@ impl Default for Params {
         Self {
             hash_length: OUTBYTES as u8,
             key_length: 0,
-            key: [0; KEYBYTES],
+            key_block: [0; BLOCKBYTES],
             salt: [0; SALTBYTES],
             personal: [0; PERSONALBYTES],
             // NOTE: fanout and max_depth don't default to zero!
@@ -448,9 +448,8 @@ impl State {
             implementation: Implementation::detect(),
         };
         if params.key_length > 0 {
-            let mut key_block = [0; BLOCKBYTES];
-            key_block[..KEYBYTES].copy_from_slice(&params.key);
-            state.update(&key_block);
+            state.buf = params.key_block;
+            state.buflen = state.buf.len() as u8;
         }
         state
     }
