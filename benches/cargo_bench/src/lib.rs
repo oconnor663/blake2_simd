@@ -1,13 +1,10 @@
 #![feature(test)]
 
 extern crate blake2b_simd;
-#[cfg(feature = "libsodium-ffi")]
-extern crate libsodium_ffi;
-#[cfg(feature = "openssl")]
-extern crate openssl;
 extern crate test;
 
 use blake2b_simd::*;
+use rand::RngCore;
 use test::Bencher;
 
 const MB: usize = 1 << 20;
@@ -16,7 +13,9 @@ fn make_input(b: &mut Bencher, len: usize) -> Vec<u8> {
     // Fill the vec with something other than zero, to avoid optimizations
     // using zeroed memory pages.
     b.bytes += len as u64;
-    vec![0b01010101; len]
+    let mut ret = vec![0; len];
+    rand::thread_rng().fill_bytes(&mut ret);
+    ret
 }
 
 #[bench]
@@ -100,24 +99,9 @@ fn bench_openssl_sha512_one_mb(b: &mut Bencher) {
     let input = make_input(b, MB);
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), &input));
 }
-#[bench]
-fn bench_blake2b_update_many_4x_block(b: &mut Bencher) {
-    let mut states = [State::new(), State::new(), State::new(), State::new()];
-    let inputs = [
-        make_input(b, BLOCKBYTES),
-        make_input(b, BLOCKBYTES),
-        make_input(b, BLOCKBYTES),
-        make_input(b, BLOCKBYTES),
-    ];
-    b.iter(|| {
-        many::update_many(states.iter_mut().zip(inputs.iter()));
-    });
-    test::black_box(&states);
-}
 
 #[bench]
 fn bench_blake2b_update_many_4x_4096(b: &mut Bencher) {
-    let mut states = [State::new(), State::new(), State::new(), State::new()];
     let inputs = [
         make_input(b, 4096),
         make_input(b, 4096),
@@ -125,14 +109,19 @@ fn bench_blake2b_update_many_4x_4096(b: &mut Bencher) {
         make_input(b, 4096),
     ];
     b.iter(|| {
+        let mut states = [State::new(), State::new(), State::new(), State::new()];
         many::update_many(states.iter_mut().zip(inputs.iter()));
+        [
+            states[0].finalize(),
+            states[1].finalize(),
+            states[2].finalize(),
+            states[3].finalize(),
+        ]
     });
-    test::black_box(&states);
 }
 
 #[bench]
 fn bench_blake2b_update_many_4x_1mb(b: &mut Bencher) {
-    let mut states = [State::new(), State::new(), State::new(), State::new()];
     let inputs = [
         make_input(b, MB),
         make_input(b, MB),
@@ -140,7 +129,13 @@ fn bench_blake2b_update_many_4x_1mb(b: &mut Bencher) {
         make_input(b, MB),
     ];
     b.iter(|| {
+        let mut states = [State::new(), State::new(), State::new(), State::new()];
         many::update_many(states.iter_mut().zip(inputs.iter()));
+        [
+            states[0].finalize(),
+            states[1].finalize(),
+            states[2].finalize(),
+            states[3].finalize(),
+        ]
     });
-    test::black_box(&states);
 }
