@@ -1,4 +1,5 @@
-//! Interfaces for efficiently hashing multiple inputs at once.
+//! Interfaces for hashing multiple inputs at once, using SIMD more
+//! efficiently.
 //!
 //! This can be more efficient than hashing inputs one at a time, because it
 //! reduces the overhead of using SIMD. The throughput of these interfaces is
@@ -25,7 +26,7 @@
 //!     State::new(),
 //! ];
 //!
-//! let mut inputs = [
+//! let inputs = [
 //!     &b"foo"[..],
 //!     &b"bar"[..],
 //!     &b"baz"[..],
@@ -79,7 +80,7 @@ fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize) {
     }
 }
 
-pub(crate) fn hash_many_inner<'a, 'b, I>(jobs: I, imp: Implementation, stride: Stride)
+pub(crate) fn compress_many<'a, 'b, I>(jobs: I, imp: Implementation, stride: Stride)
 where
     I: IntoIterator<Item = Job<'a, 'b>>,
 {
@@ -131,7 +132,7 @@ where
 ///     State::new(),
 /// ];
 ///
-/// let mut inputs = [
+/// let inputs = [
 ///     &b"foo"[..],
 ///     &b"bar"[..],
 ///     &b"baz"[..],
@@ -176,9 +177,12 @@ where
             Some(Job::new(&mut state.words, count, blocks, Finalize::NotYet))
         }
     });
-    hash_many_inner(jobs, imp, Stride::Normal);
+    compress_many(jobs, imp, Stride::Normal);
 }
 
+/// A job for the `hash_many` function. After calling `hash_many` on a
+/// collection of `HashManyJob` objects, you can call `to_hash` on each job to
+/// get the result.
 pub struct HashManyJob<'a> {
     words: u64x8,
     count: u128,
@@ -189,6 +193,8 @@ pub struct HashManyJob<'a> {
 }
 
 impl<'a> HashManyJob<'a> {
+    /// Construct a new `HashManyJob` from a set of hashing parameters and an
+    /// input.
     pub fn new(params: &'a Params, mut input: &'a [u8]) -> Self {
         let mut words = params.to_state_words();
         let mut count = 0;
@@ -221,6 +227,8 @@ impl<'a> HashManyJob<'a> {
         }
     }
 
+    /// Get the hash from a finished job. If you call this before calling
+    /// `hash_many`, it will panic.
     pub fn to_hash(&self) -> Hash {
         assert!(self.was_run, "job hasn't been run yet");
         Hash {
@@ -230,6 +238,43 @@ impl<'a> HashManyJob<'a> {
     }
 }
 
+/// Hash any number of complete inputs all at once.
+///
+/// This is slightly more efficient than using `update_many` with `State`
+/// objects, because it doesn't need to do any buffering.
+///
+/// Running `hash_many` on the same `HashManyJob` object more than once will
+/// panic.
+///
+/// # Example
+///
+/// ```
+/// use blake2b_simd::{blake2b, Params, many::{HashManyJob, hash_many}};
+///
+/// let inputs = [
+///     &b"foo"[..],
+///     &b"bar"[..],
+///     &b"baz"[..],
+///     &b"bing"[..],
+/// ];
+///
+/// let mut params = Params::new();
+/// params.hash_length(16);
+///
+/// let mut jobs = [
+///     HashManyJob::new(&params, inputs[0]),
+///     HashManyJob::new(&params, inputs[1]),
+///     HashManyJob::new(&params, inputs[2]),
+///     HashManyJob::new(&params, inputs[3]),
+/// ];
+///
+/// hash_many(jobs.iter_mut());
+///
+/// for (input, job) in inputs.iter().zip(jobs.iter()) {
+///     let expected = params.to_state().update(input).finalize();
+///     assert_eq!(expected, job.to_hash());
+/// }
+/// ```
 pub fn hash_many<'a, 'b, I>(hash_many_jobs: I)
 where
     'b: 'a,
@@ -241,7 +286,7 @@ where
         j.was_run = true;
         Job::new(&mut j.words, j.count, j.input, j.finalize)
     });
-    hash_many_inner(jobs, imp, Stride::Normal);
+    compress_many(jobs, imp, Stride::Normal);
 }
 
 #[cfg(test)]

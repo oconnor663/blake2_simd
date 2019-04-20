@@ -1,9 +1,9 @@
-//! An implementation of BLAKE2bp, a variant of BLAKE2b that takes advantage of the parallelism of
-//! modern processors.
+//! BLAKE2bp, a variant of BLAKE2b that uses SIMD more efficiently.
 //!
-//! The AVX2 implementation of BLAKE2bp is about twice as fast that of BLAKE2b, because it's able
-//! to use AVX2's vector operations more efficiently. However, note that it's a different hash
-//! function, and it gives a different hash from BLAKE2b for the same input.
+//! The AVX2 implementation of BLAKE2bp is about twice as fast that of BLAKE2b,
+//! because it's able to use AVX2's vector operations more efficiently.
+//! However, note that it's a different hash function, and it gives a different
+//! hash from BLAKE2b for the same input.
 //!
 //! # Example
 //!
@@ -248,7 +248,7 @@ impl State {
         let jobs = leaves.iter_mut().enumerate().map(|(i, words)| {
             guts::Job::new(words, *count, &input[i * BLOCKBYTES..], Finalize::NotYet)
         });
-        many::hash_many_inner(jobs, implementation, Stride::Parallel);
+        many::compress_many(jobs, implementation, Stride::Parallel);
         // Note that count is the bytes input *per-leaf*.
         *count = count.wrapping_add((input.len() / DEGREE) as u128);
     }
@@ -361,7 +361,7 @@ impl State {
             });
 
         // Run the group compression jobs.
-        many::hash_many_inner(jobs, self.implementation, Stride::Parallel);
+        many::compress_many(jobs, self.implementation, Stride::Parallel);
 
         // We just finished all the batch compressions we could. Some of the
         // leaves (though note, never the last one) might have one more block
