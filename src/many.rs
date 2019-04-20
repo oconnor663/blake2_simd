@@ -1,10 +1,8 @@
 //! Interfaces for hashing multiple inputs at once, using SIMD more
 //! efficiently.
 //!
-//! This can be more efficient than hashing inputs one at a time, because it
-//! reduces the overhead of using SIMD. The throughput of these interfaces is
-//! comparable to BLAKE2bp, about two times the the throughput of BLAKE2b when
-//! AVX2 is available.
+//! The throughput of these interfaces is comparable to BLAKE2bp, about two
+//! times the the throughput of BLAKE2b when AVX2 is available.
 //!
 //! This implementation keeps working in parallel even when inputs are of
 //! different lengths, by managing a working set of jobs whose input isn't yet

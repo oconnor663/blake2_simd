@@ -5,22 +5,23 @@
 //! An implementation of the BLAKE2b hash with:
 //!
 //! - 100% stable Rust.
-//! - An AVX2 implementation ported from [Samuel Neves' implementation]. This implementation is
-//!   faster than any hash function provided by OpenSSL. See the Performance section below.
+//! - A SIMD implementation based on Samuel Neves' [`blake2-avx2`]. This implementation is very
+//!   fast. See the Performance section below.
 //! - A portable, safe implementation for other platforms.
-//! - Dynamic CPU feature detection. Binaries for x86 include the AVX2 implementation by default
-//!   and call it if the processor supports it at runtime.
+//! - Dynamic CPU feature detection. Binaries for x86 include SIMD implementations by default and
+//!   use the fastest implementation the processor supports.
 //! - All the features from the [the BLAKE2 spec], like adjustable length, keying, and associated
 //!   data for tree hashing.
 //! - A clone of the Coreutils `b2sum` command line utility, provided as a sub-crate. `b2sum`
 //!   includes command line flags for all the BLAKE2 associated data features.
 //! - `no_std` support. The `std` Cargo feature is on by default, for CPU feature detection and
 //!   for implementing `std::io::Write`.
-//! - An implementation of the parallel [BLAKE2bp] variant. This implementation is single-threaded,
-//!   but it's twice as fast as BLAKE2b, because it uses AVX2 more efficiently. It's available on
-//!   the command line as `b2sum --blake2bp`.
-//! - Support for computing multiple BLAKE2b hashes in parallel, matching the throughput of
-//!   BLAKE2bp. See [`update4`] and [`finalize4`].
+//! - The SIMD-friendly [BLAKE2bp] variant. This implementation is single-threaded, but it's faster
+//!   than BLAKE2b, because it uses AVX2 more efficiently. It's available on the command line as
+//!   `b2sum --blake2bp`.
+//! - Support for computing multiple BLAKE2b hashes in parallel. See [`many::hash_many`] and
+//!   [`many::update_many`]. These interfaces match the efficiency of BLAKE2bp but produce BLAKE2b
+//!   hashes. They're a building block for the [Bao project].
 //!
 //! # Example
 //!
@@ -106,11 +107,12 @@
 //!
 //! [libsodium]: https://github.com/jedisct1/libsodium
 //! [the BLAKE2 spec]: https://blake2.net/blake2.pdf
-//! [Samuel Neves' implementation]: https://github.com/sneves/blake2-avx2
+//! [`blake2-avx2`]: https://github.com/sneves/blake2-avx2
 //! [included in libsodium]: https://github.com/jedisct1/libsodium/commit/0131a720826045e476e6dd6a8e7a1991f1d941aa
 //! [BLAKE2bp]: https://docs.rs/blake2b_simd/latest/blake2b_simd/blake2bp/index.html
-//! [`update4`]: https://docs.rs/blake2b_simd/latest/blake2b_simd/fn.update4.html
-//! [`finalize4`]: https://docs.rs/blake2b_simd/latest/blake2b_simd/fn.finalize4.html
+//! [`many::hash_many`]: https://docs.rs/blake2b_simd/latest/blake2b_simd/many/fn.hash_many.html
+//! [`many::update_many`]: https://docs.rs/blake2b_simd/latest/blake2b_simd/many/fn.update_many.html
+//! [Bao project]: https://github.com/oconnor663/bao
 // Note that the links above wind up in README.md, so they need to be absolute.
 
 #![cfg_attr(not(feature = "std"), no_std)]

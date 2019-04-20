@@ -1,7 +1,6 @@
 //! BLAKE2bp, a variant of BLAKE2b that uses SIMD more efficiently.
 //!
-//! The AVX2 implementation of BLAKE2bp is about twice as fast that of BLAKE2b,
-//! because it's able to use AVX2's vector operations more efficiently.
+//! The AVX2 implementation of BLAKE2bp is about twice as fast that of BLAKE2b.
 //! However, note that it's a different hash function, and it gives a different
 //! hash from BLAKE2b for the same input.
 //!
