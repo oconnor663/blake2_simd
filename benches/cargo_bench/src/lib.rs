@@ -65,7 +65,7 @@ fn bench_libsodium_one_mb(b: &mut Bencher) {
     let mut out = [0; 64];
     unsafe {
         let init_ret = libsodium_ffi::sodium_init();
-        assert_eq!(0, init_ret);
+        assert!(init_ret != -1);
     }
     b.iter(|| unsafe {
         libsodium_ffi::crypto_generichash(
