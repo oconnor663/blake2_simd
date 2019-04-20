@@ -198,11 +198,6 @@ impl<'a> HashManyJob<'a> {
     pub fn new(params: &'a Params, mut input: &'a [u8]) -> Self {
         let mut words = params.to_state_words();
         let mut count = 0;
-        let finalize = if params.last_node {
-            guts::Finalize::YesLastNode
-        } else {
-            guts::Finalize::YesOrdinary
-        };
         // If we have a key and other input, just hash the key block into the
         // words here during construction. However, if there's no further
         // input, use the key block as the input instead.
@@ -220,7 +215,7 @@ impl<'a> HashManyJob<'a> {
         Self {
             words,
             count,
-            finalize,
+            finalize: Finalize::from_last_node_flag(params.last_node),
             hash_length: params.hash_length,
             input,
             was_run: false,

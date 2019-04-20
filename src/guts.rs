@@ -239,7 +239,14 @@ pub enum Finalize {
 }
 
 impl Finalize {
-    #[inline(always)]
+    pub fn from_last_node_flag(last_node: bool) -> Self {
+        if last_node {
+            Finalize::YesLastNode
+        } else {
+            Finalize::YesOrdinary
+        }
+    }
+
     pub fn last_block_flag(&self) -> bool {
         match self {
             Finalize::NotYet => false,
@@ -247,7 +254,6 @@ impl Finalize {
         }
     }
 
-    #[inline(always)]
     pub fn last_node_flag(&self) -> bool {
         match self {
             Finalize::YesLastNode => true,

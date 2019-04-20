@@ -184,7 +184,8 @@ const SIGMA: [[u8; 16]; 12] = [
 type Block = [u8; BLOCKBYTES];
 type HexString = arrayvec::ArrayString<[u8; 2 * OUTBYTES]>;
 
-/// Compute the BLAKE2b hash of a slice of bytes, using default parameters.
+/// Compute the BLAKE2b hash of a slice of bytes all at once, using default
+/// parameters.
 ///
 /// # Example
 ///
@@ -196,23 +197,32 @@ type HexString = arrayvec::ArrayString<[u8; 2 * OUTBYTES]>;
 /// assert_eq!(&hash.to_hex(), expected);
 /// ```
 pub fn blake2b(input: &[u8]) -> Hash {
-    State::new().update(input).finalize()
+    Params::new().hash(input)
 }
 
-/// A parameter builder for `State` that exposes all the various BLAKE2 features.
+/// A parameter builder that exposes all the non-default BLAKE2 features.
 ///
-/// Apart from `hash_length`, which controls the length of the final `Hash`, all of these
-/// parameters are just associated data that gets mixed with the input. For all the details, see
-/// [the BLAKE2 spec](https://blake2.net/blake2.pdf).
+/// Apart from `hash_length`, which controls the length of the final `Hash`,
+/// all of these parameters are just associated data that gets mixed with the
+/// input. For more details, see [the BLAKE2 spec](https://blake2.net/blake2.pdf).
 ///
-/// Several of the parameters have a valid range defined in the spec and documented below. Trying
-/// to set an invalid parameter will panic.
+/// Several of the parameters have a valid range defined in the spec and
+/// documented below. Trying to set an invalid parameter will panic.
 ///
 /// # Example
 ///
 /// ```
 /// # use blake2b_simd::Params;
-/// let mut state = Params::new().hash_length(32).to_state();
+/// // Create a Params object with a secret key and a non-default length.
+/// let mut params = Params::new();
+/// params.key(b"my secret key");
+/// params.hash_length(16);
+///
+/// // Use those params to hash an input all at once.
+/// let hash = params.hash(b"my input");
+///
+/// // Or use those params to build an incremental State.
+/// let mut state = params.to_state();
 /// ```
 #[derive(Clone)]
 pub struct Params {
@@ -256,7 +266,26 @@ impl Params {
         ])
     }
 
-    /// Construct a `State` object based on these parameters.
+    /// Hash an input all at once with these parameters.
+    pub fn hash(&self, input: &[u8]) -> Hash {
+        let mut words = self.to_state_words();
+        Implementation::detect().compress1_loop(
+            guts::Job::new(
+                &mut words,
+                0,
+                input,
+                guts::Finalize::from_last_node_flag(self.last_node),
+            ),
+            guts::Stride::Normal,
+        );
+        Hash {
+            bytes: state_words_to_bytes(&words),
+            len: self.hash_length,
+        }
+    }
+
+    /// Construct a `State` object based on these parameters, for hashing input
+    /// incrementally.
     pub fn to_state(&self) -> State {
         State::with_params(self)
     }
@@ -352,8 +381,9 @@ impl Params {
         self
     }
 
-    /// Indicates the rightmost node in a row. This can also be changed on the `State` object
-    /// itself, potentially after hashing has begun. See [`State::set_last_node`].
+    /// Indicates the rightmost node in a row. This can also be changed on the
+    /// `State` object, potentially after hashing has begun. See
+    /// [`State::set_last_node`].
     ///
     /// [`State::set_last_node`]: struct.State.html#method.set_last_node
     pub fn last_node(&mut self, last_node: bool) -> &mut Self {
@@ -406,6 +436,8 @@ impl fmt::Debug for Params {
 }
 
 /// An incremental hasher for BLAKE2b.
+///
+/// To construct a `State` with non-default parameters, see `Params::to_state`.
 ///
 /// # Example
 ///
@@ -516,18 +548,13 @@ impl State {
     /// Finalize the state and return a `Hash`. This method is idempotent, and calling it multiple
     /// times will give the same result. It's also possible to `update` with more input in between.
     pub fn finalize(&self) -> Hash {
-        let finalize = if self.last_node {
-            guts::Finalize::YesLastNode
-        } else {
-            guts::Finalize::YesOrdinary
-        };
         let mut words_copy = self.words;
         self.implementation.compress1_loop(
             guts::Job::new(
                 &mut words_copy,
                 self.count,
                 &self.buf[..self.buflen as usize],
-                finalize,
+                guts::Finalize::from_last_node_flag(self.last_node),
             ),
             guts::Stride::Normal,
         );
