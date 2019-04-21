@@ -716,4 +716,32 @@ pub mod benchmarks {
     pub fn force_portable_blake2bp(state: &mut crate::blake2bp::State) {
         crate::blake2bp::force_portable(state);
     }
+
+    pub fn simple_blake2bp(input: &[u8]) -> u64 {
+        use crate::*;
+        let mut words0 = Params::new().to_state_words();
+        let mut words1 = words0;
+        let mut words2 = words0;
+        let mut words3 = words0;
+        let input0 = &input[0 * BLOCKBYTES..];
+        let input1 = &input[1 * BLOCKBYTES..];
+        let input2 = &input[2 * BLOCKBYTES..];
+        let input3 = &input[3 * BLOCKBYTES..];
+        let mut jobs = [
+            guts::Job::new(&mut words0, 0, input0, guts::Finalize::NotYet),
+            guts::Job::new(&mut words1, 0, input1, guts::Finalize::NotYet),
+            guts::Job::new(&mut words2, 0, input2, guts::Finalize::NotYet),
+            guts::Job::new(&mut words3, 0, input3, guts::Finalize::NotYet),
+        ];
+        unsafe {
+            avx2::compress4_loop(&mut jobs, guts::Stride::Parallel);
+        }
+        let mut ret = 0;
+        for words in &[&words0, &words1, &words2, &words3] {
+            for word in words.iter() {
+                ret += word;
+            }
+        }
+        ret
+    }
 }
