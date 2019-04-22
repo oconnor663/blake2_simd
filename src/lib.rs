@@ -724,14 +724,14 @@ pub mod benchmarks {
         let mut words2 = words0;
         let mut words3 = words0;
         let input0 = &input[0 * BLOCKBYTES..];
-        let input1 = &input[1 * BLOCKBYTES..];
-        let input2 = &input[2 * BLOCKBYTES..];
-        let input3 = &input[3 * BLOCKBYTES..];
+        // let input1 = &input[1 * BLOCKBYTES..];
+        // let input2 = &input[2 * BLOCKBYTES..];
+        // let input3 = &input[3 * BLOCKBYTES..];
         let mut jobs = [
             guts::Job::new(&mut words0, 0, input0, guts::Finalize::NotYet),
-            guts::Job::new(&mut words1, 0, input1, guts::Finalize::NotYet),
-            guts::Job::new(&mut words2, 0, input2, guts::Finalize::NotYet),
-            guts::Job::new(&mut words3, 0, input3, guts::Finalize::NotYet),
+            guts::Job::new(&mut words1, 0, input0, guts::Finalize::NotYet),
+            guts::Job::new(&mut words2, 0, input0, guts::Finalize::NotYet),
+            guts::Job::new(&mut words3, 0, input0, guts::Finalize::NotYet),
         ];
         unsafe {
             avx2::compress4_loop(&mut jobs, guts::Stride::Parallel);

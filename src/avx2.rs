@@ -621,17 +621,6 @@ unsafe fn compress4_transposed_inline(
     ];
 
     blake2b_round_4x(&mut v, &msg_vecs, 0);
-    blake2b_round_4x(&mut v, &msg_vecs, 1);
-    blake2b_round_4x(&mut v, &msg_vecs, 2);
-    blake2b_round_4x(&mut v, &msg_vecs, 3);
-    blake2b_round_4x(&mut v, &msg_vecs, 4);
-    blake2b_round_4x(&mut v, &msg_vecs, 5);
-    blake2b_round_4x(&mut v, &msg_vecs, 6);
-    blake2b_round_4x(&mut v, &msg_vecs, 7);
-    blake2b_round_4x(&mut v, &msg_vecs, 8);
-    blake2b_round_4x(&mut v, &msg_vecs, 9);
-    blake2b_round_4x(&mut v, &msg_vecs, 10);
-    blake2b_round_4x(&mut v, &msg_vecs, 11);
 
     h_vecs[0] = xor(xor(h_vecs[0], v[0]), v[8]);
     h_vecs[1] = xor(xor(h_vecs[1], v[1]), v[9]);

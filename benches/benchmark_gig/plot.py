@@ -5,8 +5,10 @@ import sys
 
 points = []
 for line in sys.stdin:
-    point = float(line.split()[1])
-    points.append(point)
+    parts = line.split()
+    if len(parts) > 1:
+        point = float(parts[1])
+        points.append(point)
 
 plt.plot(points)
 plt.show()
