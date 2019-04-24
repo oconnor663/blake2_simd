@@ -20,8 +20,7 @@
 //! assert_eq!("e69c7d2c42a5ac14948772231c68c552", &hash.to_hex());
 //! ```
 
-use crate::guts::{self, Finalize, Stride};
-use crate::many;
+use crate::guts::{self, Finalize};
 use crate::Hash;
 use crate::Params as Blake2bParams;
 use crate::BLOCKBYTES;
@@ -239,17 +238,26 @@ impl State {
         count: &mut u128,
         implementation: guts::Implementation,
     ) {
-        // The input is assumed to be the same number of complete blocks for
-        // each of the leaves.
         debug_assert!(input.len() > 0);
         debug_assert_eq!(0, input.len() % (DEGREE * BLOCKBYTES));
-
-        let jobs = leaves.iter_mut().enumerate().map(|(i, words)| {
-            guts::Job::new(words, *count, &input[i * BLOCKBYTES..], Finalize::NotYet)
-        });
-        many::compress_many(jobs, implementation, Stride::Parallel);
-        // Note that count is the bytes input *per-leaf*.
-        *count = count.wrapping_add((input.len() / DEGREE) as u128);
+        if implementation.degree() >= 4 {
+            implementation.blake2bp_loop(leaves, *count, input, [false; 4]);
+            *count = count.wrapping_add((input.len() / DEGREE) as u128);
+        } else {
+            let mut offset = 0;
+            while offset < input.len() {
+                for leaf_index in 0..DEGREE {
+                    implementation.compress1_loop(guts::Job::new(
+                        &mut leaves[leaf_index],
+                        *count,
+                        &input[offset + leaf_index * BLOCKBYTES..][..BLOCKBYTES],
+                        Finalize::NotYet,
+                    ));
+                }
+                *count = count.wrapping_add(BLOCKBYTES as u128);
+                offset += DEGREE * BLOCKBYTES;
+            }
+        }
     }
 
     /// Add input to the hash. You can call `update` any number of times.
@@ -319,69 +327,72 @@ impl State {
     /// times will give the same result. It's also possible to `update` with more input in between.
     pub fn finalize(&self) -> Hash {
         let buf_len = self.buf_len as usize;
-        let mut leaves_copy = self.leaf_words;
+        let mut leaves = self.leaf_words;
 
-        // Figure out how many group compressions we're going to do. If the
-        // buffer has two blocks of input for each leaf, we'll compress the
-        // full buffer, and all of the jobs will be finalizing. If it has less,
-        // we'll do only one, and some of them might not finalize. Note that
-        // the last leaf always finalizes here, and it sets the last node flag.
-        let two_compressions = buf_len > (2 * DEGREE - 1) * BLOCKBYTES;
-        let leaf_not_yet = |leaf_index| {
-            if two_compressions {
-                false
-            } else {
-                buf_len > (DEGREE + leaf_index) * BLOCKBYTES
+        // Do batch compressions of what's left in the buffer, if the
+        // implementation supports it.
+        let mut buf_block_index = 0;
+        if self.implementation.degree() >= DEGREE {
+            if buf_len == 2 * DEGREE * BLOCKBYTES {
+                // The buffer holds two complete batch compressions. Do
+                // everything as a batch.
+                self.implementation
+                    .blake2bp_loop(&mut leaves, self.count, &self.buf, [true; 4]);
+                buf_block_index = 2 * DEGREE;
+            // Compression is finished and count won't be used again.
+            } else if buf_len >= DEGREE * BLOCKBYTES {
+                // The buffer holds at least one complete batch compression. Do
+                // that one, though there might be some input left over.
+                let fin = [
+                    buf_len <= (DEGREE + 0) * BLOCKBYTES,
+                    buf_len <= (DEGREE + 1) * BLOCKBYTES,
+                    buf_len <= (DEGREE + 2) * BLOCKBYTES,
+                    buf_len <= (DEGREE + 3) * BLOCKBYTES,
+                ];
+                self.implementation.blake2bp_loop(
+                    &mut leaves,
+                    self.count,
+                    &self.buf[..DEGREE * BLOCKBYTES],
+                    fin,
+                );
+                buf_block_index = DEGREE;
             }
-        };
+        }
 
-        // Map the group compression jobs.
-        let jobs = leaves_copy
-            .iter_mut()
-            .enumerate()
-            .map(|(leaf_index, leaf_words)| {
-                let input_start = cmp::min(leaf_index * BLOCKBYTES, buf_len);
-                let input_end = if two_compressions {
-                    // Compress the whole buffer.
-                    buf_len
-                } else {
-                    // Only compress the first half, if we even have that much.
-                    cmp::min(buf_len, DEGREE * BLOCKBYTES)
-                };
-                let input = &self.buf[input_start..input_end];
-                let finalize = if leaf_index == DEGREE - 1 {
-                    Finalize::YesLastNode
-                } else if leaf_not_yet(leaf_index) {
+        // Now if any leaves still need work, finish them individually. Batch
+        // compression might've happend above, and if so it's accounted for in
+        // the buffer block index. Every leaf will get at least one
+        // compression, either above or here.
+        loop {
+            let buf_block_start = buf_block_index * BLOCKBYTES;
+            // Quit if we've compressed the entire buffer, except keep going if
+            // the input was so short that some leaves are empty.
+            if buf_block_index >= DEGREE && buf_block_start >= buf_len {
+                break;
+            }
+            let block_len = cmp::min(BLOCKBYTES, buf_len.saturating_sub(buf_block_start));
+            let count = if buf_block_index >= DEGREE {
+                self.count + BLOCKBYTES as u128
+            } else {
+                self.count
+            };
+            let finalize =
+                if buf_block_index < DEGREE && buf_len > (buf_block_index + DEGREE) * BLOCKBYTES {
                     Finalize::NotYet
                 } else {
-                    Finalize::YesOrdinary
+                    if buf_block_index % DEGREE == DEGREE - 1 {
+                        Finalize::YesLastNode
+                    } else {
+                        Finalize::YesOrdinary
+                    }
                 };
-                guts::Job::new(leaf_words, self.count, input, finalize)
-            });
-
-        // Run the group compression jobs.
-        many::compress_many(jobs, self.implementation, Stride::Parallel);
-
-        // We just finished all the batch compressions we could. Some of the
-        // leaves (though note, never the last one) might have one more block
-        // left to finalize them.
-        for leaf_index in 0..DEGREE - 1 {
-            if leaf_not_yet(leaf_index) {
-                let block_start = (DEGREE + leaf_index) * BLOCKBYTES;
-                debug_assert!(buf_len > block_start);
-                let block_len = cmp::min(BLOCKBYTES, buf_len - block_start);
-                let job = guts::Job::new(
-                    &mut leaves_copy[leaf_index],
-                    self.count.wrapping_add(BLOCKBYTES as u128),
-                    &self.buf[block_start..][..block_len],
-                    Finalize::YesOrdinary,
-                );
-                // Note that compress1_loop is always available in all
-                // implementations, so we can call it directly without checking
-                // anything. Also stride doesn't really matter here, because
-                // this is just one block.
-                self.implementation.compress1_loop(job, Stride::Parallel);
-            }
+            self.implementation.compress1_loop(guts::Job::new(
+                &mut leaves[buf_block_index % DEGREE],
+                count,
+                &self.buf[buf_block_start..][..block_len],
+                finalize,
+            ));
+            buf_block_index += 1;
         }
 
         // Compress each of the four finalized hashes into the root words as
@@ -395,14 +406,12 @@ impl State {
         debug_assert_eq!(block.len(), DEGREE * BLOCKBYTES / 2);
         for leaf_index in 0..DEGREE {
             LittleEndian::write_u64_into(
-                &leaves_copy[leaf_index][..],
+                &leaves[leaf_index][..],
                 &mut block[leaf_index * OUTBYTES..][..OUTBYTES],
             );
         }
-        // Again compress1_loop is always available, but here we have two
-        // blocks so stride matters.
         let job = guts::Job::new(&mut root_words_copy, 0, &block, Finalize::YesLastNode);
-        self.implementation.compress1_loop(job, Stride::Normal);
+        self.implementation.compress1_loop(job);
         Hash {
             bytes: crate::state_words_to_bytes(&root_words_copy),
             len: self.hash_length,
@@ -518,24 +527,37 @@ pub(crate) mod test {
         // - 16 blocks triggers "after emptying the buffer, hash directly from memory".
         for num_blocks in 0..=20 {
             for &extra in &[0, 1, BLOCKBYTES - 1] {
-                // First hash the input all at once, as a sanity check.
-                let input = &buf[..num_blocks * BLOCKBYTES + extra];
-                let expected = blake2bp_reference(&input);
-                let found = blake2bp(&input);
-                assert_eq!(expected, found);
+                for &portable in &[false, true] {
+                    // dbg!(num_blocks);
+                    // dbg!(extra);
+                    // dbg!(portable);
 
-                // Then, do it again, but buffer 1 byte of input first. That causes the buffering
-                // branch to trigger.
-                let mut state = State::new();
-                let maybe_one = cmp::min(1, input.len());
-                state.update(&input[..maybe_one]);
-                assert_eq!(maybe_one as u128, state.count());
-                // Do a throwaway finalize here to check for idempotency.
-                state.finalize();
-                state.update(&input[maybe_one..]);
-                assert_eq!(input.len() as u128, state.count());
-                let found = state.finalize();
-                assert_eq!(expected, found);
+                    // First hash the input all at once, as a sanity check.
+                    let input = &buf[..num_blocks * BLOCKBYTES + extra];
+                    let expected = blake2bp_reference(&input);
+                    let mut state = State::new();
+                    if portable {
+                        force_portable(&mut state);
+                    }
+                    let found = state.update(input).finalize();
+                    assert_eq!(expected, found);
+
+                    // Then, do it again, but buffer 1 byte of input first. That causes the buffering
+                    // branch to trigger.
+                    let mut state = State::new();
+                    if portable {
+                        force_portable(&mut state);
+                    }
+                    let maybe_one = cmp::min(1, input.len());
+                    state.update(&input[..maybe_one]);
+                    assert_eq!(maybe_one as u128, state.count());
+                    // Do a throwaway finalize here to check for idempotency.
+                    state.finalize();
+                    state.update(&input[maybe_one..]);
+                    assert_eq!(input.len() as u128, state.count());
+                    let found = state.finalize();
+                    assert_eq!(expected, found);
+                }
             }
         }
     }

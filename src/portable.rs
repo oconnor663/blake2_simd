@@ -1,7 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
-use crate::guts::{u64_flag, u64x8, Job, Stride};
+use crate::guts::{u64_flag, u64x8, Job};
 
 // G is the mixing function, called eight times per round in the compression
 // function. V is the 16-word state vector of the compression function, usually
@@ -109,12 +109,11 @@ fn compress_block(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, lastn
     h[7] ^= v[7] ^ v[15];
 }
 
-pub fn compress1_loop(job: Job, stride: Stride) {
+pub fn compress1_loop(job: Job) {
     let mut offset = 0;
-    let final_block_offset = guts::final_block_offset(job.input.len(), stride);
+    let final_block_offset = guts::final_block_offset(job.input.len());
     let mut buffer = [0; BLOCKBYTES];
-    let (finblock, finblock_len, _) =
-        guts::get_block(job.input, final_block_offset, &mut buffer, stride);
+    let (finblock, finblock_len, _) = guts::get_block(job.input, final_block_offset, &mut buffer);
     let mut local_words = *job.words;
     let mut count = job.count;
     while offset <= final_block_offset {
@@ -137,7 +136,7 @@ pub fn compress1_loop(job: Job, stride: Stride) {
         // It's almost impossible for offset to overflow. The input would have
         // to take up almost all of memory. But if it did overflow then we'd
         // loop forever, so saturating_add prevents that theoretical bug.
-        offset = offset.saturating_add(stride.padded_blockbytes());
+        offset = offset.saturating_add(BLOCKBYTES);
     }
     *job.words = local_words;
 }

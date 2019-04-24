@@ -42,7 +42,7 @@
 //! }
 //! ```
 
-use crate::guts::{self, u64x8, Finalize, Implementation, Job, Stride};
+use crate::guts::{self, u64x8, Finalize, Implementation, Job};
 use crate::state_words_to_bytes;
 use crate::Hash;
 use crate::Params;
@@ -121,7 +121,7 @@ fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize) {
     }
 }
 
-pub(crate) fn compress_many<'a, 'b, I>(jobs: I, imp: Implementation, stride: Stride)
+pub(crate) fn compress_many<'a, 'b, I>(jobs: I, imp: Implementation)
 where
     I: IntoIterator<Item = Job<'a, 'b>>,
 {
@@ -137,7 +137,7 @@ where
                 break;
             }
             let jobs_array = array_mut_ref!(jobs_vec, 0, 4);
-            imp.compress4_loop(jobs_array, stride);
+            imp.compress4_loop(jobs_array);
             evict_finished(&mut jobs_vec, 4);
         }
     }
@@ -149,13 +149,13 @@ where
                 break;
             }
             let jobs_array = array_mut_ref!(jobs_vec, 0, 2);
-            imp.compress2_loop(jobs_array, stride);
+            imp.compress2_loop(jobs_array);
             evict_finished(&mut jobs_vec, 2);
         }
     }
 
     for job in jobs_vec.into_iter().chain(jobs_iter) {
-        imp.compress1_loop(job, stride);
+        imp.compress1_loop(job);
     }
 }
 
@@ -218,7 +218,7 @@ where
             Some(Job::new(&mut state.words, count, blocks, Finalize::NotYet))
         }
     });
-    compress_many(jobs, imp, Stride::Normal);
+    compress_many(jobs, imp);
 }
 
 /// A job for the [`hash_many`] function. After calling [`hash_many`] on a
@@ -249,10 +249,12 @@ impl<'a> HashManyJob<'a> {
             if input.is_empty() {
                 input = &params.key_block;
             } else {
-                Implementation::detect().compress1_loop(
-                    Job::new(&mut words, 0, &params.key_block, Finalize::NotYet),
-                    Stride::Normal,
-                );
+                Implementation::detect().compress1_loop(Job::new(
+                    &mut words,
+                    0,
+                    &params.key_block,
+                    Finalize::NotYet,
+                ));
                 count = BLOCKBYTES as u128;
             }
         }
@@ -327,7 +329,7 @@ where
         j.was_run = true;
         Job::new(&mut j.words, j.count, j.input, j.finalize)
     });
-    compress_many(jobs, imp, Stride::Normal);
+    compress_many(jobs, imp);
 }
 
 #[cfg(test)]

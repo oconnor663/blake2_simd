@@ -4,7 +4,7 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 use super::*;
-use crate::guts::{u64_flag, u64x2, Job, Stride};
+use crate::guts::{u64_flag, u64x2, Job};
 use core::mem;
 
 #[inline(always)]
@@ -339,18 +339,18 @@ unsafe fn offset_jobs(jobs: &mut [Job; 2], offset: usize) {
 }
 
 #[target_feature(enable = "sse4.1")]
-pub unsafe fn compress2_loop(jobs: &mut [Job; 2], stride: Stride) {
+pub unsafe fn compress2_loop(jobs: &mut [Job; 2]) {
     let mut h_vecs = transpose_state_vecs(&jobs);
     let mut offset = 0;
     let (mut counts_lo, mut counts_hi) = load_counts(&jobs);
     let min_len = jobs.iter().map(|job| job.input.len()).min().unwrap();
-    let final_block_offset = guts::final_block_offset(min_len, stride);
+    let final_block_offset = guts::final_block_offset(min_len);
     let mut buffer0 = [0; BLOCKBYTES];
     let mut buffer1 = [0; BLOCKBYTES];
     let (finblock0, finblock_len0, is_end0) =
-        guts::get_block(jobs[0].input, final_block_offset, &mut buffer0, stride);
+        guts::get_block(jobs[0].input, final_block_offset, &mut buffer0);
     let (finblock1, finblock_len1, is_end1) =
-        guts::get_block(jobs[1].input, final_block_offset, &mut buffer1, stride);
+        guts::get_block(jobs[1].input, final_block_offset, &mut buffer1);
     let finlastblockvec = load_flags_vec([
         is_end0 && jobs[0].finalize.last_block_flag(),
         is_end1 && jobs[1].finalize.last_block_flag(),
@@ -395,7 +395,7 @@ pub unsafe fn compress2_loop(jobs: &mut [Job; 2], stride: Stride) {
             last_node_vec,
         );
 
-        offset = offset.saturating_add(stride.padded_blockbytes());
+        offset = offset.saturating_add(BLOCKBYTES);
     }
 
     untranspose_state_vecs(&h_vecs, jobs);

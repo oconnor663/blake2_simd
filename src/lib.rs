@@ -280,24 +280,18 @@ impl Params {
             } else {
                 guts::Finalize::NotYet
             };
-            imp.compress1_loop(
-                guts::Job::new(&mut words, 0, &self.key_block, finalization),
-                guts::Stride::Normal,
-            );
+            imp.compress1_loop(guts::Job::new(&mut words, 0, &self.key_block, finalization));
             count = BLOCKBYTES as u128;
         }
         // Hash the input, except in the case where the input is empty and we
         // already hashed a key block.
         if self.key_length == 0 || !input.is_empty() {
-            imp.compress1_loop(
-                guts::Job::new(
-                    &mut words,
-                    count,
-                    input,
-                    guts::Finalize::from_last_node_flag(self.last_node),
-                ),
-                guts::Stride::Normal,
-            );
+            imp.compress1_loop(guts::Job::new(
+                &mut words,
+                count,
+                input,
+                guts::Finalize::from_last_node_flag(self.last_node),
+            ));
         }
         Hash {
             bytes: state_words_to_bytes(&words),
@@ -521,15 +515,12 @@ impl State {
         if self.buflen > 0 {
             self.fill_buf(input);
             if !input.is_empty() {
-                self.implementation.compress1_loop(
-                    guts::Job::new(
-                        &mut self.words,
-                        self.count,
-                        &self.buf,
-                        guts::Finalize::NotYet,
-                    ),
-                    guts::Stride::Normal,
-                );
+                self.implementation.compress1_loop(guts::Job::new(
+                    &mut self.words,
+                    self.count,
+                    &self.buf,
+                    guts::Finalize::NotYet,
+                ));
                 self.count += BLOCKBYTES as u128;
                 self.buflen = 0;
             }
@@ -545,15 +536,12 @@ impl State {
         let mut end = input.len().saturating_sub(1);
         end -= end % BLOCKBYTES;
         if end > 0 {
-            self.implementation.compress1_loop(
-                guts::Job::new(
-                    &mut self.words,
-                    self.count,
-                    &input[..end],
-                    guts::Finalize::NotYet,
-                ),
-                guts::Stride::Normal,
-            );
+            self.implementation.compress1_loop(guts::Job::new(
+                &mut self.words,
+                self.count,
+                &input[..end],
+                guts::Finalize::NotYet,
+            ));
             self.count += end as u128;
             input = &input[end..];
         }
@@ -570,15 +558,12 @@ impl State {
     /// times will give the same result. It's also possible to `update` with more input in between.
     pub fn finalize(&self) -> Hash {
         let mut words_copy = self.words;
-        self.implementation.compress1_loop(
-            guts::Job::new(
-                &mut words_copy,
-                self.count,
-                &self.buf[..self.buflen as usize],
-                guts::Finalize::from_last_node_flag(self.last_node),
-            ),
-            guts::Stride::Normal,
-        );
+        self.implementation.compress1_loop(guts::Job::new(
+            &mut words_copy,
+            self.count,
+            &self.buf[..self.buflen as usize],
+            guts::Finalize::from_last_node_flag(self.last_node),
+        ));
         Hash {
             bytes: state_words_to_bytes(&words_copy),
             len: self.hash_length,

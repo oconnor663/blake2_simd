@@ -5,7 +5,7 @@ use core::arch::x86_64::*;
 
 use super::*;
 use crate::guts;
-use crate::guts::{u64_flag, u64x4, u64x8, Job, Stride};
+use crate::guts::{u64_flag, u64x4, u64x8, Job};
 
 #[inline(always)]
 unsafe fn load_u64x4(a: &u64x4) -> __m256i {
@@ -393,12 +393,11 @@ unsafe fn compress_block(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64
 }
 
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress1_loop(job: Job, stride: Stride) {
+pub unsafe fn compress1_loop(job: Job) {
     let mut offset = 0;
-    let final_block_offset = guts::final_block_offset(job.input.len(), stride);
+    let final_block_offset = guts::final_block_offset(job.input.len());
     let mut buffer = [0; BLOCKBYTES];
-    let (finblock, finblock_len, _) =
-        guts::get_block(job.input, final_block_offset, &mut buffer, stride);
+    let (finblock, finblock_len, _) = guts::get_block(job.input, final_block_offset, &mut buffer);
     let mut local_words = *job.words;
     let mut count = job.count;
     while offset <= final_block_offset {
@@ -425,7 +424,7 @@ pub unsafe fn compress1_loop(job: Job, stride: Stride) {
         // It's almost impossible for offset to overflow. The input would have
         // to take up almost all of memory. But if it did overflow then we'd
         // loop forever, so saturating_add prevents that theoretical bug.
-        offset = offset.saturating_add(stride.padded_blockbytes());
+        offset = offset.saturating_add(BLOCKBYTES);
     }
     *job.words = local_words;
 }
@@ -664,41 +663,52 @@ unsafe fn add_carry(lo: &mut __m256i, hi: &mut __m256i, x: __m256i) {
 }
 
 #[inline(always)]
-unsafe fn transpose_state_vecs(jobs: &[Job; 4]) -> [__m256i; 8] {
+unsafe fn transpose_state_vecs(
+    words0: &u64x8,
+    words1: &u64x8,
+    words2: &u64x8,
+    words3: &u64x8,
+) -> [__m256i; 8] {
     // Load all the state words into transposed vectors, where the first vector
     // has the first word of each state, etc. This is the form that 4-way
     // compression operates on, and transposing once at the beginning and once
     // at the end is more efficient that repeating it for each block. Note that
     // these loads are aligned, because u64x4 and u64x8 guarantee alignment.
     let [h0, h1, h2, h3] = transpose_vecs(
-        load_u64x4(&jobs[0].words.split()[0]),
-        load_u64x4(&jobs[1].words.split()[0]),
-        load_u64x4(&jobs[2].words.split()[0]),
-        load_u64x4(&jobs[3].words.split()[0]),
+        load_u64x4(&words0.split()[0]),
+        load_u64x4(&words1.split()[0]),
+        load_u64x4(&words2.split()[0]),
+        load_u64x4(&words3.split()[0]),
     );
     let [h4, h5, h6, h7] = transpose_vecs(
-        load_u64x4(&jobs[0].words.split()[1]),
-        load_u64x4(&jobs[1].words.split()[1]),
-        load_u64x4(&jobs[2].words.split()[1]),
-        load_u64x4(&jobs[3].words.split()[1]),
+        load_u64x4(&words0.split()[1]),
+        load_u64x4(&words1.split()[1]),
+        load_u64x4(&words2.split()[1]),
+        load_u64x4(&words3.split()[1]),
     );
     [h0, h1, h2, h3, h4, h5, h6, h7]
 }
 
 #[inline(always)]
-unsafe fn untranspose_state_vecs(h_vecs: &[__m256i; 8], jobs: &mut [Job; 4]) {
+unsafe fn untranspose_state_vecs(
+    h_vecs: &[__m256i; 8],
+    words0: &mut u64x8,
+    words1: &mut u64x8,
+    words2: &mut u64x8,
+    words3: &mut u64x8,
+) {
     // Un-transpose the updated state vectors back into the caller's arrays.
     // These are aligned stores.
     let low_words = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
-    store_u64x4(low_words[0], &mut jobs[0].words.split_mut()[0]);
-    store_u64x4(low_words[1], &mut jobs[1].words.split_mut()[0]);
-    store_u64x4(low_words[2], &mut jobs[2].words.split_mut()[0]);
-    store_u64x4(low_words[3], &mut jobs[3].words.split_mut()[0]);
+    store_u64x4(low_words[0], &mut words0.split_mut()[0]);
+    store_u64x4(low_words[1], &mut words1.split_mut()[0]);
+    store_u64x4(low_words[2], &mut words2.split_mut()[0]);
+    store_u64x4(low_words[3], &mut words3.split_mut()[0]);
     let high_words = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
-    store_u64x4(high_words[0], &mut jobs[0].words.split_mut()[1]);
-    store_u64x4(high_words[1], &mut jobs[1].words.split_mut()[1]);
-    store_u64x4(high_words[2], &mut jobs[2].words.split_mut()[1]);
-    store_u64x4(high_words[3], &mut jobs[3].words.split_mut()[1]);
+    store_u64x4(high_words[0], &mut words0.split_mut()[1]);
+    store_u64x4(high_words[1], &mut words1.split_mut()[1]);
+    store_u64x4(high_words[2], &mut words2.split_mut()[1]);
+    store_u64x4(high_words[3], &mut words3.split_mut()[1]);
 }
 
 #[inline(always)]
@@ -775,24 +785,29 @@ unsafe fn offset_jobs(jobs: &mut [Job; 4], offset: usize) {
 }
 
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress4_loop(jobs: &mut [Job; 4], stride: Stride) {
-    let mut h_vecs = transpose_state_vecs(&jobs);
+pub unsafe fn compress4_loop(jobs: &mut [Job; 4]) {
+    let mut h_vecs = transpose_state_vecs(
+        &jobs[0].words,
+        &jobs[1].words,
+        &jobs[2].words,
+        &jobs[3].words,
+    );
     let mut offset = 0;
     let (mut counts_lo, mut counts_hi) = load_counts(&jobs);
     let min_len = jobs.iter().map(|job| job.input.len()).min().unwrap();
-    let final_block_offset = guts::final_block_offset(min_len, stride);
+    let final_block_offset = guts::final_block_offset(min_len);
     let mut buffer0 = [0; BLOCKBYTES];
     let mut buffer1 = [0; BLOCKBYTES];
     let mut buffer2 = [0; BLOCKBYTES];
     let mut buffer3 = [0; BLOCKBYTES];
     let (finblock0, finblock_len0, is_end0) =
-        guts::get_block(jobs[0].input, final_block_offset, &mut buffer0, stride);
+        guts::get_block(jobs[0].input, final_block_offset, &mut buffer0);
     let (finblock1, finblock_len1, is_end1) =
-        guts::get_block(jobs[1].input, final_block_offset, &mut buffer1, stride);
+        guts::get_block(jobs[1].input, final_block_offset, &mut buffer1);
     let (finblock2, finblock_len2, is_end2) =
-        guts::get_block(jobs[2].input, final_block_offset, &mut buffer2, stride);
+        guts::get_block(jobs[2].input, final_block_offset, &mut buffer2);
     let (finblock3, finblock_len3, is_end3) =
-        guts::get_block(jobs[3].input, final_block_offset, &mut buffer3, stride);
+        guts::get_block(jobs[3].input, final_block_offset, &mut buffer3);
     let finlastblockvec = load_flags_vec([
         is_end0 && jobs[0].finalize.last_block_flag(),
         is_end1 && jobs[1].finalize.last_block_flag(),
@@ -847,9 +862,75 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4], stride: Stride) {
             last_node_vec,
         );
 
-        offset = offset.saturating_add(stride.padded_blockbytes());
+        offset = offset.saturating_add(BLOCKBYTES);
     }
 
-    untranspose_state_vecs(&h_vecs, jobs);
+    let &mut [ref mut job0, ref mut job1, ref mut job2, ref mut job3] = jobs;
+    untranspose_state_vecs(
+        &h_vecs,
+        &mut job0.words,
+        &mut job1.words,
+        &mut job2.words,
+        &mut job3.words,
+    );
     offset_jobs(jobs, offset);
+}
+
+const DEGREE: usize = 4;
+
+#[target_feature(enable = "avx2")]
+pub unsafe fn blake2bp_loop(
+    leaves: &mut [u64x8; DEGREE],
+    count: u128,
+    input: &[u8],
+    finalize: [bool; DEGREE],
+) {
+    assert_eq!(0, input.len() % (DEGREE * BLOCKBYTES));
+    assert!(input.len() > 0);
+    let final_offset = input.len() - (DEGREE * BLOCKBYTES);
+
+    let mut h_vecs = transpose_state_vecs(&leaves[0], &leaves[1], &leaves[2], &leaves[3]);
+    let mut counts_lo = _mm256_set1_epi64x(count as i64);
+    let mut counts_hi = _mm256_set1_epi64x((count >> 64) as i64);
+    let finlastblockvec = load_flags_vec(finalize);
+    let finlastnodevec = load_flags_vec([false, false, false, finalize[DEGREE - 1]]);
+    let mut offset = 0;
+    while offset <= final_offset {
+        let is_final = offset == final_offset;
+        let block_base = input.as_ptr().add(offset);
+        let block0 = &*(block_base.add(0 * BLOCKBYTES) as *const [u8; BLOCKBYTES]);
+        let block1 = &*(block_base.add(1 * BLOCKBYTES) as *const [u8; BLOCKBYTES]);
+        let block2 = &*(block_base.add(2 * BLOCKBYTES) as *const [u8; BLOCKBYTES]);
+        let block3 = &*(block_base.add(3 * BLOCKBYTES) as *const [u8; BLOCKBYTES]);
+        let blocks = [block0, block1, block2, block3];
+        let last_block_vec;
+        let last_node_vec;
+        if is_final {
+            last_block_vec = finlastblockvec;
+            last_node_vec = finlastnodevec;
+        } else {
+            last_block_vec = _mm256_set1_epi64x(0);
+            last_node_vec = _mm256_set1_epi64x(0);
+        };
+        add_carry(
+            &mut counts_lo,
+            &mut counts_hi,
+            _mm256_set1_epi64x(BLOCKBYTES as i64),
+        );
+        let m_vecs = transpose_msg_vecs(blocks);
+
+        compress4_transposed_inline(
+            &mut h_vecs,
+            &m_vecs,
+            counts_lo,
+            counts_hi,
+            last_block_vec,
+            last_node_vec,
+        );
+
+        offset += DEGREE * BLOCKBYTES;
+    }
+
+    let &mut [ref mut leaves0, ref mut leaves1, ref mut leaves2, ref mut leaves3] = leaves;
+    untranspose_state_vecs(&h_vecs, leaves0, leaves1, leaves2, leaves3);
 }
