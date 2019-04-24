@@ -131,8 +131,10 @@ fn rate_f32(ns: u128, input_len: usize) -> f32 {
 fn worker(algo: &str) {
     let hash_fn = get_hash_fn(algo);
     let input_len: usize = env::var("WORKER_LEN").unwrap().parse().unwrap();
-    let mut input = vec![0; input_len];
-    rand::thread_rng().fill_bytes(&mut input);
+    let input_offset: usize = env::var("WORKER_OFFSET").unwrap().parse().unwrap();
+    let mut input_vec = vec![0; input_len + input_offset];
+    rand::thread_rng().fill_bytes(&mut input_vec);
+    let input = &input_vec[input_offset..];
 
     // Do a dummy run to warm up.
     hash_fn(&input);
@@ -194,6 +196,9 @@ fn main() {
         for _ in 0..WORKERS {
             env::set_var("BENCH_ALGO", algo_name);
             env::set_var("WORKER_LEN", worker_len.to_string());
+            if env::var_os("WORKER_OFFSET").is_none() {
+                env::set_var("WORKER_OFFSET", "0");
+            }
             let mut cmd = process::Command::new(env::current_exe().unwrap());
             cmd.stdout(process::Stdio::piped());
             let child = cmd.spawn().unwrap();
