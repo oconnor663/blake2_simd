@@ -9,3 +9,4 @@ blake2b_simd = { path = "../.." }
 rand = "0.6.5"
 openssl = "0.10.20"
 libsodium-ffi = "0.1.16"
+blake2-avx2-neves = { path = "../blake2-avx2-neves" }

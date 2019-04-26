@@ -35,6 +35,7 @@ static ALGOS: &[(&str, HashFn)] = &[
     ("blake2b_simd AVX2", hash_avx2),
     ("blake2b_simd hash_many", hash_many),
     ("blake2b_simd BLAKE2bp", hash_blake2bp),
+    ("blake2b_avx2_neves BLAKE2bp", hash_neves_blake2bp),
     ("libsodium BLAKE2b", libsodium),
     ("OpenSSL SHA-1", openssl_sha1),
     ("OpenSSL SHA-512", openssl_sha512),
@@ -69,6 +70,10 @@ fn hash_many(input: &[u8]) {
 
 fn hash_blake2bp(input: &[u8]) {
     blake2b_simd::blake2bp::blake2bp(input);
+}
+
+fn hash_neves_blake2bp(input: &[u8]) {
+    blake2_avx2_neves::blake2bp(input);
 }
 
 fn libsodium(input: &[u8]) {
@@ -128,6 +133,22 @@ fn rate_f32(ns: u128, input_len: usize) -> f32 {
     input_len as f32 / ns as f32
 }
 
+fn ns_per_run() -> u128 {
+    let ms_per_bench: u128 = if let Some(secs) = env::var_os("MS_PER_BENCH") {
+        let ms_str = secs.to_str().expect("unicode");
+        if let Ok(ms) = ms_str.trim().parse() {
+            ms
+        } else {
+            panic!("invalid int {:?}", ms_str);
+        }
+    } else {
+        DEFAULT_MS_PER_BENCH
+    };
+    let ns_per_bench = 1_000_000 * ms_per_bench;
+    let total_runs_with_warmup = WORKERS * (RUNS_PER_WORKER + 1);
+    ns_per_bench / total_runs_with_warmup as u128
+}
+
 fn worker(algo: &str) {
     let hash_fn = get_hash_fn(algo);
     let input_len: usize = env::var("WORKER_LEN").unwrap().parse().unwrap();
@@ -151,20 +172,45 @@ fn worker(algo: &str) {
     println!("{}", total_ns);
 }
 
-fn ns_per_run() -> u128 {
-    let ms_per_bench: u128 = if let Some(secs) = env::var_os("MS_PER_BENCH") {
-        let ms_str = secs.to_str().expect("unicode");
-        if let Ok(ms) = ms_str.trim().parse() {
-            ms
-        } else {
-            panic!("invalid int {:?}", ms_str);
+fn run_algo(algo_name: &str) -> f32 {
+    // Test the speed of the hash function on a small input (1 MB), and use
+    // that to figure out how input to give each worker. Note that it's
+    // important to do this in the main process, because doing it
+    // individually in each worker would give more input to slower workers.
+    let test_input = make_input(CALIBRATION_INPUT_LEN);
+    let hash_fn = get_hash_fn(algo_name);
+    hash_fn(&test_input); // warm-up calibration run
+    let test_ns = time_ns(|| hash_fn(&test_input));
+
+    // Given the test time found above, compute the worker input length.
+    let worker_len = (CALIBRATION_INPUT_LEN as u128 * ns_per_run() / test_ns) as usize;
+
+    // Fire off all the workers in series and collect their reported times.
+    let mut total_ns = 0;
+    for _ in 0..WORKERS {
+        env::set_var("BENCH_ALGO", algo_name);
+        env::set_var("WORKER_LEN", worker_len.to_string());
+        if env::var_os("WORKER_OFFSET").is_none() {
+            env::set_var("WORKER_OFFSET", "0");
         }
-    } else {
-        DEFAULT_MS_PER_BENCH
-    };
-    let ns_per_bench = 1_000_000 * ms_per_bench;
-    let total_runs_with_warmup = WORKERS * (RUNS_PER_WORKER + 1);
-    ns_per_bench / total_runs_with_warmup as u128
+        let mut cmd = process::Command::new(env::current_exe().unwrap());
+        cmd.stdout(process::Stdio::piped());
+        let child = cmd.spawn().unwrap();
+        let output = child.wait_with_output().unwrap();
+        let ns: u128 = str::from_utf8(&output.stdout)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        // eprintln!(
+        //     "worker throughput: {}",
+        //     rate_f32(ns, RUNS_PER_WORKER * worker_len)
+        // );
+        total_ns += ns;
+    }
+    let throughput = rate_f32(total_ns, WORKERS * RUNS_PER_WORKER * worker_len);
+    // eprintln!("final throughput: {}", throughput);
+    throughput
 }
 
 fn main() {
@@ -173,50 +219,37 @@ fn main() {
         return;
     }
 
+    // If a positional argument is given, it should be a substring of exactly
+    // one algorithm name. In that case, run just that algorithm, and print the
+    // result with no other formatting.
+    if let Some(arg) = std::env::args().nth(1) {
+        let matches: Vec<&str> = ALGOS
+            .iter()
+            .map(|&(name, _)| name)
+            .filter(|name| name.contains(arg.as_str()))
+            .collect();
+        if matches.is_empty() {
+            panic!("no match");
+        }
+        if matches.len() > 1 {
+            panic!("too many matches {:?}", &matches);
+        }
+        let algo_name = matches[0];
+        let throughput = run_algo(algo_name);
+        println!("{:.3}", throughput);
+        return;
+    }
+
+    // Otherwise run all the benchmarks and print them sorted at the end.
     println!("Units are GB/s. Set bench time with MS_PER_BENCH (default one second).");
     let mut throughputs = Vec::new();
     for &(algo_name, _) in ALGOS {
         print!("{}: ", algo_name);
         std::io::stdout().flush().unwrap();
 
-        // Test the speed of the hash function on a small input (1 MB), and use
-        // that to figure out how input to give each worker. Note that it's
-        // important to do this in the main process, because doing it
-        // individually in each worker would give more input to slower workers.
-        let test_input = make_input(CALIBRATION_INPUT_LEN);
-        let hash_fn = get_hash_fn(algo_name);
-        hash_fn(&test_input); // warm-up calibration run
-        let test_ns = time_ns(|| hash_fn(&test_input));
-
-        // Given the test time found above, compute the worker input length.
-        let worker_len = (CALIBRATION_INPUT_LEN as u128 * ns_per_run() / test_ns) as usize;
-
-        // Fire off all the workers in series and collect their reported times.
-        let mut total_ns = 0;
-        for _ in 0..WORKERS {
-            env::set_var("BENCH_ALGO", algo_name);
-            env::set_var("WORKER_LEN", worker_len.to_string());
-            if env::var_os("WORKER_OFFSET").is_none() {
-                env::set_var("WORKER_OFFSET", "0");
-            }
-            let mut cmd = process::Command::new(env::current_exe().unwrap());
-            cmd.stdout(process::Stdio::piped());
-            let child = cmd.spawn().unwrap();
-            let output = child.wait_with_output().unwrap();
-            let ns: u128 = str::from_utf8(&output.stdout)
-                .unwrap()
-                .trim()
-                .parse()
-                .unwrap();
-            // eprintln!(
-            //     "worker throughput: {}",
-            //     rate_f32(ns, RUNS_PER_WORKER * worker_len)
-            // );
-            total_ns += ns;
-        }
-        let throughput = rate_f32(total_ns, WORKERS * RUNS_PER_WORKER * worker_len);
-        // eprintln!("final throughput: {}", throughput);
+        let throughput = run_algo(algo_name);
         throughputs.push((throughput, algo_name));
+
         println!("{:.3}", throughput);
     }
 
