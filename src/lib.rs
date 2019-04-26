@@ -57,8 +57,9 @@
 //!
 //! # Performance
 //!
-//! To run small benchmarks yourself, first install OpenSSL and libsodium on
-//! your machine, then:
+//! The AVX2 implementation in this crate is a port of [Samuel Neves' implementation], which is
+//! also [included in libsodium]. Most of the credit for performance goes to him. To run small
+//! benchmarks yourself, first install OpenSSL and libsodium on your machine, then:
 //!
 //! ```sh
 //! cd benches/cargo_bench
@@ -66,32 +67,28 @@
 //! cargo +nightly bench
 //! ```
 //!
-//! The `benches/bench_multiprocess` sub-crate runs various hash functions on
-//! long inputs in memory, using worker subprocesses to average over
-//! process-specific noise. Here are the results from my laptop for
-//! `MS_PER_BENCH=60000 cargo run --release` (there's a [performance
-//! bug](https://github.com/oconnor663/blake2b_simd/issues/8) in BLAKE2bp):
+//! The `benches/benchmark_gig` sub-crate allocates a 1 GB array and repeatedly hashes it to
+//! measure throughput. A similar C program, `benches/bench_libsodium.c`, does the same thing using
+//! libsodium's implementation of BLAKE2b. Here are the results from my laptop:
 //!
-//! - Intel Core i5-8250U, Arch Linux, kernel version 5.0.9
-//! - libsodium version 1.0.17
-//! - OpenSSL version 1.1.1.b
-//! - rustc 1.34.0
+//! - Intel Core i5-8250U, Arch Linux, kernel version 4.18.16
+//! - libsodium version 1.0.16, gcc 8.2.1, `gcc -O3 -lsodium benches/bench_libsodium.c` (via the
+//!   helper script `benches/bench_libsodium.sh`)
+//! - rustc 1.31.0-nightly (f99911a4a 2018-10-23), `cargo +nightly run --release`
 //!
 //! ```table
 //! ╭───────────────────────┬────────────╮
-//! │blake2b_simd hash_many │ 2.213 GB/s │
-//! │blake2b_simd BLAKE2bp  │ 1.908 GB/s │
-//! │blake2b_simd AVX2      │ 1.012 GB/s │
-//! │OpenSSL SHA-1          │ 0.974 GB/s │
-//! │libsodium BLAKE2b      │ 0.940 GB/s │
-//! │blake2b_simd portable  │ 0.831 GB/s │
-//! │OpenSSL SHA-512        │ 0.668 GB/s │
+//! │ blake2b_simd BLAKE2bp │ 2.069 GB/s │
+//! │ blake2b_simd update4  │ 2.057 GB/s │
+//! │ blake2b_simd AVX2     │ 1.005 GB/s │
+//! │ libsodium AVX2        │ 0.939 GB/s │
+//! │ blake2b_simd portable │ 0.771 GB/s │
+//! │ libsodium portable    │ 0.743 GB/s │
 //! ╰───────────────────────┴────────────╯
 //! ```
 //!
-//! The `benches/bench_b2sum.py` script benchmarks `b2sum` against several
-//! Coreutils hashes, on a 1 GB file of random data. Here are the results from
-//! my laptop:
+//! The `benches/bench_b2sum.py` script benchmarks `b2sum` against several Coreutils hashes, on a
+//! 1 GB file of random data. Here are the results from my laptop:
 //!
 //! ```table
 //! ╭───────────────────────────────┬────────────╮
@@ -103,6 +100,10 @@
 //! │ coreutils sha512sum           │ 0.593 GB/s │
 //! ╰───────────────────────────────┴────────────╯
 //! ```
+//!
+//! The `benches/count_cycles` sub-crate (`cargo +nightly run --release`) measures a long message
+//! throughput of 1.8 cycles per byte for BLAKE2b, and 0.9 cycles per byte for BLAKE2bp and
+//! [`update4`].
 //!
 //! [libsodium]: https://github.com/jedisct1/libsodium
 //! [the BLAKE2 spec]: https://blake2.net/blake2.pdf
