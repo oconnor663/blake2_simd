@@ -186,7 +186,8 @@ fn run_algo(algo_name: &str) -> f32 {
     let worker_len = (CALIBRATION_INPUT_LEN as u128 * ns_per_run() / test_ns) as usize;
 
     // Fire off all the workers in series and collect their reported times.
-    let mut total_ns = 0;
+    let mut times = Vec::new();
+    let mut _total_ns = 0;
     for _ in 0..WORKERS {
         env::set_var("BENCH_ALGO", algo_name);
         env::set_var("WORKER_LEN", worker_len.to_string());
@@ -206,9 +207,16 @@ fn run_algo(algo_name: &str) -> f32 {
         //     "worker throughput: {}",
         //     rate_f32(ns, RUNS_PER_WORKER * worker_len)
         // );
-        total_ns += ns;
+        times.push(ns);
+        _total_ns += ns;
     }
-    let throughput = rate_f32(total_ns, WORKERS * RUNS_PER_WORKER * worker_len);
+    times.sort();
+    let _min_time = times[0];
+    let throughput = rate_f32(_min_time, RUNS_PER_WORKER * worker_len);
+
+    // an alternative that uses the average instead of the minimum
+    // let throughput = rate_f32(total_ns, WORKERS * RUNS_PER_WORKER * worker_len);
+
     // eprintln!("final throughput: {}", throughput);
     throughput
 }
