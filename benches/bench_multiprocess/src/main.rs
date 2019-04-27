@@ -104,10 +104,27 @@ fn openssl_sha512(input: &[u8]) {
 
 type HashFn = fn(input: &[u8]);
 
-fn make_input(len: usize) -> Vec<u8> {
-    let mut input = vec![0; len];
-    rand::thread_rng().fill_bytes(&mut input);
-    input
+// Do two special things to the input:
+// 1. Fill it with random bytes. This probably isn't strictly necessary, but
+//    it's important that it's written to with *something*, because I believe
+//    asking the allocator for pages of all zeroes hits special copy-on-write
+//    optimizations in the kernel that we want to avoid.
+// 2. Make sure that the input is at a memory offset corresponding to
+//    WORKER_OFFSET, relative to the page size. This is assumed to be 4096.
+//    use 65536 (4096 * 16) here to be conservative.
+fn make_input(vec: &mut Vec<u8>, len: usize) -> &[u8] {
+    let input_offset: usize = if let Ok(offset) = env::var("WORKER_OFFSET") {
+        offset.parse().unwrap()
+    } else {
+        0
+    };
+    let page_size: usize = page_size::get();
+    *vec = vec![0; len + page_size + input_offset];
+    rand::thread_rng().fill_bytes(vec);
+    let allocated_offset = vec.as_ptr() as usize % page_size;
+    let next_page_start = page_size - allocated_offset;
+    let target_offset = next_page_start + input_offset;
+    &vec[target_offset..][..len]
 }
 
 fn time_ns<F: FnOnce()>(f: F) -> u128 {
@@ -152,10 +169,8 @@ fn ns_per_run() -> u128 {
 fn worker(algo: &str) {
     let hash_fn = get_hash_fn(algo);
     let input_len: usize = env::var("WORKER_LEN").unwrap().parse().unwrap();
-    let input_offset: usize = env::var("WORKER_OFFSET").unwrap().parse().unwrap();
-    let mut input_vec = vec![0; input_len + input_offset];
-    rand::thread_rng().fill_bytes(&mut input_vec);
-    let input = &input_vec[input_offset..];
+    let mut input_vec = Vec::new();
+    let input = make_input(&mut input_vec, input_len);
 
     // Do a dummy run to warm up.
     hash_fn(&input);
@@ -177,7 +192,8 @@ fn run_algo(algo_name: &str) -> f32 {
     // that to figure out how input to give each worker. Note that it's
     // important to do this in the main process, because doing it
     // individually in each worker would give more input to slower workers.
-    let test_input = make_input(CALIBRATION_INPUT_LEN);
+    let mut input_vec = Vec::new();
+    let test_input = make_input(&mut input_vec, CALIBRATION_INPUT_LEN);
     let hash_fn = get_hash_fn(algo_name);
     hash_fn(&test_input); // warm-up calibration run
     let test_ns = time_ns(|| hash_fn(&test_input));
