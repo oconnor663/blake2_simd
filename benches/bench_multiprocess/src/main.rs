@@ -109,9 +109,14 @@ type HashFn = fn(input: &[u8]);
 //    it's important that it's written to with *something*, because I believe
 //    asking the allocator for pages of all zeroes hits special copy-on-write
 //    optimizations in the kernel that we want to avoid.
-// 2. Make sure that the input is at a memory offset corresponding to
-//    WORKER_OFFSET, relative to the page size. This is assumed to be 4096.
-//    use 65536 (4096 * 16) here to be conservative.
+// 2. Make sure that the input is aligned to a page boundary. WORKER_OFFSET is
+//    interpreted relative to that alignment, so an offset of zero means the
+//    input starts exactly at a the page boundary. This seems especially
+//    important for the performance of BLAKE2bp, though I'm not sure exactly
+//    why. Exact page alignment seems to give reasonably good performance
+//    compared to most other offsets (though not strictly the best, see
+//    https://github.com/oconnor663/blake2b_simd/issues/8), and it seems like a
+//    "fair" benchmarking point.
 fn make_input(vec: &mut Vec<u8>, len: usize) -> &[u8] {
     let input_offset: usize = if let Ok(offset) = env::var("WORKER_OFFSET") {
         offset.parse().unwrap()
