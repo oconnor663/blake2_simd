@@ -53,18 +53,21 @@ fn hash_avx2(input: &[u8]) {
 }
 
 fn hash_many(input: &[u8]) {
+    // Note that the caller makes sure these divisions are going to coincide
+    // with page boundaries, and we assert that again here.
+    let degree = blake2b_simd::many::degree();
+    let page_size = page_size::get();
+    assert_eq!(0, input.len() % (degree * page_size));
+    let part_len = input.len() / degree;
+
     let params = blake2b_simd::Params::new();
-    let quarter = input.len() / 4;
-    let input0 = &input[0 * quarter..][..quarter];
-    let input1 = &input[1 * quarter..][..quarter];
-    let input2 = &input[2 * quarter..][..quarter];
-    let input3 = &input[3 * quarter..][..quarter];
-    let mut jobs = [
-        blake2b_simd::many::HashManyJob::new(&params, input0),
-        blake2b_simd::many::HashManyJob::new(&params, input1),
-        blake2b_simd::many::HashManyJob::new(&params, input2),
-        blake2b_simd::many::HashManyJob::new(&params, input3),
-    ];
+    let mut jobs = arrayvec::ArrayVec::<[_; blake2b_simd::many::MAX_DEGREE]>::new();
+    for i in 0..degree {
+        let part = &input[i * part_len..][..part_len];
+        let job = blake2b_simd::many::HashManyJob::new(&params, part);
+        jobs.push(job);
+    }
+
     blake2b_simd::many::hash_many(&mut jobs);
 }
 
@@ -203,8 +206,15 @@ fn run_algo(algo_name: &str) -> f32 {
     hash_fn(&test_input); // warm-up calibration run
     let test_ns = time_ns(|| hash_fn(&test_input));
 
-    // Given the test time found above, compute the worker input length.
-    let worker_len = (CALIBRATION_INPUT_LEN as u128 * ns_per_run() / test_ns) as usize;
+    // Given the test time found above, compute the worker input length. The
+    // hash_many implementation is going to divide this input up, so make sure
+    // those divisions will occur on page boundaries too, for runtime
+    // stability. Note that this seems to *hurt* the measured performance by 1%
+    // or so, and I'm not sure why. See
+    // https://github.com/oconnor663/blake2b_simd/issues/8.
+    let mut worker_len = (CALIBRATION_INPUT_LEN as u128 * ns_per_run() / test_ns) as usize;
+    let block = blake2b_simd::many::degree() * page_size::get();
+    worker_len += block - (worker_len % block);
 
     // Fire off all the workers in series and collect their reported times.
     let mut times = Vec::new();
