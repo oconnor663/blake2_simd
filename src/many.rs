@@ -1,16 +1,20 @@
 //! Interfaces for hashing multiple inputs at once, using SIMD more
 //! efficiently.
 //!
-//! The throughput of these interfaces is comparable to BLAKE2bp, about two
-//! times the the throughput of BLAKE2b when AVX2 is available.
+//! The throughput of these interfaces is comparable to BLAKE2bp, about twice
+//! the throughput of regular BLAKE2b when AVX2 is available.
 //!
-//! This implementation keeps working in parallel even when inputs are of
+//! These interfaces can accept any number of inputs, and the implementation
+//! does its best to parallelize them. In general, the more inputs you can pass
+//! in at once the better. If you need to batch your inputs in smaller groups,
+//! see the [`degree`](fn.degree.html) function for a good batch size.
+//!
+//! The implementation keeps working in parallel even when inputs are of
 //! different lengths, by managing a working set of jobs whose input isn't yet
 //! exhausted. However, if one or two inputs are much longer than the others,
 //! and they're encountered only at the end, there might not be any remaining
 //! work to parallelize them with. In this case, sorting the inputs
-//! longest-first can minimize the time spent falling back to slower serial
-//! hashing.
+//! longest-first can improve parallelism.
 //!
 //! # Example
 //!
@@ -57,19 +61,30 @@ use arrayvec::ArrayVec;
 /// value of this constant will depend on that optional feature also.
 pub const MAX_DEGREE: usize = guts::MAX_DEGREE;
 
-/// The number of inputs the current processor can hash parallel, detected at
-/// runtime.
+/// The parallelism degree of the implementation, detected at runtime. If you
+/// hash your inputs in small batches, making the batch size a multiple of
+/// `degree` will generally give good performance.
 ///
-/// Callers may use this number to figure out the minimum number of inputs they
-/// need to buffer to get the best performance from `hash_many`. However, as
-/// noted in the module level docs, performance is more complicated if your
+/// For example, an x86 processor that supports AVX2 can compute four BLAKE2b
+/// hashes in parallel, so `degree` returns 4 on that machine. If you call
+/// [`hash_many`] with only three inputs, though, that's not enough input for
+/// the AVX2 implementation, and performance will be lower. Likewise if you
+/// call it with five inputs of equal length, the first four will be hashed in
+/// parallel with AVX2, but the last one will have to be hashed by itself, and
+/// again performance will be lower.
+///
+/// As noted in the module level docs, performance is more complicated if your
 /// inputs are of different lengths. When parallelizing long and short inputs
-/// together, the long inputs will have bytes left over, and the implementation
-/// will try to parallelize those tails with subsequent inputs. The more inputs
-/// available, the more the implementation will be able to parallelize.
+/// together, the longer ones will have bytes left over, and the implementation
+/// will try to parallelize those leftover bytes with subsequent inputs. The
+/// more inputs available in that case, the more the implementation will be
+/// able to parallelize.
 ///
 /// If you need a constant buffer size, for example to size an array, see
-/// [`MAX_DEGREE`](constant.MAX_DEGREE.html).
+/// [`MAX_DEGREE`].
+///
+/// [`hash_many`]: fn.hash_many.html
+/// [`MAX_DEGREE`]: constant.MAX_DEGREE.html
 pub fn degree() -> usize {
     guts::Implementation::detect().degree()
 }
