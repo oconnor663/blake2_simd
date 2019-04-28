@@ -46,6 +46,34 @@ use crate::State;
 use crate::BLOCKBYTES;
 use arrayvec::ArrayVec;
 
+/// The largest possible value of [`degree`](fn.degree.html) on the target
+/// platform.
+///
+/// Note that this constant reflects the parallelism degree supported by this
+/// crate, so it will change over time as support is added or removed. For
+/// example, when Rust stabilizes AVX-512 support and this crate adds an
+/// AVX-512 implementation, this constant will double on x86 targets. If that
+/// implementation is an optional feature (e.g. because it's nightly-only), the
+/// value of this constant will depend on that optional feature also.
+pub const MAX_DEGREE: usize = guts::MAX_DEGREE;
+
+/// The number of inputs the current processor can hash parallel, detected at
+/// runtime.
+///
+/// Callers may use this number to figure out the minimum number of inputs they
+/// need to buffer to get the best performance from `hash_many`. However, as
+/// noted in the module level docs, performance is more complicated if your
+/// inputs are of different lengths. When parallelizing long and short inputs
+/// together, the long inputs will have bytes left over, and the implementation
+/// will try to parallelize those tails with subsequent inputs. The more inputs
+/// available, the more the implementation will be able to parallelize.
+///
+/// If you need a constant buffer size, for example to size an array, see
+/// [`MAX_DEGREE`](constant.MAX_DEGREE.html).
+pub fn degree() -> usize {
+    guts::Implementation::detect().degree()
+}
+
 type JobsVec<'a, 'b> = ArrayVec<[Job<'a, 'b>; guts::MAX_DEGREE]>;
 
 fn fill_jobs_vec<'a, 'b>(
@@ -178,9 +206,12 @@ where
     compress_many(jobs, imp, Stride::Normal);
 }
 
-/// A job for the `hash_many` function. After calling `hash_many` on a
-/// collection of `HashManyJob` objects, you can call `to_hash` on each job to
-/// get the result.
+/// A job for the [`hash_many`] function. After calling [`hash_many`] on a
+/// collection of `HashManyJob` objects, you can call [`to_hash`] on each job
+/// to get the result.
+///
+/// [`hash_many`]: fn.hash_many.html
+/// [`to_hash`]: struct.HashManyJob.html#method.to_hash
 pub struct HashManyJob<'a> {
     words: u64x8,
     count: u128,
@@ -221,7 +252,9 @@ impl<'a> HashManyJob<'a> {
     }
 
     /// Get the hash from a finished job. If you call this before calling
-    /// `hash_many`, it will panic.
+    /// [`hash_many`], it will panic.
+    ///
+    /// [`hash_many`]: fn.hash_many.html
     pub fn to_hash(&self) -> Hash {
         assert!(self.was_run, "job hasn't been run yet");
         Hash {
@@ -289,6 +322,26 @@ mod test {
     use crate::paint_test_input;
     use crate::BLOCKBYTES;
     use arrayvec::ArrayVec;
+
+    #[test]
+    fn test_degree() {
+        assert!(degree() <= MAX_DEGREE);
+
+        // Make reference to BLAKE2bp to avoid copy/paste errors between
+        // BLAKE2b/BLAKE2s.
+        const AVX2_DEGREE: usize = crate::blake2bp::DEGREE;
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        #[cfg(feature = "std")]
+        {
+            if is_x86_feature_detected!("avx2") {
+                assert!(degree() >= AVX2_DEGREE);
+            }
+            if is_x86_feature_detected!("sse4.1") {
+                assert!(degree() >= AVX2_DEGREE / 2);
+            }
+        }
+    }
 
     #[test]
     fn test_hash_many() {
