@@ -525,10 +525,15 @@ mod test {
         let inputs = [&input_buffer[0..], &input_buffer[1..]];
         exercise_cases(
             |invocations, blocks_per_invoc, count, finalize, buffer_tail| {
+                // Ignore non-zero buffer tails for degrees larger than 1.
+                if buffer_tail != 0 {
+                    return;
+                }
+
                 // Use the portable compress1_loop implementation to compute a
                 // reference state for each input separately.
                 let total_blocks = invocations * blocks_per_invoc;
-                let len = total_blocks * BLOCKBYTES - buffer_tail;
+                let len = total_blocks * BLOCKBYTES;
                 let mut reference_words = [input_state_words(0), input_state_words(1)];
                 for i in 0..reference_words.len() {
                     portable::compress1_loop(Job::new(
@@ -546,10 +551,7 @@ mod test {
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
                     let offset = invoc_num * blocks_per_invoc * BLOCKBYTES;
-                    let mut len = blocks_per_invoc * BLOCKBYTES;
-                    if is_last_invoc {
-                        len -= buffer_tail;
-                    }
+                    let len = blocks_per_invoc * BLOCKBYTES;
                     let maybe_finalize = if !is_last_invoc {
                         Finalize::NotYet
                     } else {
@@ -610,10 +612,15 @@ mod test {
         ];
         exercise_cases(
             |invocations, blocks_per_invoc, count, finalize, buffer_tail| {
+                // Ignore non-zero buffer tails for degrees larger than 1.
+                if buffer_tail != 0 {
+                    return;
+                }
+
                 // Use the portable compress1_loop implementation to compute a
                 // reference state for each input separately.
                 let total_blocks = invocations * blocks_per_invoc;
-                let len = total_blocks * BLOCKBYTES - buffer_tail;
+                let len = total_blocks * BLOCKBYTES;
                 let mut reference_words = [
                     input_state_words(0),
                     input_state_words(1),
@@ -641,10 +648,7 @@ mod test {
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
                     let offset = invoc_num * blocks_per_invoc * BLOCKBYTES;
-                    let mut len = blocks_per_invoc * BLOCKBYTES;
-                    if is_last_invoc {
-                        len -= buffer_tail;
-                    }
+                    let len = blocks_per_invoc * BLOCKBYTES;
                     let maybe_finalize = if !is_last_invoc {
                         Finalize::NotYet
                     } else {

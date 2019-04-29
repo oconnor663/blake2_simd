@@ -95,28 +95,40 @@ fn fill_jobs_vec<'a, 'b>(
     jobs_iter: &mut impl Iterator<Item = Job<'a, 'b>>,
     vec: &mut JobsVec<'a, 'b>,
     target_len: usize,
+    imp: Implementation,
 ) {
     while vec.len() < target_len {
         if let Some(job) = jobs_iter.next() {
-            vec.push(job);
+            // If there's less than one block of work to do, finalize the job
+            // here rather than adding it to the jobs vec.
+            if job.input.len() < BLOCKBYTES {
+                compress_final_block(job, imp);
+            } else {
+                vec.push(job);
+            }
         } else {
             break;
         }
     }
 }
 
-fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize) {
+fn compress_final_block(job: Job, imp: Implementation) {
+    debug_assert!(job.input.len() < BLOCKBYTES);
+    imp.compress1_loop(job);
+}
+
+fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize, imp: Implementation) {
     // Iterate backwards so that removal doesn't cause an out-of-bounds panic.
     for i in (0..num_jobs).rev() {
-        // Note that is_empty() is only valid because we know all these jobs
-        // have been run at least once. Otherwise we could confuse the empty
-        // input for a finished job, which would be incorrect.
-        if vec[i].input.is_empty() {
+        if vec[i].input.len() < BLOCKBYTES {
             // Note that calling remove() repeatedly has some overhead, because
             // later elements need to be shifted up. However, the JobsVec is
             // small, and this approach guarantees that jobs are encountered in
             // order.
-            vec.remove(i);
+            let job = vec.remove(i);
+            if !job.input.is_empty() {
+                compress_final_block(job, imp);
+            }
         }
     }
 }
@@ -132,25 +144,25 @@ where
 
     if imp.degree() >= 4 {
         loop {
-            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 4);
+            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 4, imp);
             if jobs_vec.len() < 4 {
                 break;
             }
             let jobs_array = array_mut_ref!(jobs_vec, 0, 4);
             imp.compress4_loop(jobs_array);
-            evict_finished(&mut jobs_vec, 4);
+            evict_finished(&mut jobs_vec, 4, imp);
         }
     }
 
     if imp.degree() >= 2 {
         loop {
-            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 2);
+            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 2, imp);
             if jobs_vec.len() < 2 {
                 break;
             }
             let jobs_array = array_mut_ref!(jobs_vec, 0, 2);
             imp.compress2_loop(jobs_array);
-            evict_finished(&mut jobs_vec, 2);
+            evict_finished(&mut jobs_vec, 2, imp);
         }
     }
 
@@ -314,7 +326,7 @@ impl<'a> HashManyJob<'a> {
 /// hash_many(jobs.iter_mut());
 ///
 /// for (input, job) in inputs.iter().zip(jobs.iter()) {
-///     let expected = params.to_state().update(input).finalize();
+///     let expected = params.hash(input);
 ///     assert_eq!(expected, job.to_hash());
 /// }
 /// ```
@@ -396,7 +408,7 @@ mod test {
 
             // Check the outputs.
             for i in 0..LEN {
-                let expected = params[i].to_state().update(inputs[i]).finalize();
+                let expected = params[i].hash(inputs[i]);
                 assert_eq!(expected, jobs[i].to_hash());
             }
         }

@@ -4,7 +4,7 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 use super::*;
-use crate::guts::{u64_flag, u64x2, Job};
+use crate::guts::{u64x2, Job};
 use core::mem;
 
 #[inline(always)]
@@ -327,9 +327,9 @@ unsafe fn load_counts(jobs: &[Job; 2]) -> (__m128i, __m128i) {
 }
 
 #[inline(always)]
-unsafe fn load_flags_vec(flags: [bool; 2]) -> __m128i {
+unsafe fn flags_vec(flags: [bool; 2]) -> __m128i {
     // There's no _mm_setr_epi64x, so note the arg order.
-    _mm_set_epi64x(u64_flag(flags[1]) as i64, u64_flag(flags[0]) as i64)
+    _mm_set_epi64x(if flags[1] { !0 } else { 0 }, if flags[0] { !0 } else { 0 })
 }
 
 #[inline(always)]
@@ -341,61 +341,46 @@ unsafe fn offset_jobs(jobs: &mut [Job; 2], offset: usize) {
 #[target_feature(enable = "sse4.1")]
 pub unsafe fn compress2_loop(jobs: &mut [Job; 2]) {
     let mut h_vecs = transpose_state_vecs(&jobs);
-    let mut offset = 0;
-    let (mut counts_lo, mut counts_hi) = load_counts(&jobs);
     let min_len = jobs.iter().map(|job| job.input.len()).min().unwrap();
-    let final_block_offset = guts::final_block_offset(min_len);
-    let mut buffer0 = [0; BLOCKBYTES];
-    let mut buffer1 = [0; BLOCKBYTES];
-    let (finblock0, finblock_len0, is_end0) =
-        guts::get_block(jobs[0].input, final_block_offset, &mut buffer0);
-    let (finblock1, finblock_len1, is_end1) =
-        guts::get_block(jobs[1].input, final_block_offset, &mut buffer1);
-    let finlastblockvec = load_flags_vec([
-        is_end0 && jobs[0].finalize.last_block_flag(),
-        is_end1 && jobs[1].finalize.last_block_flag(),
+    let blocks_len = min_len - (min_len % BLOCKBYTES);
+    debug_assert!(blocks_len > 0);
+    let final_last_block = flags_vec([
+        jobs[0].input.len() == blocks_len && jobs[0].finalize.last_block_flag(),
+        jobs[1].input.len() == blocks_len && jobs[1].finalize.last_block_flag(),
     ]);
-    let finlastnodevec = load_flags_vec([
-        is_end0 && jobs[0].finalize.last_node_flag(),
-        is_end1 && jobs[1].finalize.last_node_flag(),
+    let final_last_node = flags_vec([
+        jobs[0].input.len() == blocks_len && jobs[0].finalize.last_node_flag(),
+        jobs[1].input.len() == blocks_len && jobs[1].finalize.last_node_flag(),
     ]);
-    // There's no _mm_setr_epi64x, so note the arg order.
-    let fincountsinc = _mm_set_epi64x(finblock_len1 as i64, finblock_len0 as i64);
-    while offset <= final_block_offset {
-        let is_final_block = offset == final_block_offset;
-        let blocks;
-        let last_block_vec;
-        let last_node_vec;
-        let counts_inc;
-        if is_final_block {
-            blocks = [finblock0, finblock1];
-            last_block_vec = finlastblockvec;
-            last_node_vec = finlastnodevec;
-            counts_inc = fincountsinc;
-        } else {
-            // These unsafe pointer casts avoid paying for bounds checks. The
-            // final_block_offset math guarantees that these loads are
-            // in-bounds.
-            let block0 = &*(jobs[0].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
-            let block1 = &*(jobs[1].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
-            blocks = [block0, block1];
-            last_block_vec = _mm_set1_epi64x(0);
-            last_node_vec = _mm_set1_epi64x(0);
-            counts_inc = _mm_set1_epi64x(BLOCKBYTES as i64);
-        }
-        add_carry(&mut counts_lo, &mut counts_hi, counts_inc);
+    let (mut counts_lo, mut counts_hi) = load_counts(&jobs);
+    let counts_inc = _mm_set1_epi64x(BLOCKBYTES as i64);
+    let mut offset = 0;
+    while offset < blocks_len {
+        // These unsafe pointer casts avoid paying for bounds checks. The
+        // final_block_offset math guarantees that these loads are
+        // in-bounds.
+        let block0 = &*(jobs[0].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
+        let block1 = &*(jobs[1].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
+        let blocks = [block0, block1];
         let m_vecs = transpose_msg_vecs(blocks);
+
+        let is_final_block = offset == blocks_len - BLOCKBYTES;
+        let is_final_vec = _mm_set1_epi64x(if is_final_block { !0 } else { 0 });
+        let last_block = _mm_and_si128(is_final_vec, final_last_block);
+        let last_node = _mm_and_si128(is_final_vec, final_last_node);
+
+        add_carry(&mut counts_lo, &mut counts_hi, counts_inc);
 
         compress2_transposed_inline(
             &mut h_vecs,
             &m_vecs,
             counts_lo,
             counts_hi,
-            last_block_vec,
-            last_node_vec,
+            last_block,
+            last_node,
         );
 
-        offset = offset.saturating_add(BLOCKBYTES);
+        offset += BLOCKBYTES;
     }
 
     untranspose_state_vecs(&h_vecs, jobs);

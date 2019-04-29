@@ -767,12 +767,12 @@ unsafe fn load_counts(jobs: &[Job; 4]) -> (__m256i, __m256i) {
 }
 
 #[inline(always)]
-unsafe fn load_flags_vec(flags: [bool; 4]) -> __m256i {
+unsafe fn flags_vec(flags: [bool; 4]) -> __m256i {
     _mm256_setr_epi64x(
-        u64_flag(flags[0]) as i64,
-        u64_flag(flags[1]) as i64,
-        u64_flag(flags[2]) as i64,
-        u64_flag(flags[3]) as i64,
+        if flags[0] { !0 } else { 0 },
+        if flags[1] { !0 } else { 0 },
+        if flags[2] { !0 } else { 0 },
+        if flags[3] { !0 } else { 0 },
     )
 }
 
@@ -792,77 +792,52 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4]) {
         &jobs[2].words,
         &jobs[3].words,
     );
-    let mut offset = 0;
-    let (mut counts_lo, mut counts_hi) = load_counts(&jobs);
     let min_len = jobs.iter().map(|job| job.input.len()).min().unwrap();
-    let final_block_offset = guts::final_block_offset(min_len);
-    let mut buffer0 = [0; BLOCKBYTES];
-    let mut buffer1 = [0; BLOCKBYTES];
-    let mut buffer2 = [0; BLOCKBYTES];
-    let mut buffer3 = [0; BLOCKBYTES];
-    let (finblock0, finblock_len0, is_end0) =
-        guts::get_block(jobs[0].input, final_block_offset, &mut buffer0);
-    let (finblock1, finblock_len1, is_end1) =
-        guts::get_block(jobs[1].input, final_block_offset, &mut buffer1);
-    let (finblock2, finblock_len2, is_end2) =
-        guts::get_block(jobs[2].input, final_block_offset, &mut buffer2);
-    let (finblock3, finblock_len3, is_end3) =
-        guts::get_block(jobs[3].input, final_block_offset, &mut buffer3);
-    let finlastblockvec = load_flags_vec([
-        is_end0 && jobs[0].finalize.last_block_flag(),
-        is_end1 && jobs[1].finalize.last_block_flag(),
-        is_end2 && jobs[2].finalize.last_block_flag(),
-        is_end3 && jobs[3].finalize.last_block_flag(),
+    let blocks_len = min_len - (min_len % BLOCKBYTES);
+    debug_assert!(blocks_len > 0);
+    let final_last_block = flags_vec([
+        jobs[0].input.len() == blocks_len && jobs[0].finalize.last_block_flag(),
+        jobs[1].input.len() == blocks_len && jobs[1].finalize.last_block_flag(),
+        jobs[2].input.len() == blocks_len && jobs[2].finalize.last_block_flag(),
+        jobs[3].input.len() == blocks_len && jobs[3].finalize.last_block_flag(),
     ]);
-    let finlastnodevec = load_flags_vec([
-        is_end0 && jobs[0].finalize.last_node_flag(),
-        is_end1 && jobs[1].finalize.last_node_flag(),
-        is_end2 && jobs[2].finalize.last_node_flag(),
-        is_end3 && jobs[3].finalize.last_node_flag(),
+    let final_last_node = flags_vec([
+        jobs[0].input.len() == blocks_len && jobs[0].finalize.last_node_flag(),
+        jobs[1].input.len() == blocks_len && jobs[1].finalize.last_node_flag(),
+        jobs[2].input.len() == blocks_len && jobs[2].finalize.last_node_flag(),
+        jobs[3].input.len() == blocks_len && jobs[3].finalize.last_node_flag(),
     ]);
-    let fincountsinc = _mm256_setr_epi64x(
-        finblock_len0 as i64,
-        finblock_len1 as i64,
-        finblock_len2 as i64,
-        finblock_len3 as i64,
-    );
-    while offset <= final_block_offset {
-        let is_final_block = offset == final_block_offset;
-        let blocks;
-        let last_block_vec;
-        let last_node_vec;
-        let counts_inc;
-        if is_final_block {
-            blocks = [finblock0, finblock1, finblock2, finblock3];
-            last_block_vec = finlastblockvec;
-            last_node_vec = finlastnodevec;
-            counts_inc = fincountsinc;
-        } else {
-            // These unsafe pointer casts avoid paying for bounds checks. The
-            // final_block_offset math guarantees that these loads are
-            // in-bounds.
-            let block0 = &*(jobs[0].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
-            let block1 = &*(jobs[1].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
-            let block2 = &*(jobs[2].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
-            let block3 = &*(jobs[3].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
-            blocks = [block0, block1, block2, block3];
-            last_block_vec = _mm256_set1_epi64x(0);
-            last_node_vec = _mm256_set1_epi64x(0);
-            counts_inc = _mm256_set1_epi64x(BLOCKBYTES as i64);
-        }
-        add_carry(&mut counts_lo, &mut counts_hi, counts_inc);
+    let (mut counts_lo, mut counts_hi) = load_counts(&jobs);
+    let counts_inc = _mm256_set1_epi64x(BLOCKBYTES as i64);
+    let mut offset = 0;
+    while offset < blocks_len {
+        // These unsafe pointer casts avoid paying for bounds checks. The
+        // final_block_offset math guarantees that these loads are
+        // in-bounds.
+        let block0 = &*(jobs[0].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
+        let block1 = &*(jobs[1].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
+        let block2 = &*(jobs[2].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
+        let block3 = &*(jobs[3].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
+        let blocks = [block0, block1, block2, block3];
         let m_vecs = transpose_msg_vecs(blocks);
+
+        let is_final_block = offset == blocks_len - BLOCKBYTES;
+        let is_final_vec = _mm256_set1_epi64x(if is_final_block { !0 } else { 0 });
+        let last_block = _mm256_and_si256(is_final_vec, final_last_block);
+        let last_node = _mm256_and_si256(is_final_vec, final_last_node);
+
+        add_carry(&mut counts_lo, &mut counts_hi, counts_inc);
 
         compress4_transposed_inline(
             &mut h_vecs,
             &m_vecs,
             counts_lo,
             counts_hi,
-            last_block_vec,
-            last_node_vec,
+            last_block,
+            last_node,
         );
 
-        offset = offset.saturating_add(BLOCKBYTES);
+        offset += BLOCKBYTES;
     }
 
     let &mut [ref mut job0, ref mut job1, ref mut job2, ref mut job3] = jobs;
@@ -873,7 +848,7 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4]) {
         &mut job2.words,
         &mut job3.words,
     );
-    offset_jobs(jobs, offset);
+    offset_jobs(jobs, blocks_len);
 }
 
 const DEGREE: usize = 4;
@@ -892,8 +867,8 @@ pub unsafe fn blake2bp_loop(
     let mut h_vecs = transpose_state_vecs(&leaves[0], &leaves[1], &leaves[2], &leaves[3]);
     let mut counts_lo = _mm256_set1_epi64x(count as i64);
     let mut counts_hi = _mm256_set1_epi64x((count >> 64) as i64);
-    let finlastblockvec = load_flags_vec(finalize);
-    let finlastnodevec = load_flags_vec([false, false, false, finalize[DEGREE - 1]]);
+    let finlastblockvec = flags_vec(finalize);
+    let finlastnodevec = flags_vec([false, false, false, finalize[DEGREE - 1]]);
     let mut offset = 0;
     while offset <= final_offset {
         let is_final = offset == final_offset;
