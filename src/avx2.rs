@@ -647,19 +647,13 @@ unsafe fn compress4_transposed_inline(
 }
 
 #[inline(always)]
-unsafe fn unsigned_cmpgt_epi64(a: __m256i, b: __m256i) -> __m256i {
-    // Because _mm256_cmpgt_epi64 operates on signed values, we need to
-    // subtract 2^63 from each value before doing the comparison.
-    let delta = _mm256_set1_epi64x(i64::min_value());
-    _mm256_cmpgt_epi64(_mm256_add_epi64(a, delta), _mm256_add_epi64(b, delta))
-}
-
-#[inline(always)]
-unsafe fn add_carry(lo: &mut __m256i, hi: &mut __m256i, x: __m256i) {
-    let old_lo = *lo;
-    *lo = _mm256_add_epi64(*lo, x);
-    let carries = _mm256_and_si256(unsigned_cmpgt_epi64(old_lo, *lo), _mm256_set1_epi64x(1));
-    *hi = _mm256_add_epi64(*hi, carries);
+unsafe fn increment_counts(lo: &mut __m256i, hi: &mut __m256i) {
+    // All increments are of size BLOCKBYTES, so an increment will only wrap if
+    // the current value is u64::MAX - BLOCKBYTES. Test for that.
+    let will_wrap = _mm256_cmpeq_epi64(*lo, _mm256_set1_epi64x(-(BLOCKBYTES as i64)));
+    let high_inc = _mm256_and_si256(will_wrap, _mm256_set1_epi64x(1));
+    *lo = _mm256_add_epi64(*lo, _mm256_set1_epi64x(BLOCKBYTES as i64));
+    *hi = _mm256_add_epi64(*hi, high_inc);
 }
 
 #[inline(always)]
@@ -808,7 +802,6 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4]) {
         jobs[3].input.len() == blocks_len && jobs[3].finalize.last_node_flag(),
     ]);
     let (mut counts_lo, mut counts_hi) = load_counts(&jobs);
-    let counts_inc = _mm256_set1_epi64x(BLOCKBYTES as i64);
     let mut offset = 0;
     while offset < blocks_len {
         // These unsafe pointer casts avoid paying for bounds checks. The
@@ -826,7 +819,7 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4]) {
         let last_block = _mm256_and_si256(is_final_vec, final_last_block);
         let last_node = _mm256_and_si256(is_final_vec, final_last_node);
 
-        add_carry(&mut counts_lo, &mut counts_hi, counts_inc);
+        increment_counts(&mut counts_lo, &mut counts_hi);
 
         compress4_transposed_inline(
             &mut h_vecs,
@@ -887,11 +880,7 @@ pub unsafe fn blake2bp_loop(
             last_block_vec = _mm256_set1_epi64x(0);
             last_node_vec = _mm256_set1_epi64x(0);
         };
-        add_carry(
-            &mut counts_lo,
-            &mut counts_hi,
-            _mm256_set1_epi64x(BLOCKBYTES as i64),
-        );
+        increment_counts(&mut counts_lo, &mut counts_hi);
         let m_vecs = transpose_msg_vecs(blocks);
 
         compress4_transposed_inline(
