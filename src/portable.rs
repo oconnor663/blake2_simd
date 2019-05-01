@@ -134,7 +134,10 @@ pub fn compress1_loop(job: Job, stride: Stride) {
             u64_flag(is_final_block && job.finalize.last_block_flag()),
             u64_flag(is_final_block && job.finalize.last_node_flag()),
         );
-        offset += stride.padded_blockbytes();
+        // It's almost impossible for offset to overflow. The input would have
+        // to take up almost all of memory. But if it did overflow then we'd
+        // loop forever, so saturating_add prevents that theoretical bug.
+        offset = offset.saturating_add(stride.padded_blockbytes());
     }
     *job.words = local_words;
 }

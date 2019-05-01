@@ -408,9 +408,10 @@ pub unsafe fn compress1_loop(job: Job, stride: Stride) {
             block = finblock;
             count = count.wrapping_add(finblock_len as u128);
         } else {
-            // This is an unsafe pointer cast to avoid bounds checks. The count
-            // returned by loop_iterations() guarantees that this read is
-            // in-bounds.
+            // This is an unsafe pointer cast to avoid bounds checks. It's
+            // guaranteed to be before final_block_offset, so it's in bounds on
+            // the right. The saturating add at the bottom of this loop
+            // prevents overflow and guarantees it's in bounds on the left.
             block = &*(job.input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
             count = count.wrapping_add(BLOCKBYTES as u128);
         }
@@ -421,7 +422,10 @@ pub unsafe fn compress1_loop(job: Job, stride: Stride) {
             u64_flag(is_final_block && job.finalize.last_block_flag()),
             u64_flag(is_final_block && job.finalize.last_node_flag()),
         );
-        offset += stride.padded_blockbytes();
+        // It's almost impossible for offset to overflow. The input would have
+        // to take up almost all of memory. But if it did overflow then we'd
+        // loop forever, so saturating_add prevents that theoretical bug.
+        offset = offset.saturating_add(stride.padded_blockbytes());
     }
     *job.words = local_words;
 }
