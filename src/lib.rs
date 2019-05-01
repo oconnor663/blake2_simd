@@ -270,16 +270,35 @@ impl Params {
 
     /// Hash an input all at once with these parameters.
     pub fn hash(&self, input: &[u8]) -> Hash {
+        let imp = guts::Implementation::detect();
         let mut words = self.to_state_words();
-        Implementation::detect().compress1_loop(
-            guts::Job::new(
-                &mut words,
-                0,
-                input,
-                guts::Finalize::from_last_node_flag(self.last_node),
-            ),
-            guts::Stride::Normal,
-        );
+        let mut count: u128 = 0;
+        // Hash the key block, if any.
+        if self.key_length > 0 {
+            let finalization = if input.is_empty() {
+                guts::Finalize::from_last_node_flag(self.last_node)
+            } else {
+                guts::Finalize::NotYet
+            };
+            imp.compress1_loop(
+                guts::Job::new(&mut words, 0, &self.key_block, finalization),
+                guts::Stride::Normal,
+            );
+            count = BLOCKBYTES as u128;
+        }
+        // Hash the input, except in the case where the input is empty and we
+        // already hashed a key block.
+        if self.key_length == 0 || !input.is_empty() {
+            imp.compress1_loop(
+                guts::Job::new(
+                    &mut words,
+                    count,
+                    input,
+                    guts::Finalize::from_last_node_flag(self.last_node),
+                ),
+                guts::Stride::Normal,
+            );
+        }
         Hash {
             bytes: state_words_to_bytes(&words),
             len: self.hash_length,

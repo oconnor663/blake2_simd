@@ -90,7 +90,8 @@ fn test_write() {
 // ).hexdigest()
 #[test]
 fn test_all_parameters() {
-    let hash = Params::new()
+    let mut params = Params::new();
+    params
         .hash_length(18)
         // Make sure a shorter key properly overwrites a longer one.
         .key(b"not the real key")
@@ -103,11 +104,19 @@ fn test_all_parameters() {
         .node_offset(0x08090a0b0c0d0e0f)
         .node_depth(16)
         .inner_hash_length(17)
-        .to_state()
-        .set_last_node(true)
-        .update(b"foo")
-        .finalize();
-    assert_eq!("ec0f59cb65f92e7fcca1280ba859a6925ded", &hash.to_hex());
+        .last_node(true);
+
+    // Check the State API.
+    assert_eq!(
+        "ec0f59cb65f92e7fcca1280ba859a6925ded",
+        &params.to_state().update(b"foo").finalize().to_hex()
+    );
+
+    // Check the all-at-once API.
+    assert_eq!(
+        "ec0f59cb65f92e7fcca1280ba859a6925ded",
+        &params.hash(b"foo").to_hex()
+    );
 }
 
 #[test]
