@@ -92,32 +92,60 @@ impl Implementation {
         }
     }
 
-    pub fn compress1_loop(&self, job: Job) {
+    pub fn compress(
+        &self,
+        block: &[u8; BLOCKBYTES],
+        words: &mut u64x8,
+        count: u128,
+        last_node: LastNode,
+        finalize: Finalize,
+    ) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => unsafe {
-                avx2::compress1_loop(job);
+                avx2::compress(block, words, count, last_node, finalize);
             },
             // Note that there's an SSE version of compress1 in the official C
             // implementation, but I haven't ported it yet.
             _ => {
-                portable::compress1_loop(job);
+                portable::compress(block, words, count, last_node, finalize);
             }
         }
     }
 
-    pub fn compress2_loop(&self, jobs: &mut [Job; 2]) {
+    pub fn compress1_loop(
+        &self,
+        input: &[u8],
+        words: &mut u64x8,
+        count: u128,
+        last_node: LastNode,
+        finalize: Finalize,
+    ) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 | Platform::SSE41 => unsafe { sse41::compress2_loop(jobs) },
+            Platform::AVX2 => unsafe {
+                avx2::compress1_loop(input, words, count, last_node, finalize);
+            },
+            // Note that there's an SSE version of compress1 in the official C
+            // implementation, but I haven't ported it yet.
+            _ => {
+                portable::compress1_loop(input, words, count, last_node, finalize);
+            }
+        }
+    }
+
+    pub fn compress2_loop(&self, jobs: &mut [Job; 2], finalize: Finalize) {
+        match self.0 {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::AVX2 | Platform::SSE41 => unsafe { sse41::compress2_loop(jobs, finalize) },
             _ => panic!("unsupported"),
         }
     }
 
-    pub fn compress4_loop(&self, jobs: &mut [Job; 4]) {
+    pub fn compress4_loop(&self, jobs: &mut [Job; 4], finalize: Finalize) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => unsafe { avx2::compress4_loop(jobs) },
+            Platform::AVX2 => unsafe { avx2::compress4_loop(jobs, finalize) },
             _ => panic!("unsupported"),
         }
     }
@@ -227,69 +255,14 @@ impl core::ops::DerefMut for u64x8 {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Finalize {
-    NotYet,
-    YesOrdinary,
-    YesLastNode,
-}
-
-impl Finalize {
-    pub fn from_last_node_flag(last_node: bool) -> Self {
-        if last_node {
-            Finalize::YesLastNode
-        } else {
-            Finalize::YesOrdinary
-        }
-    }
-
-    pub fn last_block_flag(&self) -> bool {
-        match self {
-            Finalize::NotYet => false,
-            _ => true,
-        }
-    }
-
-    pub fn last_node_flag(&self) -> bool {
-        match self {
-            Finalize::YesLastNode => true,
-            _ => false,
-        }
-    }
-}
-
 pub struct Job<'a, 'b> {
-    pub words: &'a mut u64x8,
+    pub input: &'a [u8],
+    pub words: &'b mut u64x8,
     pub count: u128,
-    pub input: &'b [u8],
-    pub finalize: Finalize,
-    // The constructor contains debug asserts, so include a private field to
-    // force callers to use it.
-    _use_the_constructor_please: (),
+    pub last_node: LastNode,
 }
 
 impl<'a, 'b> Job<'a, 'b> {
-    pub fn new(
-        words: &'a mut u64x8,
-        count: u128,
-        input: &'b [u8],
-        finalize: Finalize,
-    ) -> Job<'a, 'b> {
-        if let Finalize::NotYet = finalize {
-            // Only the very last block is allowed to be shorter than
-            // BLOCKBYTES, so if we're not finalizing yet, the input must be an
-            // even multiple of BLOCKBYTES.
-            debug_assert_eq!(0, input.len() % BLOCKBYTES);
-        }
-        Job {
-            words,
-            count,
-            input,
-            finalize,
-            _use_the_constructor_please: (),
-        }
-    }
-
     #[inline(always)]
     pub fn offset(&mut self, offset: usize) {
         let start = cmp::min(self.input.len(), offset);
@@ -298,31 +271,35 @@ impl<'a, 'b> Job<'a, 'b> {
     }
 }
 
-// Note that even an empty input has a final block at offset 0, which will wind
-// up being all zeros.
-#[inline(always)]
-pub(crate) fn final_block_offset(min_len: usize) -> usize {
-    let final_byte = min_len.saturating_sub(1);
-    final_byte - (final_byte % BLOCKBYTES)
+// Finalize could just be a bool, but this is easier to read at callsites.
+#[derive(Clone, Copy, Debug)]
+pub enum Finalize {
+    Yes,
+    No,
 }
 
-// Returns (block, len).
-#[inline(always)]
-pub(crate) fn get_block<'a>(
-    input: &'a [u8],
-    offset: usize,
-    buffer: &'a mut [u8; BLOCKBYTES],
-) -> (&'a [u8; BLOCKBYTES], usize, bool) {
-    debug_assert!(BLOCKBYTES < u8::max_value() as usize);
-    debug_assert!(offset == 0 || offset < input.len());
-    let start = cmp::min(offset, input.len());
-    let is_end = (input.len() - start) <= BLOCKBYTES;
-    let len = cmp::min(BLOCKBYTES, input.len() - start);
-    if input.len() - start >= BLOCKBYTES {
-        (array_ref!(input, start, BLOCKBYTES), BLOCKBYTES, is_end)
-    } else {
-        buffer[..len].copy_from_slice(&input[start..][..len]);
-        (buffer, len, is_end)
+impl Finalize {
+    pub fn yes(&self) -> bool {
+        match self {
+            Finalize::Yes => true,
+            Finalize::No => false,
+        }
+    }
+}
+
+// Like Finalize, this is easier to read at callsites.
+#[derive(Clone, Copy, Debug)]
+pub enum LastNode {
+    Yes,
+    No,
+}
+
+impl LastNode {
+    pub fn yes(&self) -> bool {
+        match self {
+            LastNode::Yes => true,
+            LastNode::No => false,
+        }
     }
 }
 
@@ -381,7 +358,7 @@ mod test {
 
     fn exercise_cases<F>(mut f: F)
     where
-        F: FnMut(usize, usize, u128, Finalize, usize),
+        F: FnMut(usize, usize, u128, LastNode, Finalize, usize),
     {
         // Chose counts to hit the relevant overflow cases.
         let counts = &[
@@ -392,35 +369,42 @@ mod test {
         for invocations in 1..=2 {
             for blocks_per_invoc in 1..=3 {
                 for &count in counts {
-                    for &finalize in &[
-                        Finalize::NotYet,
-                        Finalize::YesOrdinary,
-                        Finalize::YesLastNode,
-                    ] {
-                        for &buffer_tail in &[0, 1, BLOCKBYTES - 1, BLOCKBYTES] {
-                            // eprintln!("\ncase -----");
-                            // dbg!(invocations);
-                            // dbg!(blocks_per_invoc);
-                            // dbg!(count);
-                            // dbg!(finalize);
-                            // dbg!(buffer_tail);
+                    for &last_node in &[LastNode::No, LastNode::Yes] {
+                        for &finalize in &[Finalize::No, Finalize::Yes] {
+                            for &buffer_tail in &[0, 1, BLOCKBYTES - 1, BLOCKBYTES] {
+                                // eprintln!("\ncase -----");
+                                // dbg!(invocations);
+                                // dbg!(blocks_per_invoc);
+                                // dbg!(count);
+                                // dbg!(finalize);
+                                // dbg!(buffer_tail);
 
-                            // Skip the empty block case when there's more
-                            // than a single block of input. It's not
-                            // really valid, and our test reference doesn't
-                            // do the right thing either.
-                            if invocations * blocks_per_invoc != 1 && buffer_tail == BLOCKBYTES {
-                                continue;
-                            }
-                            // Skip non-zero buffer tails when not
-                            // finalizing. We assert against doing that.
-                            if let Finalize::NotYet = finalize {
-                                if buffer_tail != 0 {
+                                // Skip the empty block case when there's more
+                                // than a single block of input. It's not
+                                // really valid, and our test reference doesn't
+                                // do the right thing either.
+                                if invocations * blocks_per_invoc != 1 && buffer_tail == BLOCKBYTES
+                                {
                                     continue;
                                 }
-                            }
 
-                            f(invocations, blocks_per_invoc, count, finalize, buffer_tail);
+                                // Skip non-zero buffer tails when not
+                                // finalizing. We assert against doing that.
+                                if let Finalize::No = finalize {
+                                    if buffer_tail != 0 {
+                                        continue;
+                                    }
+                                }
+
+                                f(
+                                    invocations,
+                                    blocks_per_invoc,
+                                    count,
+                                    last_node,
+                                    finalize,
+                                    buffer_tail,
+                                );
+                            }
                         }
                     }
                 }
@@ -438,7 +422,7 @@ mod test {
         let mut input = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input);
         exercise_cases(
-            |invocations, blocks_per_invoc, count, finalize, buffer_tail| {
+            |invocations, blocks_per_invoc, count, last_node, finalize, buffer_tail| {
                 // Use the portable implementation, one block at a time, to
                 // compute the final state that we expect.
                 let mut reference_words = input_state_words(0);
@@ -453,16 +437,17 @@ mod test {
                         &input_block[..]
                     };
                     let maybe_finalize = if !is_last_block {
-                        Finalize::NotYet
+                        Finalize::No
                     } else {
                         finalize
                     };
-                    portable::compress1_loop(Job::new(
+                    portable::compress1_loop(
+                        input_slice,
                         &mut reference_words,
                         reference_count,
-                        input_slice,
+                        last_node,
                         maybe_finalize,
-                    ));
+                    );
                     reference_count = reference_count.wrapping_add(BLOCKBYTES as u128);
                 }
 
@@ -479,16 +464,17 @@ mod test {
                     }
                     let input_slice = &input[offset..][..len];
                     let maybe_finalize = if !is_last_invoc {
-                        Finalize::NotYet
+                        Finalize::No
                     } else {
                         finalize
                     };
-                    implementation.compress1_loop(Job::new(
+                    implementation.compress1_loop(
+                        input_slice,
                         &mut test_words,
                         test_count,
-                        input_slice,
+                        last_node,
                         maybe_finalize,
-                    ));
+                    );
                     test_count = test_count.wrapping_add((blocks_per_invoc * BLOCKBYTES) as u128);
                 }
                 assert_eq!(reference_words, test_words);
@@ -524,24 +510,20 @@ mod test {
         paint_test_input(&mut input_buffer);
         let inputs = [&input_buffer[0..], &input_buffer[1..]];
         exercise_cases(
-            |invocations, blocks_per_invoc, count, finalize, buffer_tail| {
-                // Ignore non-zero buffer tails for degrees larger than 1.
-                if buffer_tail != 0 {
-                    return;
-                }
-
+            |invocations, blocks_per_invoc, count, last_node, finalize, buffer_tail| {
                 // Use the portable compress1_loop implementation to compute a
                 // reference state for each input separately.
                 let total_blocks = invocations * blocks_per_invoc;
-                let len = total_blocks * BLOCKBYTES;
+                let len = total_blocks * BLOCKBYTES - buffer_tail;
                 let mut reference_words = [input_state_words(0), input_state_words(1)];
                 for i in 0..reference_words.len() {
-                    portable::compress1_loop(Job::new(
+                    portable::compress1_loop(
+                        &inputs[i][..len],
                         &mut reference_words[i],
                         count,
-                        &inputs[i][..len],
+                        last_node,
                         finalize,
-                    ));
+                    );
                 }
 
                 // Do the same thing with the implementation under test under
@@ -551,28 +533,31 @@ mod test {
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
                     let offset = invoc_num * blocks_per_invoc * BLOCKBYTES;
-                    let len = blocks_per_invoc * BLOCKBYTES;
+                    let mut len = blocks_per_invoc * BLOCKBYTES;
+                    if is_last_invoc {
+                        len -= buffer_tail;
+                    }
                     let maybe_finalize = if !is_last_invoc {
-                        Finalize::NotYet
+                        Finalize::No
                     } else {
                         finalize
                     };
                     let &mut [ref mut words0, ref mut words1] = &mut test_words;
                     let mut jobs = [
-                        Job::new(
-                            words0,
-                            test_count,
-                            &inputs[0][offset..][..len],
-                            maybe_finalize,
-                        ),
-                        Job::new(
-                            words1,
-                            test_count,
-                            &inputs[1][offset..][..len],
-                            maybe_finalize,
-                        ),
+                        Job {
+                            input: &inputs[0][offset..][..len],
+                            words: words0,
+                            count: test_count,
+                            last_node,
+                        },
+                        Job {
+                            input: &inputs[1][offset..][..len],
+                            words: words1,
+                            count: test_count,
+                            last_node,
+                        },
                     ];
-                    implementation.compress2_loop(&mut jobs);
+                    implementation.compress2_loop(&mut jobs, maybe_finalize);
                     test_count = test_count.wrapping_add((blocks_per_invoc * BLOCKBYTES) as u128);
                     for job in &jobs {
                         assert!(job.input.is_empty());
@@ -611,16 +596,11 @@ mod test {
             &input_buffer[3..],
         ];
         exercise_cases(
-            |invocations, blocks_per_invoc, count, finalize, buffer_tail| {
-                // Ignore non-zero buffer tails for degrees larger than 1.
-                if buffer_tail != 0 {
-                    return;
-                }
-
+            |invocations, blocks_per_invoc, count, last_node, finalize, buffer_tail| {
                 // Use the portable compress1_loop implementation to compute a
                 // reference state for each input separately.
                 let total_blocks = invocations * blocks_per_invoc;
-                let len = total_blocks * BLOCKBYTES;
+                let len = total_blocks * BLOCKBYTES - buffer_tail;
                 let mut reference_words = [
                     input_state_words(0),
                     input_state_words(1),
@@ -628,12 +608,13 @@ mod test {
                     input_state_words(3),
                 ];
                 for i in 0..reference_words.len() {
-                    portable::compress1_loop(Job::new(
+                    portable::compress1_loop(
+                        &inputs[i][..len],
                         &mut reference_words[i],
                         count,
-                        &inputs[i][..len],
+                        last_node,
                         finalize,
-                    ));
+                    );
                 }
 
                 // Do the same thing with the implementation under test under
@@ -648,41 +629,44 @@ mod test {
                 for invoc_num in 0..invocations {
                     let is_last_invoc = invoc_num == invocations - 1;
                     let offset = invoc_num * blocks_per_invoc * BLOCKBYTES;
-                    let len = blocks_per_invoc * BLOCKBYTES;
+                    let mut len = blocks_per_invoc * BLOCKBYTES;
+                    if is_last_invoc {
+                        len -= buffer_tail;
+                    }
                     let maybe_finalize = if !is_last_invoc {
-                        Finalize::NotYet
+                        Finalize::No
                     } else {
                         finalize
                     };
                     let &mut [ref mut words0, ref mut words1, ref mut words2, ref mut words3] =
                         &mut test_words;
                     let mut jobs = [
-                        Job::new(
-                            words0,
-                            test_count,
-                            &inputs[0][offset..][..len],
-                            maybe_finalize,
-                        ),
-                        Job::new(
-                            words1,
-                            test_count,
-                            &inputs[1][offset..][..len],
-                            maybe_finalize,
-                        ),
-                        Job::new(
-                            words2,
-                            test_count,
-                            &inputs[2][offset..][..len],
-                            maybe_finalize,
-                        ),
-                        Job::new(
-                            words3,
-                            test_count,
-                            &inputs[3][offset..][..len],
-                            maybe_finalize,
-                        ),
+                        Job {
+                            input: &inputs[0][offset..][..len],
+                            words: words0,
+                            count: test_count,
+                            last_node,
+                        },
+                        Job {
+                            input: &inputs[1][offset..][..len],
+                            words: words1,
+                            count: test_count,
+                            last_node,
+                        },
+                        Job {
+                            input: &inputs[2][offset..][..len],
+                            words: words2,
+                            count: test_count,
+                            last_node,
+                        },
+                        Job {
+                            input: &inputs[3][offset..][..len],
+                            words: words3,
+                            count: test_count,
+                            last_node,
+                        },
                     ];
-                    implementation.compress4_loop(&mut jobs);
+                    implementation.compress4_loop(&mut jobs, maybe_finalize);
                     test_count = test_count.wrapping_add((blocks_per_invoc * BLOCKBYTES) as u128);
                     for job in &jobs {
                         assert!(job.input.is_empty());

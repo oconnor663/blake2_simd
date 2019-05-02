@@ -20,7 +20,7 @@
 //! assert_eq!("e69c7d2c42a5ac14948772231c68c552", &hash.to_hex());
 //! ```
 
-use crate::guts::{self, Finalize};
+use crate::guts::{self, Finalize, LastNode};
 use crate::Hash;
 use crate::Params as Blake2bParams;
 use crate::BLOCKBYTES;
@@ -247,12 +247,13 @@ impl State {
             let mut offset = 0;
             while offset < input.len() {
                 for leaf_index in 0..DEGREE {
-                    implementation.compress1_loop(guts::Job::new(
+                    implementation.compress1_loop(
+                        &input[offset + leaf_index * BLOCKBYTES..][..BLOCKBYTES],
                         &mut leaves[leaf_index],
                         *count,
-                        &input[offset + leaf_index * BLOCKBYTES..][..BLOCKBYTES],
-                        Finalize::NotYet,
-                    ));
+                        LastNode::No, // ignored when not finalizing
+                        Finalize::No,
+                    );
                 }
                 *count = count.wrapping_add(BLOCKBYTES as u128);
                 offset += DEGREE * BLOCKBYTES;
@@ -378,20 +379,22 @@ impl State {
             };
             let finalize =
                 if buf_block_index < DEGREE && buf_len > (buf_block_index + DEGREE) * BLOCKBYTES {
-                    Finalize::NotYet
+                    Finalize::No
                 } else {
-                    if buf_block_index % DEGREE == DEGREE - 1 {
-                        Finalize::YesLastNode
-                    } else {
-                        Finalize::YesOrdinary
-                    }
+                    Finalize::Yes
                 };
-            self.implementation.compress1_loop(guts::Job::new(
+            let last_node = if buf_block_index % DEGREE == DEGREE - 1 {
+                LastNode::Yes
+            } else {
+                LastNode::No
+            };
+            self.implementation.compress1_loop(
+                &self.buf[buf_block_start..][..block_len],
                 &mut leaves[buf_block_index % DEGREE],
                 count,
-                &self.buf[buf_block_start..][..block_len],
+                last_node,
                 finalize,
-            ));
+            );
             buf_block_index += 1;
         }
 
@@ -410,8 +413,13 @@ impl State {
                 &mut block[leaf_index * OUTBYTES..][..OUTBYTES],
             );
         }
-        let job = guts::Job::new(&mut root_words_copy, 0, &block, Finalize::YesLastNode);
-        self.implementation.compress1_loop(job);
+        self.implementation.compress1_loop(
+            &block,
+            &mut root_words_copy,
+            0,
+            LastNode::Yes,
+            Finalize::Yes,
+        );
         Hash {
             bytes: crate::state_words_to_bytes(&root_words_copy),
             len: self.hash_length,

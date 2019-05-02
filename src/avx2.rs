@@ -3,9 +3,9 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-use super::*;
-use crate::guts;
-use crate::guts::{u64_flag, u64x4, u64x8, Job};
+use crate::guts::{u64_flag, u64x4, u64x8, Finalize, Job, LastNode};
+use crate::{BLOCKBYTES, IV, SIGMA};
+use core::mem;
 
 #[inline(always)]
 unsafe fn load_u64x4(a: &u64x4) -> __m256i {
@@ -30,8 +30,34 @@ unsafe fn add(a: __m256i, b: __m256i) -> __m256i {
 }
 
 #[inline(always)]
+unsafe fn eq(a: __m256i, b: __m256i) -> __m256i {
+    _mm256_cmpeq_epi64(a, b)
+}
+
+#[inline(always)]
+unsafe fn and(a: __m256i, b: __m256i) -> __m256i {
+    _mm256_and_si256(a, b)
+}
+
+#[inline(always)]
+unsafe fn negate_and(a: __m256i, b: __m256i) -> __m256i {
+    // Note that "and not" implies the reverse of the actual arg order.
+    _mm256_andnot_si256(a, b)
+}
+
+#[inline(always)]
 unsafe fn xor(a: __m256i, b: __m256i) -> __m256i {
     _mm256_xor_si256(a, b)
+}
+
+#[inline(always)]
+unsafe fn set1(x: u64) -> __m256i {
+    _mm256_set1_epi64x(x as i64)
+}
+
+#[inline(always)]
+unsafe fn set4(a: u64, b: u64, c: u64, d: u64) -> __m256i {
+    _mm256_setr_epi64x(a as i64, b as i64, c as i64, d as i64)
 }
 
 // Adapted from https://github.com/rust-lang-nursery/stdsimd/pull/479.
@@ -117,17 +143,25 @@ unsafe fn blake2b_undiag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, 
     *b = _mm256_permute4x64_epi64(*b, _MM_SHUFFLE!(2, 1, 0, 3));
 }
 
-#[inline(always)]
-unsafe fn compress_block(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, lastnode: u64) {
-    let mut a = load_u64x4(&h.split()[0]);
-    let mut b = load_u64x4(&h.split()[1]);
+#[target_feature(enable = "avx2")]
+pub unsafe fn compress(
+    block: &[u8; BLOCKBYTES],
+    words: &mut u64x8,
+    count: u128,
+    last_node: LastNode,
+    finalize: Finalize,
+) {
+    let last_block_flag: u64 = u64_flag(finalize.yes());
+    let last_node_flag: u64 = u64_flag(finalize.yes() && last_node.yes());
+    let mut a = load_u64x4(&words.split()[0]);
+    let mut b = load_u64x4(&words.split()[1]);
     let mut c = load_u64x4(&IV.split()[0]);
-    let count_low = count as i64;
-    let count_high = (count >> 64) as i64;
-    let flags = _mm256_set_epi64x(lastnode as i64, lastblock as i64, count_high, count_low);
+    let count_low = count as u64;
+    let count_high = (count >> 64) as u64;
+    let flags = set4(count_low, count_high, last_block_flag, last_node_flag);
     let mut d = xor(load_u64x4(&IV.split()[1]), flags);
 
-    let msg_chunks = array_refs!(msg, 16, 16, 16, 16, 16, 16, 16, 16);
+    let msg_chunks = array_refs!(block, 16, 16, 16, 16, 16, 16, 16, 16);
     let m0 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.0));
     let m1 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.1));
     let m2 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.2));
@@ -388,50 +422,47 @@ unsafe fn compress_block(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64
     a = xor(a, iv0);
     b = xor(b, iv1);
 
-    store_u64x4(a, &mut h.split_mut()[0]);
-    store_u64x4(b, &mut h.split_mut()[1]);
+    store_u64x4(a, &mut words.split_mut()[0]);
+    store_u64x4(b, &mut words.split_mut()[1]);
 }
 
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress1_loop(job: Job) {
-    let mut offset = 0;
-    let final_block_offset = guts::final_block_offset(job.input.len());
-    let mut buffer = [0; BLOCKBYTES];
-    let (finblock, finblock_len, _) = guts::get_block(job.input, final_block_offset, &mut buffer);
-    let mut local_words = *job.words;
-    let mut count = job.count;
-    while offset <= final_block_offset {
-        let is_final_block = offset == final_block_offset;
-        let block;
-        if is_final_block {
-            block = finblock;
-            count = count.wrapping_add(finblock_len as u128);
-        } else {
-            // This is an unsafe pointer cast to avoid bounds checks. It's
-            // guaranteed to be before final_block_offset, so it's in bounds on
-            // the right. The saturating add at the bottom of this loop
-            // prevents overflow and guarantees it's in bounds on the left.
-            block = &*(job.input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
-            count = count.wrapping_add(BLOCKBYTES as u128);
-        }
-        compress_block(
-            &mut local_words,
-            block,
-            count,
-            u64_flag(is_final_block && job.finalize.last_block_flag()),
-            u64_flag(is_final_block && job.finalize.last_node_flag()),
-        );
-        // It's almost impossible for offset to overflow. The input would have
-        // to take up almost all of memory. But if it did overflow then we'd
-        // loop forever, so saturating_add prevents that theoretical bug.
-        offset = offset.saturating_add(BLOCKBYTES);
+pub unsafe fn compress1_loop(
+    input: &[u8],
+    words: &mut u64x8,
+    mut count: u128,
+    last_node: LastNode,
+    finalize: Finalize,
+) {
+    let mut local_words = *words;
+    let mut bulk_end = input.len();
+    // Reserve at least one byte for finalization. However, if we're not
+    // finalizing, assume that the caller has shaved off a tail or knows more
+    // bytes are coming.
+    if finalize.yes() {
+        bulk_end = bulk_end.saturating_sub(1);
+    } else {
+        debug_assert_eq!(0, input.len() % BLOCKBYTES);
     }
-    *job.words = local_words;
-}
+    bulk_end -= bulk_end % BLOCKBYTES;
+    let mut offset = 0;
 
-#[inline(always)]
-unsafe fn load_256_from_u64(x: u64) -> __m256i {
-    _mm256_set1_epi64x(x as i64)
+    while offset < bulk_end {
+        let block = &*(input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
+        count = count.wrapping_add(BLOCKBYTES as u128);
+        compress(block, &mut local_words, count, last_node, Finalize::No);
+        offset += BLOCKBYTES;
+    }
+
+    if finalize.yes() {
+        let mut buffer: [u8; BLOCKBYTES] = mem::uninitialized();
+        let (block, len, _) = final_block(input, bulk_end, &mut buffer);
+        count = count.wrapping_add(len as u128);
+        compress(block, &mut local_words, count, last_node, Finalize::Yes);
+        // offset isn't used again
+    }
+
+    *words = local_words;
 }
 
 // Performance note: Factoring out a G function here doesn't hurt performance,
@@ -596,7 +627,7 @@ unsafe fn transpose_vecs(
 // the same time there doesn't seem to be any performance benefit from
 // whatever's going on there.
 #[target_feature(enable = "avx2")]
-unsafe fn compress4_transposed_inline(
+unsafe fn compress4_transposed(
     h_vecs: &mut [__m256i; 8],
     msg_vecs: &[__m256i; 16],
     count_low: __m256i,
@@ -613,14 +644,14 @@ unsafe fn compress4_transposed_inline(
         h_vecs[5],
         h_vecs[6],
         h_vecs[7],
-        load_256_from_u64(IV[0]),
-        load_256_from_u64(IV[1]),
-        load_256_from_u64(IV[2]),
-        load_256_from_u64(IV[3]),
-        xor(load_256_from_u64(IV[4]), count_low),
-        xor(load_256_from_u64(IV[5]), count_high),
-        xor(load_256_from_u64(IV[6]), lastblock),
-        xor(load_256_from_u64(IV[7]), lastnode),
+        set1(IV[0]),
+        set1(IV[1]),
+        set1(IV[2]),
+        set1(IV[3]),
+        xor(set1(IV[4]), count_low),
+        xor(set1(IV[5]), count_high),
+        xor(set1(IV[6]), lastblock),
+        xor(set1(IV[7]), lastnode),
     ];
 
     blake2b_round_4x(&mut v, &msg_vecs, 0);
@@ -647,13 +678,14 @@ unsafe fn compress4_transposed_inline(
 }
 
 #[inline(always)]
-unsafe fn increment_counts(lo: &mut __m256i, hi: &mut __m256i) {
-    // All increments are of size BLOCKBYTES, so an increment will only wrap if
-    // the current value is u64::MAX - BLOCKBYTES. Test for that.
-    let will_wrap = _mm256_cmpeq_epi64(*lo, _mm256_set1_epi64x(-(BLOCKBYTES as i64)));
-    let high_inc = _mm256_and_si256(will_wrap, _mm256_set1_epi64x(1));
-    *lo = _mm256_add_epi64(*lo, _mm256_set1_epi64x(BLOCKBYTES as i64));
-    *hi = _mm256_add_epi64(*hi, high_inc);
+unsafe fn add_to_counts(lo: &mut __m256i, hi: &mut __m256i, delta: __m256i) {
+    // If the low counts reach zero, that means they wrapped, unless the delta
+    // was also zero.
+    *lo = add(*lo, delta);
+    let lo_reached_zero = eq(*lo, set1(0));
+    let delta_was_zero = eq(delta, set1(0));
+    let hi_inc = and(set1(1), negate_and(delta_was_zero, lo_reached_zero));
+    *hi = add(*hi, hi_inc);
 }
 
 #[inline(always)]
@@ -762,12 +794,40 @@ unsafe fn load_counts(jobs: &[Job; 4]) -> (__m256i, __m256i) {
 
 #[inline(always)]
 unsafe fn flags_vec(flags: [bool; 4]) -> __m256i {
-    _mm256_setr_epi64x(
-        if flags[0] { !0 } else { 0 },
-        if flags[1] { !0 } else { 0 },
-        if flags[2] { !0 } else { 0 },
-        if flags[3] { !0 } else { 0 },
+    set4(
+        u64_flag(flags[0]),
+        u64_flag(flags[1]),
+        u64_flag(flags[2]),
+        u64_flag(flags[3]),
     )
+}
+
+// Pull a pointer to the final block straight from the input, if there's enough
+// input. If there's only a partial block, copy it into the provided buffer,
+// and return a pointer to that. Along with that pointer, return the number of
+// bytes of real input, and whether the input should be finalized (i.e. whether
+// there aren't any more bytes after this block).
+#[inline(always)]
+unsafe fn final_block<'a>(
+    input: &'a [u8],
+    offset: usize,
+    buffer: &'a mut [u8; BLOCKBYTES],
+) -> (&'a [u8; BLOCKBYTES], usize, bool) {
+    debug_assert!(offset <= input.len());
+    let offset_ptr = input.as_ptr().add(offset);
+    let remaining = input.len() - offset;
+    if remaining >= BLOCKBYTES {
+        let block = &*(offset_ptr as *const [u8; BLOCKBYTES]);
+        let should_finalize = remaining == BLOCKBYTES;
+        (block, BLOCKBYTES, should_finalize)
+    } else {
+        let buf_ptr = buffer.as_mut_ptr();
+        // Copy the remaining bytes to the front of the block buffer.
+        core::ptr::copy_nonoverlapping(offset_ptr, buf_ptr, remaining);
+        // Initialize the rest of the block buffer to 0.
+        core::ptr::write_bytes(buf_ptr.add(remaining), 0u8, BLOCKBYTES - remaining);
+        (buffer, remaining, true)
+    }
 }
 
 #[inline(always)]
@@ -779,7 +839,7 @@ unsafe fn offset_jobs(jobs: &mut [Job; 4], offset: usize) {
 }
 
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress4_loop(jobs: &mut [Job; 4]) {
+pub unsafe fn compress4_loop(jobs: &mut [Job; 4], finalize: Finalize) {
     let mut h_vecs = transpose_state_vecs(
         &jobs[0].words,
         &jobs[1].words,
@@ -787,41 +847,52 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4]) {
         &jobs[3].words,
     );
     let min_len = jobs.iter().map(|job| job.input.len()).min().unwrap();
-    let blocks_len = min_len - (min_len % BLOCKBYTES);
-    debug_assert!(blocks_len > 0);
-    let final_last_block = flags_vec([
-        jobs[0].input.len() == blocks_len && jobs[0].finalize.last_block_flag(),
-        jobs[1].input.len() == blocks_len && jobs[1].finalize.last_block_flag(),
-        jobs[2].input.len() == blocks_len && jobs[2].finalize.last_block_flag(),
-        jobs[3].input.len() == blocks_len && jobs[3].finalize.last_block_flag(),
-    ]);
-    let final_last_node = flags_vec([
-        jobs[0].input.len() == blocks_len && jobs[0].finalize.last_node_flag(),
-        jobs[1].input.len() == blocks_len && jobs[1].finalize.last_node_flag(),
-        jobs[2].input.len() == blocks_len && jobs[2].finalize.last_node_flag(),
-        jobs[3].input.len() == blocks_len && jobs[3].finalize.last_node_flag(),
-    ]);
+    let mut bulk_end = min_len;
+    // Reserve at least one byte for finalization. However, if we're not
+    // finalizing, assume that the caller has shaved off a tail or knows more
+    // bytes are coming.
+    if finalize.yes() {
+        bulk_end = bulk_end.saturating_sub(1);
+    } else {
+        for job in jobs.iter() {
+            debug_assert_eq!(0, job.input.len() % BLOCKBYTES);
+        }
+    }
+    bulk_end -= bulk_end % BLOCKBYTES;
     let (mut counts_lo, mut counts_hi) = load_counts(&jobs);
     let mut offset = 0;
-    while offset < blocks_len {
-        // These unsafe pointer casts avoid paying for bounds checks. The
-        // final_block_offset math guarantees that these loads are
-        // in-bounds.
+
+    while offset < bulk_end {
         let block0 = &*(jobs[0].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
         let block1 = &*(jobs[1].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
         let block2 = &*(jobs[2].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
         let block3 = &*(jobs[3].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
-        let blocks = [block0, block1, block2, block3];
-        let m_vecs = transpose_msg_vecs(blocks);
+        let m_vecs = transpose_msg_vecs([block0, block1, block2, block3]);
+        add_to_counts(&mut counts_lo, &mut counts_hi, set1(BLOCKBYTES as u64));
+        compress4_transposed(&mut h_vecs, &m_vecs, counts_lo, counts_hi, set1(0), set1(0));
+        offset += BLOCKBYTES;
+    }
 
-        let is_final_block = offset == blocks_len - BLOCKBYTES;
-        let is_final_vec = _mm256_set1_epi64x(if is_final_block { !0 } else { 0 });
-        let last_block = _mm256_and_si256(is_final_vec, final_last_block);
-        let last_node = _mm256_and_si256(is_final_vec, final_last_node);
-
-        increment_counts(&mut counts_lo, &mut counts_hi);
-
-        compress4_transposed_inline(
+    if finalize.yes() {
+        let mut buffer0: [u8; BLOCKBYTES] = mem::uninitialized();
+        let mut buffer1: [u8; BLOCKBYTES] = mem::uninitialized();
+        let mut buffer2: [u8; BLOCKBYTES] = mem::uninitialized();
+        let mut buffer3: [u8; BLOCKBYTES] = mem::uninitialized();
+        let (block0, len0, finalize0) = final_block(jobs[0].input, bulk_end, &mut buffer0);
+        let (block1, len1, finalize1) = final_block(jobs[1].input, bulk_end, &mut buffer1);
+        let (block2, len2, finalize2) = final_block(jobs[2].input, bulk_end, &mut buffer2);
+        let (block3, len3, finalize3) = final_block(jobs[3].input, bulk_end, &mut buffer3);
+        let m_vecs = transpose_msg_vecs([block0, block1, block2, block3]);
+        let last_block = flags_vec([finalize0, finalize1, finalize2, finalize3]);
+        let last_node = flags_vec([
+            finalize0 && jobs[0].last_node.yes(),
+            finalize1 && jobs[1].last_node.yes(),
+            finalize2 && jobs[2].last_node.yes(),
+            finalize3 && jobs[3].last_node.yes(),
+        ]);
+        let counts_delta = set4(len0 as u64, len1 as u64, len2 as u64, len3 as u64);
+        add_to_counts(&mut counts_lo, &mut counts_hi, counts_delta);
+        compress4_transposed(
             &mut h_vecs,
             &m_vecs,
             counts_lo,
@@ -829,8 +900,7 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4]) {
             last_block,
             last_node,
         );
-
-        offset += BLOCKBYTES;
+        offset = offset.saturating_add(BLOCKBYTES);
     }
 
     let &mut [ref mut job0, ref mut job1, ref mut job2, ref mut job3] = jobs;
@@ -841,7 +911,7 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4]) {
         &mut job2.words,
         &mut job3.words,
     );
-    offset_jobs(jobs, blocks_len);
+    offset_jobs(jobs, offset);
 }
 
 const DEGREE: usize = 4;
@@ -858,8 +928,8 @@ pub unsafe fn blake2bp_loop(
     let final_offset = input.len() - (DEGREE * BLOCKBYTES);
 
     let mut h_vecs = transpose_state_vecs(&leaves[0], &leaves[1], &leaves[2], &leaves[3]);
-    let mut counts_lo = _mm256_set1_epi64x(count as i64);
-    let mut counts_hi = _mm256_set1_epi64x((count >> 64) as i64);
+    let mut counts_lo = set1(count as u64);
+    let mut counts_hi = set1((count >> 64) as u64);
     let finlastblockvec = flags_vec(finalize);
     let finlastnodevec = flags_vec([false, false, false, finalize[DEGREE - 1]]);
     let mut offset = 0;
@@ -877,13 +947,13 @@ pub unsafe fn blake2bp_loop(
             last_block_vec = finlastblockvec;
             last_node_vec = finlastnodevec;
         } else {
-            last_block_vec = _mm256_set1_epi64x(0);
-            last_node_vec = _mm256_set1_epi64x(0);
+            last_block_vec = set1(0);
+            last_node_vec = set1(0);
         };
-        increment_counts(&mut counts_lo, &mut counts_hi);
+        add_to_counts(&mut counts_lo, &mut counts_hi, set1(BLOCKBYTES as u64));
         let m_vecs = transpose_msg_vecs(blocks);
 
-        compress4_transposed_inline(
+        compress4_transposed(
             &mut h_vecs,
             &m_vecs,
             counts_lo,

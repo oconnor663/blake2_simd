@@ -183,9 +183,6 @@ const SIGMA: [[u8; 16]; 12] = [
     [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
 ];
 
-type Block = [u8; BLOCKBYTES];
-type HexString = arrayvec::ArrayString<[u8; 2 * OUTBYTES]>;
-
 /// Compute the BLAKE2b hash of a slice of bytes all at once, using default
 /// parameters.
 ///
@@ -239,7 +236,7 @@ pub struct Params {
     node_offset: u64,
     node_depth: u8,
     inner_hash_length: u8,
-    last_node: bool,
+    last_node: guts::LastNode,
 }
 
 impl Params {
@@ -275,23 +272,24 @@ impl Params {
         let mut count: u128 = 0;
         // Hash the key block, if any.
         if self.key_length > 0 {
-            let finalization = if input.is_empty() {
-                guts::Finalize::from_last_node_flag(self.last_node)
+            let finalize = if input.is_empty() {
+                guts::Finalize::Yes
             } else {
-                guts::Finalize::NotYet
+                guts::Finalize::No
             };
-            imp.compress1_loop(guts::Job::new(&mut words, 0, &self.key_block, finalization));
             count = BLOCKBYTES as u128;
+            imp.compress(&self.key_block, &mut words, count, self.last_node, finalize);
         }
         // Hash the input, except in the case where the input is empty and we
         // already hashed a key block.
         if self.key_length == 0 || !input.is_empty() {
-            imp.compress1_loop(guts::Job::new(
+            imp.compress1_loop(
+                input,
                 &mut words,
                 count,
-                input,
-                guts::Finalize::from_last_node_flag(self.last_node),
-            ));
+                self.last_node,
+                guts::Finalize::Yes,
+            );
         }
         Hash {
             bytes: state_words_to_bytes(&words),
@@ -402,7 +400,11 @@ impl Params {
     ///
     /// [`State::set_last_node`]: struct.State.html#method.set_last_node
     pub fn last_node(&mut self, last_node: bool) -> &mut Self {
-        self.last_node = last_node;
+        self.last_node = if last_node {
+            guts::LastNode::Yes
+        } else {
+            guts::LastNode::No
+        };
         self
     }
 }
@@ -422,7 +424,7 @@ impl Default for Params {
             node_offset: 0,
             node_depth: 0,
             inner_hash_length: 0,
-            last_node: false,
+            last_node: guts::LastNode::No,
         }
     }
 }
@@ -445,7 +447,7 @@ impl fmt::Debug for Params {
             self.node_offset,
             self.node_depth,
             self.inner_hash_length,
-            self.last_node,
+            self.last_node.yes(),
         )
     }
 }
@@ -471,9 +473,9 @@ impl fmt::Debug for Params {
 pub struct State {
     words: guts::u64x8,
     count: u128,
-    buf: Block,
+    buf: [u8; BLOCKBYTES],
     buflen: u8,
-    last_node: bool,
+    last_node: guts::LastNode,
     hash_length: u8,
     implementation: Implementation,
 }
@@ -515,13 +517,14 @@ impl State {
         if self.buflen > 0 {
             self.fill_buf(input);
             if !input.is_empty() {
-                self.implementation.compress1_loop(guts::Job::new(
+                self.count += BLOCKBYTES as u128;
+                self.implementation.compress(
+                    &self.buf,
                     &mut self.words,
                     self.count,
-                    &self.buf,
-                    guts::Finalize::NotYet,
-                ));
-                self.count += BLOCKBYTES as u128;
+                    self.last_node,
+                    guts::Finalize::No,
+                );
                 self.buflen = 0;
             }
         }
@@ -536,12 +539,13 @@ impl State {
         let mut end = input.len().saturating_sub(1);
         end -= end % BLOCKBYTES;
         if end > 0 {
-            self.implementation.compress1_loop(guts::Job::new(
+            self.implementation.compress1_loop(
+                &input[..end],
                 &mut self.words,
                 self.count,
-                &input[..end],
-                guts::Finalize::NotYet,
-            ));
+                self.last_node,
+                guts::Finalize::No,
+            );
             self.count += end as u128;
             input = &input[end..];
         }
@@ -558,12 +562,13 @@ impl State {
     /// times will give the same result. It's also possible to `update` with more input in between.
     pub fn finalize(&self) -> Hash {
         let mut words_copy = self.words;
-        self.implementation.compress1_loop(guts::Job::new(
+        self.implementation.compress1_loop(
+            &self.buf[..self.buflen as usize],
             &mut words_copy,
             self.count,
-            &self.buf[..self.buflen as usize],
-            guts::Finalize::from_last_node_flag(self.last_node),
-        ));
+            self.last_node,
+            guts::Finalize::Yes,
+        );
         Hash {
             bytes: state_words_to_bytes(&words_copy),
             len: self.hash_length,
@@ -579,7 +584,11 @@ impl State {
     /// [`Params::last_node`]: struct.Params.html#method.last_node
     /// [the BLAKE2 spec]: https://blake2.net/blake2.pdf
     pub fn set_last_node(&mut self, last_node: bool) -> &mut Self {
-        self.last_node = last_node;
+        self.last_node = if last_node {
+            guts::LastNode::Yes
+        } else {
+            guts::LastNode::No
+        };
         self
     }
 
@@ -625,7 +634,7 @@ impl fmt::Debug for State {
             "State {{ count: {}, hash_length: {}, last_node: {} }}",
             self.count(),
             self.hash_length,
-            self.last_node,
+            self.last_node.yes(),
         )
     }
 }
@@ -635,6 +644,8 @@ impl Default for State {
         Self::with_params(&Params::default())
     }
 }
+
+type HexString = arrayvec::ArrayString<[u8; 2 * OUTBYTES]>;
 
 /// A finalized BLAKE2 hash, with constant-time equality.
 #[derive(Clone, Copy)]

@@ -1,7 +1,8 @@
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
-use crate::guts::{u64_flag, u64x8, Job};
+use crate::guts::{u64_flag, u64x8, Finalize, LastNode};
+use core::cmp;
 
 // G is the mixing function, called eight times per round in the compression
 // function. V is the 16-word state vector of the compression function, usually
@@ -43,30 +44,35 @@ fn round(r: usize, m: &[u64; 16], v: &mut [u64; 16]) {
 // with zero bytes in the final block. `count` is the number of bytes fed so
 // far, including in this call, though not including padding in the final call.
 // `finalize` is set to true only in the final call.
-#[inline(always)]
-fn compress_block(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, lastnode: u64) {
+pub fn compress(
+    block: &[u8; BLOCKBYTES],
+    words: &mut u64x8,
+    count: u128,
+    last_node: LastNode,
+    finalize: Finalize,
+) {
     // Initialize the compression state.
     let mut v = [
-        h[0],
-        h[1],
-        h[2],
-        h[3],
-        h[4],
-        h[5],
-        h[6],
-        h[7],
+        words[0],
+        words[1],
+        words[2],
+        words[3],
+        words[4],
+        words[5],
+        words[6],
+        words[7],
         IV[0],
         IV[1],
         IV[2],
         IV[3],
         IV[4] ^ count as u64,
         IV[5] ^ (count >> 64) as u64,
-        IV[6] ^ lastblock,
-        IV[7] ^ lastnode,
+        IV[6] ^ u64_flag(finalize.yes()),
+        IV[7] ^ u64_flag(finalize.yes() && last_node.yes()),
     ];
 
     // Parse the message bytes as ints in little endian order.
-    let msg_refs = array_refs!(msg, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8);
+    let msg_refs = array_refs!(block, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8);
     let m = [
         LittleEndian::read_u64(msg_refs.0),
         LittleEndian::read_u64(msg_refs.1),
@@ -99,44 +105,74 @@ fn compress_block(h: &mut u64x8, msg: &Block, count: u128, lastblock: u64, lastn
     round(10, &m, &mut v);
     round(11, &m, &mut v);
 
-    h[0] ^= v[0] ^ v[8];
-    h[1] ^= v[1] ^ v[9];
-    h[2] ^= v[2] ^ v[10];
-    h[3] ^= v[3] ^ v[11];
-    h[4] ^= v[4] ^ v[12];
-    h[5] ^= v[5] ^ v[13];
-    h[6] ^= v[6] ^ v[14];
-    h[7] ^= v[7] ^ v[15];
+    words[0] ^= v[0] ^ v[8];
+    words[1] ^= v[1] ^ v[9];
+    words[2] ^= v[2] ^ v[10];
+    words[3] ^= v[3] ^ v[11];
+    words[4] ^= v[4] ^ v[12];
+    words[5] ^= v[5] ^ v[13];
+    words[6] ^= v[6] ^ v[14];
+    words[7] ^= v[7] ^ v[15];
 }
 
-pub fn compress1_loop(job: Job) {
-    let mut offset = 0;
-    let final_block_offset = guts::final_block_offset(job.input.len());
-    let mut buffer = [0; BLOCKBYTES];
-    let (finblock, finblock_len, _) = guts::get_block(job.input, final_block_offset, &mut buffer);
-    let mut local_words = *job.words;
-    let mut count = job.count;
-    while offset <= final_block_offset {
-        let is_final_block = offset == final_block_offset;
-        let block;
-        if is_final_block {
-            block = finblock;
-            count = count.wrapping_add(finblock_len as u128);
-        } else {
-            block = array_ref!(job.input, offset, BLOCKBYTES);
-            count = count.wrapping_add(BLOCKBYTES as u128);
-        }
-        compress_block(
-            &mut local_words,
-            block,
-            count,
-            u64_flag(is_final_block && job.finalize.last_block_flag()),
-            u64_flag(is_final_block && job.finalize.last_node_flag()),
-        );
-        // It's almost impossible for offset to overflow. The input would have
-        // to take up almost all of memory. But if it did overflow then we'd
-        // loop forever, so saturating_add prevents that theoretical bug.
-        offset = offset.saturating_add(BLOCKBYTES);
+// Pull a pointer to the final block straight from the input, if there's enough
+// input. If there's only a partial block, copy it into the provided buffer,
+// and return a pointer to that. Along with that pointer, return the number of
+// bytes of real input.
+#[inline(always)]
+fn final_block<'a>(
+    input: &'a [u8],
+    offset: usize,
+    buffer: &'a mut [u8; BLOCKBYTES],
+) -> (&'a [u8; BLOCKBYTES], usize) {
+    debug_assert!(offset <= input.len());
+    let capped_offset = cmp::min(offset, input.len());
+    let remaining = input.len() - capped_offset;
+    if remaining >= BLOCKBYTES {
+        let block = array_ref!(input, capped_offset, BLOCKBYTES);
+        (block, BLOCKBYTES)
+    } else {
+        // Copy the remaining bytes to the front of the block buffer. The rest
+        // is assumed to be initialized to zero.
+        buffer[..remaining].copy_from_slice(&input[capped_offset..]);
+        (buffer, remaining)
     }
-    *job.words = local_words;
+}
+
+pub fn compress1_loop(
+    input: &[u8],
+    words: &mut u64x8,
+    mut count: u128,
+    last_node: LastNode,
+    finalize: Finalize,
+) {
+    let mut local_words = *words;
+    let mut bulk_end = input.len();
+    // Reserve at least one byte for finalization. However, if we're not
+    // finalizing, assume that the caller has shaved off a tail or knows more
+    // bytes are coming.
+    if finalize.yes() {
+        bulk_end = bulk_end.saturating_sub(1);
+    } else {
+        debug_assert_eq!(0, input.len() % BLOCKBYTES);
+    }
+    bulk_end -= bulk_end % BLOCKBYTES;
+    let mut offset = 0;
+
+    while offset < bulk_end {
+        let block = array_ref!(input, offset, BLOCKBYTES);
+        count = count.wrapping_add(BLOCKBYTES as u128);
+        compress(block, &mut local_words, count, last_node, Finalize::No);
+        offset += BLOCKBYTES;
+    }
+
+    if finalize.yes() {
+        let mut buffer = [0; BLOCKBYTES];
+        let (block, len) = final_block(input, bulk_end, &mut buffer);
+        count = count.wrapping_add(len as u128);
+        compress(block, &mut local_words, count, last_node, Finalize::Yes);
+        // offset isn't used again
+    }
+
+    *words = local_words;
 }

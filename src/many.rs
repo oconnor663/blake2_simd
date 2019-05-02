@@ -42,7 +42,7 @@
 //! }
 //! ```
 
-use crate::guts::{self, u64x8, Finalize, Implementation, Job};
+use crate::guts::{self, u64x8, Finalize, Implementation, Job, LastNode};
 use crate::state_words_to_bytes;
 use crate::Hash;
 use crate::Params;
@@ -95,45 +95,33 @@ fn fill_jobs_vec<'a, 'b>(
     jobs_iter: &mut impl Iterator<Item = Job<'a, 'b>>,
     vec: &mut JobsVec<'a, 'b>,
     target_len: usize,
-    imp: Implementation,
 ) {
     while vec.len() < target_len {
         if let Some(job) = jobs_iter.next() {
-            // If there's less than one block of work to do, finalize the job
-            // here rather than adding it to the jobs vec.
-            if job.input.len() < BLOCKBYTES {
-                compress_final_block(job, imp);
-            } else {
-                vec.push(job);
-            }
+            vec.push(job);
         } else {
             break;
         }
     }
 }
 
-fn compress_final_block(job: Job, imp: Implementation) {
-    debug_assert!(job.input.len() < BLOCKBYTES);
-    imp.compress1_loop(job);
-}
-
-fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize, imp: Implementation) {
+fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize) {
     // Iterate backwards so that removal doesn't cause an out-of-bounds panic.
     for i in (0..num_jobs).rev() {
-        if vec[i].input.len() < BLOCKBYTES {
+        // Note that is_empty() is only valid because we know all these jobs
+        // have been run at least once. Otherwise we could confuse the empty
+        // input for a finished job, which would be incorrect.
+        if vec[i].input.is_empty() {
             // Note that calling remove() repeatedly has some overhead, because
             // later elements need to be shifted up. However, the JobsVec is
             // small, and this approach guarantees that jobs are encountered in
             // order.
-            let job = vec.remove(i);
-            if !job.input.is_empty() {
-                compress_final_block(job, imp);
-            }
+            vec.remove(i);
         }
     }
 }
 
-pub(crate) fn compress_many<'a, 'b, I>(jobs: I, imp: Implementation)
+pub(crate) fn compress_many<'a, 'b, I>(jobs: I, imp: Implementation, finalize: Finalize)
 where
     I: IntoIterator<Item = Job<'a, 'b>>,
 {
@@ -144,30 +132,30 @@ where
 
     if imp.degree() >= 4 {
         loop {
-            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 4, imp);
+            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 4);
             if jobs_vec.len() < 4 {
                 break;
             }
             let jobs_array = array_mut_ref!(jobs_vec, 0, 4);
-            imp.compress4_loop(jobs_array);
-            evict_finished(&mut jobs_vec, 4, imp);
+            imp.compress4_loop(jobs_array, finalize);
+            evict_finished(&mut jobs_vec, 4);
         }
     }
 
     if imp.degree() >= 2 {
         loop {
-            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 2, imp);
+            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 2);
             if jobs_vec.len() < 2 {
                 break;
             }
             let jobs_array = array_mut_ref!(jobs_vec, 0, 2);
-            imp.compress2_loop(jobs_array);
-            evict_finished(&mut jobs_vec, 2, imp);
+            imp.compress2_loop(jobs_array, finalize);
+            evict_finished(&mut jobs_vec, 2);
         }
     }
 
     for job in jobs_vec.into_iter().chain(jobs_iter) {
-        imp.compress1_loop(job);
+        imp.compress1_loop(job.input, job.words, job.count, job.last_node, finalize);
     }
 }
 
@@ -227,10 +215,15 @@ where
         } else {
             let count = state.count;
             state.count = state.count.wrapping_add(blocks.len() as u128);
-            Some(Job::new(&mut state.words, count, blocks, Finalize::NotYet))
+            Some(Job {
+                input: blocks,
+                words: &mut state.words,
+                count,
+                last_node: state.last_node,
+            })
         }
     });
-    compress_many(jobs, imp);
+    compress_many(jobs, imp, Finalize::No);
 }
 
 /// A job for the [`hash_many`] function. After calling [`hash_many`] on a
@@ -242,7 +235,7 @@ where
 pub struct HashManyJob<'a> {
     words: u64x8,
     count: u128,
-    finalize: Finalize,
+    last_node: LastNode,
     hash_length: u8,
     input: &'a [u8],
     was_run: bool,
@@ -261,19 +254,20 @@ impl<'a> HashManyJob<'a> {
             if input.is_empty() {
                 input = &params.key_block;
             } else {
-                Implementation::detect().compress1_loop(Job::new(
-                    &mut words,
-                    0,
-                    &params.key_block,
-                    Finalize::NotYet,
-                ));
                 count = BLOCKBYTES as u128;
+                Implementation::detect().compress(
+                    &params.key_block,
+                    &mut words,
+                    count,
+                    params.last_node,
+                    Finalize::No,
+                );
             }
         }
         Self {
             words,
             count,
-            finalize: Finalize::from_last_node_flag(params.last_node),
+            last_node: params.last_node,
             hash_length: params.hash_length,
             input,
             was_run: false,
@@ -339,9 +333,14 @@ where
     let jobs = hash_many_jobs.into_iter().map(|j| {
         assert!(!j.was_run, "job has already been run");
         j.was_run = true;
-        Job::new(&mut j.words, j.count, j.input, j.finalize)
+        Job {
+            input: j.input,
+            words: &mut j.words,
+            count: j.count,
+            last_node: j.last_node,
+        }
     });
-    compress_many(jobs, imp);
+    compress_many(jobs, imp, Finalize::Yes);
 }
 
 #[cfg(test)]
