@@ -265,9 +265,21 @@ pub struct Job<'a, 'b> {
 impl<'a, 'b> Job<'a, 'b> {
     #[inline(always)]
     pub fn offset(&mut self, offset: usize) {
-        let start = cmp::min(self.input.len(), offset);
-        self.input = &self.input[start..];
+        self.input = &self.input[offset..];
         self.count = self.count.wrapping_add(offset as u128);
+    }
+}
+
+impl<'a, 'b> core::fmt::Debug for Job<'a, 'b> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // NB: Don't print the words. Leaking them would allow length extension.
+        write!(
+            f,
+            "Job {{ input_len: {}, count: {}, last_node: {} }}",
+            self.input.len(),
+            self.count,
+            self.last_node.yes(),
+        )
     }
 }
 

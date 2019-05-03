@@ -46,12 +46,12 @@ unsafe fn xor(a: __m128i, b: __m128i) -> __m128i {
 }
 
 #[inline(always)]
-unsafe fn set1(x: usize) -> __m128i {
+unsafe fn set1(x: u64) -> __m128i {
     _mm_set1_epi64x(x as i64)
 }
 
 #[inline(always)]
-unsafe fn set2(a: usize, b: usize) -> __m128i {
+unsafe fn set2(a: u64, b: u64) -> __m128i {
     // There's no _mm_setr_epi64x, so note the arg order is backwards.
     _mm_set_epi64x(b as i64, a as i64)
 }
@@ -321,11 +321,11 @@ unsafe fn untranspose_state_vecs(h_vecs: &[__m128i; 8], words0: &mut u64x8, word
 }
 
 #[inline(always)]
-unsafe fn transpose_msg_vecs(blocks: [&[u8; BLOCKBYTES]; 2]) -> [__m128i; 16] {
+unsafe fn transpose_msg_vecs(blocks: [*const u8; 2]) -> [__m128i; 16] {
     // These input arrays have no particular alignment, so we use unaligned
     // loads to read from them.
-    let ptr0 = blocks[0].as_ptr() as *const __m128i;
-    let ptr1 = blocks[1].as_ptr() as *const __m128i;
+    let ptr0 = blocks[0] as *const __m128i;
+    let ptr1 = blocks[1] as *const __m128i;
     let [m0, m1] = transpose_vecs(_mm_loadu_si128(ptr0.add(0)), _mm_loadu_si128(ptr1.add(0)));
     let [m2, m3] = transpose_vecs(_mm_loadu_si128(ptr0.add(1)), _mm_loadu_si128(ptr1.add(1)));
     let [m4, m5] = transpose_vecs(_mm_loadu_si128(ptr0.add(2)), _mm_loadu_si128(ptr1.add(2)));
@@ -382,52 +382,64 @@ unsafe fn final_block<'a>(
     }
 }
 
-#[inline(always)]
-unsafe fn offset_jobs(jobs: &mut [Job; 2], offset: usize) {
-    jobs[0].offset(offset);
-    jobs[1].offset(offset);
-}
-
 #[target_feature(enable = "sse4.1")]
 pub unsafe fn compress2_loop(jobs: &mut [Job; 2], finalize: Finalize) {
-    let mut h_vecs = transpose_state_vecs(&jobs[0].words, &jobs[1].words);
-    let min_len = jobs.iter().map(|job| job.input.len()).min().unwrap();
-    let mut bulk_end = min_len;
-    // Reserve at least one byte for finalization. However, if we're not
-    // finalizing, assume that the caller has shaved off a tail or knows more
-    // bytes are coming.
-    if finalize.yes() {
-        bulk_end = bulk_end.saturating_sub(1);
-    } else {
+    if !finalize.yes() {
         for job in jobs.iter() {
+            debug_assert!(!job.input.is_empty());
             debug_assert_eq!(0, job.input.len() % BLOCKBYTES);
         }
     }
-    bulk_end -= bulk_end % BLOCKBYTES;
+
+    let msg_ptrs = [jobs[0].input.as_ptr(), jobs[1].input.as_ptr()];
+    let mut h_vecs = transpose_state_vecs(&jobs[0].words, &jobs[1].words);
     let (mut counts_lo, mut counts_hi) = load_counts(&jobs);
-    let mut offset = 0;
 
-    while offset < bulk_end {
-        let block0 = &*(jobs[0].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
-        let block1 = &*(jobs[1].input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
-        let m_vecs = transpose_msg_vecs([block0, block1]);
-        add_to_counts(&mut counts_lo, &mut counts_hi, set1(BLOCKBYTES));
-        compress2_transposed(&mut h_vecs, &m_vecs, counts_lo, counts_hi, set1(0), set1(0));
-        offset += BLOCKBYTES;
-    }
-
+    // Prepare the final blocks (note, which could be empty if the input is
+    // empty). Do all this before entering the main loop.
+    let min_len = jobs.iter().map(|job| job.input.len()).min().unwrap();
+    let mut fin_offset = min_len.saturating_sub(1);
+    fin_offset -= fin_offset % BLOCKBYTES;
+    let mut buf0: [u8; BLOCKBYTES] = mem::uninitialized();
+    let mut buf1: [u8; BLOCKBYTES] = mem::uninitialized();
+    let (block0, len0, finalize0) = final_block(jobs[0].input, fin_offset, &mut buf0);
+    let (block1, len1, finalize1) = final_block(jobs[1].input, fin_offset, &mut buf1);
+    let fin_blocks = [block0.as_ptr(), block1.as_ptr()];
+    let fin_counts_delta = set2(len0 as u64, len1 as u64);
+    let fin_last_block;
+    let fin_last_node;
     if finalize.yes() {
-        let mut buffer0: [u8; BLOCKBYTES] = mem::uninitialized();
-        let mut buffer1: [u8; BLOCKBYTES] = mem::uninitialized();
-        let (block0, len0, finalize0) = final_block(jobs[0].input, bulk_end, &mut buffer0);
-        let (block1, len1, finalize1) = final_block(jobs[1].input, bulk_end, &mut buffer1);
-        let m_vecs = transpose_msg_vecs([block0, block1]);
-        let last_block = flags_vec([finalize0, finalize1]);
-        let last_node = flags_vec([
+        fin_last_block = flags_vec([finalize0, finalize1]);
+        fin_last_node = flags_vec([
             finalize0 && jobs[0].last_node.yes(),
             finalize1 && jobs[1].last_node.yes(),
         ]);
-        add_to_counts(&mut counts_lo, &mut counts_hi, set2(len0, len1));
+    } else {
+        fin_last_block = set1(0);
+        fin_last_node = set1(0);
+    }
+
+    // The main loop.
+    let mut offset = 0;
+    loop {
+        let blocks;
+        let counts_delta;
+        let last_block;
+        let last_node;
+        if offset == fin_offset {
+            blocks = fin_blocks;
+            counts_delta = fin_counts_delta;
+            last_block = fin_last_block;
+            last_node = fin_last_node;
+        } else {
+            blocks = [msg_ptrs[0].add(offset), msg_ptrs[1].add(offset)];
+            counts_delta = set1(BLOCKBYTES as u64);
+            last_block = set1(0);
+            last_node = set1(0);
+        };
+
+        let m_vecs = transpose_msg_vecs(blocks);
+        add_to_counts(&mut counts_lo, &mut counts_hi, counts_delta);
         compress2_transposed(
             &mut h_vecs,
             &m_vecs,
@@ -436,10 +448,18 @@ pub unsafe fn compress2_loop(jobs: &mut [Job; 2], finalize: Finalize) {
             last_block,
             last_node,
         );
-        offset = offset.saturating_add(BLOCKBYTES);
+
+        // Check for termination before bumping the offset, to avoid overflow.
+        if offset == fin_offset {
+            break;
+        }
+
+        offset += BLOCKBYTES;
     }
 
+    // Write out the results.
     let &mut [ref mut job0, ref mut job1] = jobs;
     untranspose_state_vecs(&h_vecs, &mut job0.words, &mut job1.words);
-    offset_jobs(jobs, offset);
+    jobs[0].offset(fin_offset + len0);
+    jobs[1].offset(fin_offset + len1);
 }
