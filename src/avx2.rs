@@ -5,7 +5,6 @@ use core::arch::x86_64::*;
 
 use crate::guts::{u64_flag, u64x4, u64x8, Finalize, Job, LastNode};
 use crate::{BLOCKBYTES, IV, SIGMA};
-use core::mem;
 
 #[inline(always)]
 unsafe fn load_u64x4(a: &u64x4) -> __m256i {
@@ -455,7 +454,7 @@ pub unsafe fn compress1_loop(
     }
 
     if finalize.yes() {
-        let mut buffer: [u8; BLOCKBYTES] = mem::uninitialized();
+        let mut buffer: [u8; BLOCKBYTES] = [0; BLOCKBYTES];
         let (block, len, _) = final_block(input, bulk_end, &mut buffer);
         count = count.wrapping_add(len as u128);
         compress(block, &mut local_words, count, last_node, Finalize::Yes);
@@ -822,10 +821,9 @@ unsafe fn final_block<'a>(
         (block, BLOCKBYTES, should_finalize)
     } else {
         let buf_ptr = buffer.as_mut_ptr();
-        // Copy the remaining bytes to the front of the block buffer.
+        // Copy the remaining bytes to the front of the block buffer. The rest
+        // is assumed to be initialized to zero.
         core::ptr::copy_nonoverlapping(offset_ptr, buf_ptr, remaining);
-        // Initialize the rest of the block buffer to 0.
-        core::ptr::write_bytes(buf_ptr.add(remaining), 0u8, BLOCKBYTES - remaining);
         (buffer, remaining, true)
     }
 }
@@ -858,10 +856,12 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4], finalize: Finalize) {
     let min_len = jobs.iter().map(|job| job.input.len()).min().unwrap();
     let mut fin_offset = min_len.saturating_sub(1);
     fin_offset -= fin_offset % BLOCKBYTES;
-    let mut buf0: [u8; BLOCKBYTES] = mem::uninitialized();
-    let mut buf1: [u8; BLOCKBYTES] = mem::uninitialized();
-    let mut buf2: [u8; BLOCKBYTES] = mem::uninitialized();
-    let mut buf3: [u8; BLOCKBYTES] = mem::uninitialized();
+    // Performance note, making these buffers mem::uninitialized() seems to
+    // cause problems in the optimizer.
+    let mut buf0: [u8; BLOCKBYTES] = [0; BLOCKBYTES];
+    let mut buf1: [u8; BLOCKBYTES] = [0; BLOCKBYTES];
+    let mut buf2: [u8; BLOCKBYTES] = [0; BLOCKBYTES];
+    let mut buf3: [u8; BLOCKBYTES] = [0; BLOCKBYTES];
     let (block0, len0, finalize0) = final_block(jobs[0].input, fin_offset, &mut buf0);
     let (block1, len1, finalize1) = final_block(jobs[1].input, fin_offset, &mut buf1);
     let (block2, len2, finalize2) = final_block(jobs[2].input, fin_offset, &mut buf2);
