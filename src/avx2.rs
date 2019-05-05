@@ -622,58 +622,63 @@ unsafe fn transpose_vecs(
     [abcd_0, abcd_1, abcd_2, abcd_3]
 }
 
-// If this function is inline(always), build times go up by 10 seconds! But at
-// the same time there doesn't seem to be any performance benefit from
-// whatever's going on there.
-#[target_feature(enable = "avx2")]
-unsafe fn compress4_transposed(
-    h_vecs: &mut [__m256i; 8],
-    msg_vecs: &[__m256i; 16],
-    count_low: __m256i,
-    count_high: __m256i,
-    lastblock: __m256i,
-    lastnode: __m256i,
-) {
-    let mut v = [
-        h_vecs[0],
-        h_vecs[1],
-        h_vecs[2],
-        h_vecs[3],
-        h_vecs[4],
-        h_vecs[5],
-        h_vecs[6],
-        h_vecs[7],
-        set1(IV[0]),
-        set1(IV[1]),
-        set1(IV[2]),
-        set1(IV[3]),
-        xor(set1(IV[4]), count_low),
-        xor(set1(IV[5]), count_high),
-        xor(set1(IV[6]), lastblock),
-        xor(set1(IV[7]), lastnode),
-    ];
+macro_rules! compress4_transposed {
+    (
+        $h_vecs:expr,
+        $msg_vecs:expr,
+        $count_low:expr,
+        $count_high:expr,
+        $lastblock:expr,
+        $lastnode:expr,
+    ) => {
+        let h_vecs: &mut [__m256i; 8] = $h_vecs;
+        let msg_vecs: &[__m256i; 16] = $msg_vecs;
+        let count_low: __m256i = $count_low;
+        let count_high: __m256i = $count_high;
+        let lastblock: __m256i = $lastblock;
+        let lastnode: __m256i = $lastnode;
 
-    blake2b_round_4x(&mut v, &msg_vecs, 0);
-    blake2b_round_4x(&mut v, &msg_vecs, 1);
-    blake2b_round_4x(&mut v, &msg_vecs, 2);
-    blake2b_round_4x(&mut v, &msg_vecs, 3);
-    blake2b_round_4x(&mut v, &msg_vecs, 4);
-    blake2b_round_4x(&mut v, &msg_vecs, 5);
-    blake2b_round_4x(&mut v, &msg_vecs, 6);
-    blake2b_round_4x(&mut v, &msg_vecs, 7);
-    blake2b_round_4x(&mut v, &msg_vecs, 8);
-    blake2b_round_4x(&mut v, &msg_vecs, 9);
-    blake2b_round_4x(&mut v, &msg_vecs, 10);
-    blake2b_round_4x(&mut v, &msg_vecs, 11);
+        let mut v = [
+            h_vecs[0],
+            h_vecs[1],
+            h_vecs[2],
+            h_vecs[3],
+            h_vecs[4],
+            h_vecs[5],
+            h_vecs[6],
+            h_vecs[7],
+            set1(IV[0]),
+            set1(IV[1]),
+            set1(IV[2]),
+            set1(IV[3]),
+            xor(set1(IV[4]), count_low),
+            xor(set1(IV[5]), count_high),
+            xor(set1(IV[6]), lastblock),
+            xor(set1(IV[7]), lastnode),
+        ];
 
-    h_vecs[0] = xor(xor(h_vecs[0], v[0]), v[8]);
-    h_vecs[1] = xor(xor(h_vecs[1], v[1]), v[9]);
-    h_vecs[2] = xor(xor(h_vecs[2], v[2]), v[10]);
-    h_vecs[3] = xor(xor(h_vecs[3], v[3]), v[11]);
-    h_vecs[4] = xor(xor(h_vecs[4], v[4]), v[12]);
-    h_vecs[5] = xor(xor(h_vecs[5], v[5]), v[13]);
-    h_vecs[6] = xor(xor(h_vecs[6], v[6]), v[14]);
-    h_vecs[7] = xor(xor(h_vecs[7], v[7]), v[15]);
+        blake2b_round_4x(&mut v, &msg_vecs, 0);
+        blake2b_round_4x(&mut v, &msg_vecs, 1);
+        blake2b_round_4x(&mut v, &msg_vecs, 2);
+        blake2b_round_4x(&mut v, &msg_vecs, 3);
+        blake2b_round_4x(&mut v, &msg_vecs, 4);
+        blake2b_round_4x(&mut v, &msg_vecs, 5);
+        blake2b_round_4x(&mut v, &msg_vecs, 6);
+        blake2b_round_4x(&mut v, &msg_vecs, 7);
+        blake2b_round_4x(&mut v, &msg_vecs, 8);
+        blake2b_round_4x(&mut v, &msg_vecs, 9);
+        blake2b_round_4x(&mut v, &msg_vecs, 10);
+        blake2b_round_4x(&mut v, &msg_vecs, 11);
+
+        h_vecs[0] = xor(xor(h_vecs[0], v[0]), v[8]);
+        h_vecs[1] = xor(xor(h_vecs[1], v[1]), v[9]);
+        h_vecs[2] = xor(xor(h_vecs[2], v[2]), v[10]);
+        h_vecs[3] = xor(xor(h_vecs[3], v[3]), v[11]);
+        h_vecs[4] = xor(xor(h_vecs[4], v[4]), v[12]);
+        h_vecs[5] = xor(xor(h_vecs[5], v[5]), v[13]);
+        h_vecs[6] = xor(xor(h_vecs[6], v[6]), v[14]);
+        h_vecs[7] = xor(xor(h_vecs[7], v[7]), v[15]);
+    };
 }
 
 #[inline(always)]
@@ -914,7 +919,7 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4], finalize: Finalize) {
 
         let m_vecs = transpose_msg_vecs(blocks);
         add_to_counts(&mut counts_lo, &mut counts_hi, counts_delta);
-        compress4_transposed(
+        compress4_transposed!(
             &mut h_vecs,
             &m_vecs,
             counts_lo,
@@ -985,7 +990,7 @@ pub unsafe fn blake2bp_loop(
         add_to_counts(&mut counts_lo, &mut counts_hi, set1(BLOCKBYTES as u64));
         let m_vecs = transpose_msg_vecs(blocks);
 
-        compress4_transposed(
+        compress4_transposed!(
             &mut h_vecs,
             &m_vecs,
             counts_lo,
