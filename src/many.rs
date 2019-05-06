@@ -42,7 +42,7 @@
 //! }
 //! ```
 
-use crate::guts::{self, u64x8, Finalize, Implementation, Job, LastNode};
+use crate::guts::{self, u64x8, Finalize, Implementation, Job, LastNode, Stride};
 use crate::state_words_to_bytes;
 use crate::Hash;
 use crate::Params;
@@ -80,8 +80,8 @@ pub const MAX_DEGREE: usize = guts::MAX_DEGREE;
 /// more inputs available in that case, the more the implementation will be
 /// able to parallelize.
 ///
-/// If you need a constant buffer size, for example to size an array, see
-/// [`MAX_DEGREE`].
+/// If you need a constant batch size, for example to collect inputs in an
+/// array, see [`MAX_DEGREE`].
 ///
 /// [`hash_many`]: fn.hash_many.html
 /// [`MAX_DEGREE`]: constant.MAX_DEGREE.html
@@ -121,8 +121,12 @@ fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize) {
     }
 }
 
-pub(crate) fn compress_many<'a, 'b, I>(jobs: I, imp: Implementation, finalize: Finalize)
-where
+pub(crate) fn compress_many<'a, 'b, I>(
+    jobs: I,
+    imp: Implementation,
+    finalize: Finalize,
+    stride: Stride,
+) where
     I: IntoIterator<Item = Job<'a, 'b>>,
 {
     // Fuse is important for correctness, since each of these blocks tries to
@@ -137,7 +141,7 @@ where
                 break;
             }
             let jobs_array = array_mut_ref!(jobs_vec, 0, 4);
-            imp.compress4_loop(jobs_array, finalize);
+            imp.compress4_loop(jobs_array, finalize, stride);
             evict_finished(&mut jobs_vec, 4);
         }
     }
@@ -149,13 +153,19 @@ where
                 break;
             }
             let jobs_array = array_mut_ref!(jobs_vec, 0, 2);
-            imp.compress2_loop(jobs_array, finalize);
+            imp.compress2_loop(jobs_array, finalize, stride);
             evict_finished(&mut jobs_vec, 2);
         }
     }
 
     for job in jobs_vec.into_iter().chain(jobs_iter) {
-        imp.compress1_loop(job.input, job.words, job.count, job.last_node, finalize);
+        let Job {
+            input,
+            words,
+            count,
+            last_node,
+        } = job;
+        imp.compress1_loop(input, words, count, last_node, finalize, stride);
     }
 }
 
@@ -223,7 +233,7 @@ where
             })
         }
     });
-    compress_many(jobs, imp, Finalize::No);
+    compress_many(jobs, imp, Finalize::No, Stride::Serial);
 }
 
 /// A job for the [`hash_many`] function. After calling [`hash_many`] on a
@@ -254,14 +264,15 @@ impl<'a> HashManyJob<'a> {
             if input.is_empty() {
                 input = &params.key_block;
             } else {
-                count = BLOCKBYTES as u128;
-                Implementation::detect().compress(
+                Implementation::detect().compress1_loop(
                     &params.key_block,
                     &mut words,
                     count,
                     params.last_node,
                     Finalize::No,
+                    Stride::Serial,
                 );
+                count = BLOCKBYTES as u128;
             }
         }
         Self {
@@ -340,7 +351,7 @@ where
             last_node: j.last_node,
         }
     });
-    compress_many(jobs, imp, Finalize::Yes);
+    compress_many(jobs, imp, Finalize::Yes, Stride::Serial);
 }
 
 #[cfg(test)]

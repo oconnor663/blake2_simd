@@ -277,8 +277,15 @@ impl Params {
             } else {
                 guts::Finalize::No
             };
+            imp.compress1_loop(
+                &self.key_block,
+                &mut words,
+                0,
+                self.last_node,
+                finalize,
+                guts::Stride::Serial,
+            );
             count = BLOCKBYTES as u128;
-            imp.compress(&self.key_block, &mut words, count, self.last_node, finalize);
         }
         // Hash the input, except in the case where the input is empty and we
         // already hashed a key block.
@@ -289,6 +296,7 @@ impl Params {
                 count,
                 self.last_node,
                 guts::Finalize::Yes,
+                guts::Stride::Serial,
             );
         }
         Hash {
@@ -517,14 +525,15 @@ impl State {
         if self.buflen > 0 {
             self.fill_buf(input);
             if !input.is_empty() {
-                self.count += BLOCKBYTES as u128;
-                self.implementation.compress(
+                self.implementation.compress1_loop(
                     &self.buf,
                     &mut self.words,
                     self.count,
                     self.last_node,
                     guts::Finalize::No,
+                    guts::Stride::Serial,
                 );
+                self.count += BLOCKBYTES as u128;
                 self.buflen = 0;
             }
         }
@@ -545,6 +554,7 @@ impl State {
                 self.count,
                 self.last_node,
                 guts::Finalize::No,
+                guts::Stride::Serial,
             );
             self.count += end as u128;
             input = &input[end..];
@@ -568,6 +578,7 @@ impl State {
             self.count,
             self.last_node,
             guts::Finalize::Yes,
+            guts::Stride::Serial,
         );
         Hash {
             bytes: state_words_to_bytes(&words_copy),

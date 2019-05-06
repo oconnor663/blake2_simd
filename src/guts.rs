@@ -1,4 +1,5 @@
 use crate::*;
+use core::cmp;
 use core::mem;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -92,27 +93,6 @@ impl Implementation {
         }
     }
 
-    pub fn compress(
-        &self,
-        block: &[u8; BLOCKBYTES],
-        words: &mut u64x8,
-        count: u128,
-        last_node: LastNode,
-        finalize: Finalize,
-    ) {
-        match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => unsafe {
-                avx2::compress(block, words, count, last_node, finalize);
-            },
-            // Note that there's an SSE version of compress1 in the official C
-            // implementation, but I haven't ported it yet.
-            _ => {
-                portable::compress(block, words, count, last_node, finalize);
-            }
-        }
-    }
-
     pub fn compress1_loop(
         &self,
         input: &[u8],
@@ -120,46 +100,35 @@ impl Implementation {
         count: u128,
         last_node: LastNode,
         finalize: Finalize,
+        stride: Stride,
     ) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => unsafe {
-                avx2::compress1_loop(input, words, count, last_node, finalize);
+                avx2::compress1_loop(input, words, count, last_node, finalize, stride);
             },
             // Note that there's an SSE version of compress1 in the official C
             // implementation, but I haven't ported it yet.
             _ => {
-                portable::compress1_loop(input, words, count, last_node, finalize);
+                portable::compress1_loop(input, words, count, last_node, finalize, stride);
             }
         }
     }
 
-    pub fn compress2_loop(&self, jobs: &mut [Job; 2], finalize: Finalize) {
+    pub fn compress2_loop(&self, jobs: &mut [Job; 2], finalize: Finalize, stride: Stride) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 | Platform::SSE41 => unsafe { sse41::compress2_loop(jobs, finalize) },
+            Platform::AVX2 | Platform::SSE41 => unsafe {
+                sse41::compress2_loop(jobs, finalize, stride)
+            },
             _ => panic!("unsupported"),
         }
     }
 
-    pub fn compress4_loop(&self, jobs: &mut [Job; 4], finalize: Finalize) {
+    pub fn compress4_loop(&self, jobs: &mut [Job; 4], finalize: Finalize, stride: Stride) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => unsafe { avx2::compress4_loop(jobs, finalize) },
-            _ => panic!("unsupported"),
-        }
-    }
-
-    pub fn blake2bp_loop(
-        &self,
-        leaves: &mut [u64x8; 4],
-        count: u128,
-        input: &[u8],
-        finalize: [bool; 4],
-    ) {
-        match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => unsafe { avx2::blake2bp_loop(leaves, count, input, finalize) },
+            Platform::AVX2 => unsafe { avx2::compress4_loop(jobs, finalize, stride) },
             _ => panic!("unsupported"),
         }
     }
@@ -262,14 +231,6 @@ pub struct Job<'a, 'b> {
     pub last_node: LastNode,
 }
 
-impl<'a, 'b> Job<'a, 'b> {
-    #[inline(always)]
-    pub fn offset(&mut self, offset: usize) {
-        self.input = &self.input[offset..];
-        self.count = self.count.wrapping_add(offset as u128);
-    }
-}
-
 impl<'a, 'b> core::fmt::Debug for Job<'a, 'b> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // NB: Don't print the words. Leaking them would allow length extension.
@@ -315,6 +276,22 @@ impl LastNode {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum Stride {
+    Serial,   // BLAKE2b/BLAKE2s
+    Parallel, // BLAKE2bp/BLAKE2sp
+}
+
+impl Stride {
+    #[inline(always)]
+    pub fn padded_blockbytes(&self) -> usize {
+        match self {
+            Stride::Serial => BLOCKBYTES,
+            Stride::Parallel => blake2bp::DEGREE * BLOCKBYTES,
+        }
+    }
+}
+
 #[inline(always)]
 pub(crate) fn u64_flag(flag: bool) -> u64 {
     if flag {
@@ -324,9 +301,48 @@ pub(crate) fn u64_flag(flag: bool) -> u64 {
     }
 }
 
+// Pull a array reference at the given offset straight from the input, if
+// there's a full block of input available. If there's only a partial block,
+// copy it into the provided buffer, and return an array reference that. Along
+// with the array, return the number of bytes of real input, and whether the
+// input can be finalized (i.e. whether there aren't any more bytes after this
+// block). Note that this is written so that the optimizer can elide bounds
+// checks, see: https://godbolt.org/z/0hH2bC
+#[inline(always)]
+pub fn final_block<'a>(
+    input: &'a [u8],
+    offset: usize,
+    buffer: &'a mut [u8; BLOCKBYTES],
+    stride: Stride,
+) -> (&'a [u8; BLOCKBYTES], usize, bool) {
+    let capped_offset = cmp::min(offset, input.len());
+    let offset_slice = &input[capped_offset..];
+    if offset_slice.len() >= BLOCKBYTES {
+        let block = array_ref!(offset_slice, 0, BLOCKBYTES);
+        let should_finalize = offset_slice.len() <= stride.padded_blockbytes();
+        (block, BLOCKBYTES, should_finalize)
+    } else {
+        // Copy the final block to the front of the block buffer. The rest of
+        // the buffer is assumed to be initialized to zero.
+        buffer[..offset_slice.len()].copy_from_slice(offset_slice);
+        (buffer, offset_slice.len(), true)
+    }
+}
+
+#[inline(always)]
+pub fn input_debug_asserts(input: &[u8], finalize: Finalize) {
+    // If we're not finalizing, the input must not be empty, and it must be an
+    // even multiple of the block size.
+    if !finalize.yes() {
+        debug_assert!(!input.is_empty());
+        debug_assert_eq!(0, input.len() % BLOCKBYTES);
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use arrayvec::ArrayVec;
 
     #[test]
     fn test_detection() {
@@ -360,17 +376,9 @@ mod test {
         }
     }
 
-    fn input_state_words(i: u64) -> u64x8 {
-        let mut words = u64x8([0; 8]);
-        for j in 0..words.len() {
-            words[j] = i + j as u64;
-        }
-        words
-    }
-
     fn exercise_cases<F>(mut f: F)
     where
-        F: FnMut(usize, usize, u128, LastNode, Finalize, usize),
+        F: FnMut(Stride, usize, LastNode, Finalize, u128),
     {
         // Chose counts to hit the relevant overflow cases.
         let counts = &[
@@ -378,50 +386,83 @@ mod test {
             (1u128 << 64) - BLOCKBYTES as u128,
             0u128.wrapping_sub(BLOCKBYTES as u128),
         ];
-        for invocations in 1..=2 {
-            for blocks_per_invoc in 1..=3 {
-                for &count in counts {
-                    for &last_node in &[LastNode::No, LastNode::Yes] {
-                        for &finalize in &[Finalize::No, Finalize::Yes] {
-                            for &buffer_tail in &[0, 1, BLOCKBYTES - 1, BLOCKBYTES] {
-                                // eprintln!("\ncase -----");
-                                // dbg!(invocations);
-                                // dbg!(blocks_per_invoc);
-                                // dbg!(count);
-                                // dbg!(finalize);
-                                // dbg!(buffer_tail);
+        for &stride in &[Stride::Serial, Stride::Parallel] {
+            let lengths = [
+                0,
+                1,
+                BLOCKBYTES - 1,
+                BLOCKBYTES,
+                BLOCKBYTES + 1,
+                2 * BLOCKBYTES - 1,
+                2 * BLOCKBYTES,
+                2 * BLOCKBYTES + 1,
+                stride.padded_blockbytes() - 1,
+                stride.padded_blockbytes(),
+                stride.padded_blockbytes() + 1,
+                2 * stride.padded_blockbytes() - 1,
+                2 * stride.padded_blockbytes(),
+                2 * stride.padded_blockbytes() + 1,
+            ];
+            for &length in &lengths {
+                for &last_node in &[LastNode::No, LastNode::Yes] {
+                    for &finalize in &[Finalize::No, Finalize::Yes] {
+                        if !finalize.yes() && (length == 0 || length % BLOCKBYTES != 0) {
+                            // Skip these cases, they're invalid.
+                            continue;
+                        }
+                        for &count in counts {
+                            // eprintln!("\ncase -----");
+                            // dbg!(stride);
+                            // dbg!(length);
+                            // dbg!(last_node);
+                            // dbg!(finalize);
+                            // dbg!(count);
 
-                                // Skip the empty block case when there's more
-                                // than a single block of input. It's not
-                                // really valid, and our test reference doesn't
-                                // do the right thing either.
-                                if invocations * blocks_per_invoc != 1 && buffer_tail == BLOCKBYTES
-                                {
-                                    continue;
-                                }
-
-                                // Skip non-zero buffer tails when not
-                                // finalizing. We assert against doing that.
-                                if let Finalize::No = finalize {
-                                    if buffer_tail != 0 {
-                                        continue;
-                                    }
-                                }
-
-                                f(
-                                    invocations,
-                                    blocks_per_invoc,
-                                    count,
-                                    last_node,
-                                    finalize,
-                                    buffer_tail,
-                                );
-                            }
+                            f(stride, length, last_node, finalize, count);
                         }
                     }
                 }
             }
         }
+    }
+
+    fn initial_test_words(input_index: usize) -> u64x8 {
+        crate::Params::new()
+            .node_offset(input_index as u64)
+            .to_state_words()
+    }
+
+    // Use the portable implementation, one block at a time, to compute the
+    // final state words expected for a given test case.
+    fn reference_compression(
+        input: &[u8],
+        stride: Stride,
+        last_node: LastNode,
+        finalize: Finalize,
+        mut count: u128,
+        input_index: usize,
+    ) -> u64x8 {
+        let mut words = initial_test_words(input_index);
+        let mut offset = 0;
+        while offset == 0 || offset < input.len() {
+            let block_size = cmp::min(BLOCKBYTES, input.len() - offset);
+            let maybe_finalize = if offset + stride.padded_blockbytes() < input.len() {
+                Finalize::No
+            } else {
+                finalize
+            };
+            portable::compress1_loop(
+                &input[offset..][..block_size],
+                &mut words,
+                count,
+                last_node,
+                maybe_finalize,
+                Stride::Serial,
+            );
+            offset += stride.padded_blockbytes();
+            count = count.wrapping_add(BLOCKBYTES as u128);
+        }
+        words
     }
 
     // For various loop lengths and finalization parameters, make sure that the
@@ -433,65 +474,22 @@ mod test {
     fn exercise_compress1_loop(implementation: Implementation) {
         let mut input = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input);
-        exercise_cases(
-            |invocations, blocks_per_invoc, count, last_node, finalize, buffer_tail| {
-                // Use the portable implementation, one block at a time, to
-                // compute the final state that we expect.
-                let mut reference_words = input_state_words(0);
-                let mut reference_count = count;
-                let total_blocks = invocations * blocks_per_invoc;
-                for block in 0..total_blocks {
-                    let input_block = array_ref!(&input, block * BLOCKBYTES, BLOCKBYTES);
-                    let is_last_block = block == total_blocks - 1;
-                    let input_slice = if is_last_block {
-                        &input_block[..BLOCKBYTES - buffer_tail]
-                    } else {
-                        &input_block[..]
-                    };
-                    let maybe_finalize = if !is_last_block {
-                        Finalize::No
-                    } else {
-                        finalize
-                    };
-                    portable::compress1_loop(
-                        input_slice,
-                        &mut reference_words,
-                        reference_count,
-                        last_node,
-                        maybe_finalize,
-                    );
-                    reference_count = reference_count.wrapping_add(BLOCKBYTES as u128);
-                }
 
-                // Do the same thing in batches with the implementation under
-                // test, and make sure they're the same.
-                let mut test_words = input_state_words(0);
-                let mut test_count = count;
-                for invoc_num in 0..invocations {
-                    let is_last_invoc = invoc_num == invocations - 1;
-                    let offset = invoc_num * blocks_per_invoc * BLOCKBYTES;
-                    let mut len = blocks_per_invoc * BLOCKBYTES;
-                    if is_last_invoc {
-                        len -= buffer_tail;
-                    }
-                    let input_slice = &input[offset..][..len];
-                    let maybe_finalize = if !is_last_invoc {
-                        Finalize::No
-                    } else {
-                        finalize
-                    };
-                    implementation.compress1_loop(
-                        input_slice,
-                        &mut test_words,
-                        test_count,
-                        last_node,
-                        maybe_finalize,
-                    );
-                    test_count = test_count.wrapping_add((blocks_per_invoc * BLOCKBYTES) as u128);
-                }
-                assert_eq!(reference_words, test_words);
-            },
-        );
+        exercise_cases(|stride, length, last_node, finalize, count| {
+            let reference_words =
+                reference_compression(&input[..length], stride, last_node, finalize, count, 0);
+
+            let mut test_words = initial_test_words(0);
+            implementation.compress1_loop(
+                &input[..length],
+                &mut test_words,
+                count,
+                last_node,
+                finalize,
+                stride,
+            );
+            assert_eq!(reference_words, test_words);
+        });
     }
 
     #[test]
@@ -516,68 +514,55 @@ mod test {
         }
     }
 
-    // Similar to exercise_compress1_loop above.
+    // I use ArrayVec everywhere in here becuase currently these tests pass
+    // under no_std. I might decide that's not worth maintaining at some point,
+    // since really all we care about with no_std is that the library builds,
+    // but for now it's here. Everything is keyed off of this N constant so
+    // that it's easy to copy the code to exercise_compress4_loop.
     fn exercise_compress2_loop(implementation: Implementation) {
+        const N: usize = 2;
+
         let mut input_buffer = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input_buffer);
-        let inputs = [&input_buffer[0..], &input_buffer[1..]];
-        exercise_cases(
-            |invocations, blocks_per_invoc, count, last_node, finalize, buffer_tail| {
-                // Use the portable compress1_loop implementation to compute a
-                // reference state for each input separately.
-                let total_blocks = invocations * blocks_per_invoc;
-                let len = total_blocks * BLOCKBYTES - buffer_tail;
-                let mut reference_words = [input_state_words(0), input_state_words(1)];
-                for i in 0..reference_words.len() {
-                    portable::compress1_loop(
-                        &inputs[i][..len],
-                        &mut reference_words[i],
-                        count,
-                        last_node,
-                        finalize,
-                    );
-                }
+        let mut inputs = ArrayVec::<[_; N]>::new();
+        for i in 0..N {
+            inputs.push(&input_buffer[i..]);
+        }
 
-                // Do the same thing with the implementation under test under
-                // test, and make sure the result is the same.
-                let mut test_words = [input_state_words(0), input_state_words(1)];
-                let mut test_count = count;
-                for invoc_num in 0..invocations {
-                    let is_last_invoc = invoc_num == invocations - 1;
-                    let offset = invoc_num * blocks_per_invoc * BLOCKBYTES;
-                    let mut len = blocks_per_invoc * BLOCKBYTES;
-                    if is_last_invoc {
-                        len -= buffer_tail;
-                    }
-                    let maybe_finalize = if !is_last_invoc {
-                        Finalize::No
-                    } else {
-                        finalize
-                    };
-                    let &mut [ref mut words0, ref mut words1] = &mut test_words;
-                    let mut jobs = [
-                        Job {
-                            input: &inputs[0][offset..][..len],
-                            words: words0,
-                            count: test_count,
-                            last_node,
-                        },
-                        Job {
-                            input: &inputs[1][offset..][..len],
-                            words: words1,
-                            count: test_count,
-                            last_node,
-                        },
-                    ];
-                    implementation.compress2_loop(&mut jobs, maybe_finalize);
-                    test_count = test_count.wrapping_add((blocks_per_invoc * BLOCKBYTES) as u128);
-                    for job in &jobs {
-                        assert!(job.input.is_empty());
-                    }
-                }
-                assert_eq!(reference_words, test_words);
-            },
-        );
+        exercise_cases(|stride, length, last_node, finalize, count| {
+            let mut reference_words = ArrayVec::<[_; N]>::new();
+            for i in 0..N {
+                let words = reference_compression(
+                    &inputs[i][..length],
+                    stride,
+                    last_node,
+                    finalize,
+                    count.wrapping_add((i * BLOCKBYTES) as u128),
+                    i,
+                );
+                reference_words.push(words);
+            }
+
+            let mut test_words = ArrayVec::<[_; N]>::new();
+            for i in 0..N {
+                test_words.push(initial_test_words(i));
+            }
+            let mut jobs = ArrayVec::<[_; N]>::new();
+            for (i, words) in test_words.iter_mut().enumerate() {
+                jobs.push(Job {
+                    input: &inputs[i][..length],
+                    words,
+                    count: count.wrapping_add((i * BLOCKBYTES) as u128),
+                    last_node,
+                });
+            }
+            let mut jobs = jobs.into_inner().expect("full");
+            implementation.compress2_loop(&mut jobs, finalize, stride);
+
+            for i in 0..N {
+                assert_eq!(reference_words[i], test_words[i], "words {} unequal", i);
+            }
+        });
     }
 
     #[test]
@@ -597,96 +582,52 @@ mod test {
         }
     }
 
-    // Similar to exercise_compress1_loop above.
+    // Copied from exercise_compress2_loop, with a different value of N and an
+    // interior call to compress4_loop.
     fn exercise_compress4_loop(implementation: Implementation) {
+        const N: usize = 4;
+
         let mut input_buffer = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input_buffer);
-        let inputs = [
-            &input_buffer[0..],
-            &input_buffer[1..],
-            &input_buffer[2..],
-            &input_buffer[3..],
-        ];
-        exercise_cases(
-            |invocations, blocks_per_invoc, count, last_node, finalize, buffer_tail| {
-                // Use the portable compress1_loop implementation to compute a
-                // reference state for each input separately.
-                let total_blocks = invocations * blocks_per_invoc;
-                let len = total_blocks * BLOCKBYTES - buffer_tail;
-                let mut reference_words = [
-                    input_state_words(0),
-                    input_state_words(1),
-                    input_state_words(2),
-                    input_state_words(3),
-                ];
-                for i in 0..reference_words.len() {
-                    portable::compress1_loop(
-                        &inputs[i][..len],
-                        &mut reference_words[i],
-                        count,
-                        last_node,
-                        finalize,
-                    );
-                }
+        let mut inputs = ArrayVec::<[_; N]>::new();
+        for i in 0..N {
+            inputs.push(&input_buffer[i..]);
+        }
 
-                // Do the same thing with the implementation under test under
-                // test, and make sure the result is the same.
-                let mut test_words = [
-                    input_state_words(0),
-                    input_state_words(1),
-                    input_state_words(2),
-                    input_state_words(3),
-                ];
-                let mut test_count = count;
-                for invoc_num in 0..invocations {
-                    let is_last_invoc = invoc_num == invocations - 1;
-                    let offset = invoc_num * blocks_per_invoc * BLOCKBYTES;
-                    let mut len = blocks_per_invoc * BLOCKBYTES;
-                    if is_last_invoc {
-                        len -= buffer_tail;
-                    }
-                    let maybe_finalize = if !is_last_invoc {
-                        Finalize::No
-                    } else {
-                        finalize
-                    };
-                    let &mut [ref mut words0, ref mut words1, ref mut words2, ref mut words3] =
-                        &mut test_words;
-                    let mut jobs = [
-                        Job {
-                            input: &inputs[0][offset..][..len],
-                            words: words0,
-                            count: test_count,
-                            last_node,
-                        },
-                        Job {
-                            input: &inputs[1][offset..][..len],
-                            words: words1,
-                            count: test_count,
-                            last_node,
-                        },
-                        Job {
-                            input: &inputs[2][offset..][..len],
-                            words: words2,
-                            count: test_count,
-                            last_node,
-                        },
-                        Job {
-                            input: &inputs[3][offset..][..len],
-                            words: words3,
-                            count: test_count,
-                            last_node,
-                        },
-                    ];
-                    implementation.compress4_loop(&mut jobs, maybe_finalize);
-                    test_count = test_count.wrapping_add((blocks_per_invoc * BLOCKBYTES) as u128);
-                    for job in &jobs {
-                        assert!(job.input.is_empty());
-                    }
-                }
-                assert_eq!(reference_words, test_words);
-            },
-        );
+        exercise_cases(|stride, length, last_node, finalize, count| {
+            let mut reference_words = ArrayVec::<[_; N]>::new();
+            for i in 0..N {
+                let words = reference_compression(
+                    &inputs[i][..length],
+                    stride,
+                    last_node,
+                    finalize,
+                    count.wrapping_add((i * BLOCKBYTES) as u128),
+                    i,
+                );
+                reference_words.push(words);
+            }
+
+            let mut test_words = ArrayVec::<[_; N]>::new();
+            for i in 0..N {
+                test_words.push(initial_test_words(i));
+            }
+            let mut jobs = ArrayVec::<[_; N]>::new();
+            for (i, words) in test_words.iter_mut().enumerate() {
+                jobs.push(Job {
+                    input: &inputs[i][..length],
+                    words,
+                    count: count.wrapping_add((i * BLOCKBYTES) as u128),
+                    last_node,
+                });
+            }
+            let mut jobs = jobs.into_inner().expect("full");
+            implementation.compress4_loop(&mut jobs, finalize, stride);
+
+            for i in 0..N {
+                assert_eq!(reference_words[i], test_words[i], "words {} unequal", i);
+            }
+        });
     }
 
     #[test]

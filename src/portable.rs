@@ -1,8 +1,7 @@
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
-use crate::guts::{u64_flag, u64x8, Finalize, LastNode};
-use core::cmp;
+use crate::guts::{final_block, input_debug_asserts, u64_flag, u64x8, Finalize, LastNode, Stride};
 
 // G is the mixing function, called eight times per round in the compression
 // function. V is the 16-word state vector of the compression function, usually
@@ -40,16 +39,13 @@ fn round(r: usize, m: &[u64; 16], v: &mut [u64; 16]) {
     g(v, 3, 4, 9, 14, m[s[14] as usize], m[s[15] as usize]);
 }
 
-// H is the 8-word state vector. `msg` is BLOCKBYTES of input, possibly padded
-// with zero bytes in the final block. `count` is the number of bytes fed so
-// far, including in this call, though not including padding in the final call.
-// `finalize` is set to true only in the final call.
-pub fn compress(
+#[inline(always)]
+fn compress_block(
     block: &[u8; BLOCKBYTES],
     words: &mut u64x8,
     count: u128,
-    last_node: LastNode,
-    finalize: Finalize,
+    last_block: u64,
+    last_node: u64,
 ) {
     // Initialize the compression state.
     let mut v = [
@@ -67,8 +63,8 @@ pub fn compress(
         IV[3],
         IV[4] ^ count as u64,
         IV[5] ^ (count >> 64) as u64,
-        IV[6] ^ u64_flag(finalize.yes()),
-        IV[7] ^ u64_flag(finalize.yes() && last_node.yes()),
+        IV[6] ^ last_block,
+        IV[7] ^ last_node,
     ];
 
     // Parse the message bytes as ints in little endian order.
@@ -115,63 +111,52 @@ pub fn compress(
     words[7] ^= v[7] ^ v[15];
 }
 
-// Pull a pointer to the final block straight from the input, if there's enough
-// input. If there's only a partial block, copy it into the provided buffer,
-// and return a pointer to that. Along with that pointer, return the number of
-// bytes of real input.
-#[inline(always)]
-fn final_block<'a>(
-    input: &'a [u8],
-    offset: usize,
-    buffer: &'a mut [u8; BLOCKBYTES],
-) -> (&'a [u8; BLOCKBYTES], usize) {
-    debug_assert!(offset <= input.len());
-    let capped_offset = cmp::min(offset, input.len());
-    let remaining = input.len() - capped_offset;
-    if remaining >= BLOCKBYTES {
-        let block = array_ref!(input, capped_offset, BLOCKBYTES);
-        (block, BLOCKBYTES)
-    } else {
-        // Copy the remaining bytes to the front of the block buffer. The rest
-        // is assumed to be initialized to zero.
-        buffer[..remaining].copy_from_slice(&input[capped_offset..]);
-        (buffer, remaining)
-    }
-}
-
 pub fn compress1_loop(
     input: &[u8],
     words: &mut u64x8,
     mut count: u128,
     last_node: LastNode,
     finalize: Finalize,
+    stride: Stride,
 ) {
+    input_debug_asserts(input, finalize);
+
     let mut local_words = *words;
-    let mut bulk_end = input.len();
-    // Reserve at least one byte for finalization. However, if we're not
-    // finalizing, assume that the caller has shaved off a tail or knows more
-    // bytes are coming.
-    if finalize.yes() {
-        bulk_end = bulk_end.saturating_sub(1);
-    } else {
-        debug_assert_eq!(0, input.len() % BLOCKBYTES);
-    }
-    bulk_end -= bulk_end % BLOCKBYTES;
+
+    let mut fin_offset = input.len().saturating_sub(1);
+    fin_offset -= fin_offset % stride.padded_blockbytes();
+    let mut buf = [0; BLOCKBYTES];
+    let (fin_block, fin_len, _) = final_block(input, fin_offset, &mut buf, stride);
+    let fin_last_block = u64_flag(finalize.yes());
+    let fin_last_node = u64_flag(finalize.yes() && last_node.yes());
+
     let mut offset = 0;
+    loop {
+        let block;
+        let count_delta;
+        let last_block;
+        let last_node;
+        if offset == fin_offset {
+            block = fin_block;
+            count_delta = fin_len;
+            last_block = fin_last_block;
+            last_node = fin_last_node;
+        } else {
+            block = array_ref!(input, offset, BLOCKBYTES);
+            count_delta = BLOCKBYTES;
+            last_block = u64_flag(false);
+            last_node = u64_flag(false);
+        };
 
-    while offset < bulk_end {
-        let block = array_ref!(input, offset, BLOCKBYTES);
-        count = count.wrapping_add(BLOCKBYTES as u128);
-        compress(block, &mut local_words, count, last_node, Finalize::No);
-        offset += BLOCKBYTES;
-    }
+        count = count.wrapping_add(count_delta as u128);
+        compress_block(block, &mut local_words, count, last_block, last_node);
 
-    if finalize.yes() {
-        let mut buffer = [0; BLOCKBYTES];
-        let (block, len) = final_block(input, bulk_end, &mut buffer);
-        count = count.wrapping_add(len as u128);
-        compress(block, &mut local_words, count, last_node, Finalize::Yes);
-        // offset isn't used again
+        // Check for termination before bumping the offset, to avoid overflow.
+        if offset == fin_offset {
+            break;
+        }
+
+        offset += stride.padded_blockbytes();
     }
 
     *words = local_words;
