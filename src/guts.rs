@@ -429,7 +429,7 @@ mod test {
     fn initial_test_words(input_index: usize) -> u64x8 {
         crate::Params::new()
             .node_offset(input_index as u64)
-            .to_state_words()
+            .to_words()
     }
 
     // Use the portable implementation, one block at a time, to compute the

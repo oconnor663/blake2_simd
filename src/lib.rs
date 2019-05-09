@@ -245,7 +245,7 @@ impl Params {
         Self::default()
     }
 
-    fn to_state_words(&self) -> u64x8 {
+    fn to_words(&self) -> u64x8 {
         let (salt_left, salt_right) = array_refs!(&self.salt, 8, 8);
         let (personal_left, personal_right) = array_refs!(&self.personal, 8, 8);
         u64x8([
@@ -267,38 +267,20 @@ impl Params {
 
     /// Hash an input all at once with these parameters.
     pub fn hash(&self, input: &[u8]) -> Hash {
-        let imp = guts::Implementation::detect();
-        let mut words = self.to_state_words();
-        let mut count: u128 = 0;
-        // Hash the key block, if any.
+        // If there's a key, just fall back to using the State.
         if self.key_length > 0 {
-            let finalize = if input.is_empty() {
-                guts::Finalize::Yes
-            } else {
-                guts::Finalize::No
-            };
-            imp.compress1_loop(
-                &self.key_block,
-                &mut words,
-                0,
-                self.last_node,
-                finalize,
-                guts::Stride::Serial,
-            );
-            count = BLOCKBYTES as u128;
+            return self.to_state().update(input).finalize();
         }
-        // Hash the input, except in the case where the input is empty and we
-        // already hashed a key block.
-        if self.key_length == 0 || !input.is_empty() {
-            imp.compress1_loop(
-                input,
-                &mut words,
-                count,
-                self.last_node,
-                guts::Finalize::Yes,
-                guts::Stride::Serial,
-            );
-        }
+        let imp = guts::Implementation::detect();
+        let mut words = self.to_words();
+        imp.compress1_loop(
+            input,
+            &mut words,
+            0,
+            self.last_node,
+            guts::Finalize::Yes,
+            guts::Stride::Serial,
+        );
         Hash {
             bytes: state_words_to_bytes(&words),
             len: self.hash_length,
@@ -496,7 +478,7 @@ impl State {
 
     fn with_params(params: &Params) -> Self {
         let mut state = Self {
-            words: params.to_state_words(),
+            words: params.to_words(),
             count: 0,
             buf: [0; BLOCKBYTES],
             buflen: 0,

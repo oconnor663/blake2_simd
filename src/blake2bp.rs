@@ -20,10 +20,9 @@
 //! assert_eq!("e69c7d2c42a5ac14948772231c68c552", &hash.to_hex());
 //! ```
 
-use crate::guts::{self, Finalize, Job, LastNode, Stride};
+use crate::guts::{self, u64x8, Finalize, Implementation, Job, LastNode, Stride};
 use crate::many;
 use crate::Hash;
-use crate::Params as Blake2bParams;
 use crate::BLOCKBYTES;
 use crate::KEYBYTES;
 use crate::OUTBYTES;
@@ -36,7 +35,8 @@ use std;
 
 pub(crate) const DEGREE: usize = 4;
 
-/// Compute the BLAKE2bp hash of a slice of bytes, using default parameters.
+/// Compute the BLAKE2bp hash of a slice of bytes all at once, using default
+/// parameters.
 ///
 /// # Example
 ///
@@ -48,8 +48,7 @@ pub(crate) const DEGREE: usize = 4;
 /// assert_eq!(expected, &hash.to_hex());
 /// ```
 pub fn blake2bp(input: &[u8]) -> Hash {
-    // TODO: Avoid using State here.
-    State::new().update(input).finalize()
+    Params::new().hash(input)
 }
 
 /// A parameter builder for BLAKE2bp, just like the [`Params`](../struct.Params.html) type for
@@ -76,6 +75,65 @@ impl Params {
     /// Equivalent to `Params::default()`.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn to_words(&self) -> ([u64x8; DEGREE], u64x8) {
+        let mut base_params = crate::Params::new();
+        base_params
+            .hash_length(self.hash_length as usize)
+            .key(&self.key[..self.key_length as usize])
+            .fanout(DEGREE as u8)
+            .max_depth(2)
+            .max_leaf_length(0)
+            // Note that inner_hash_length is always OUTBYTES, regardless of the hash_length
+            // parameter. This isn't documented in the spec, but it matches the behavior of the
+            // reference implementation: https://github.com/BLAKE2/BLAKE2/blob/320c325437539ae91091ce62efec1913cd8093c2/ref/blake2bp-ref.c#L55
+            .inner_hash_length(OUTBYTES);
+        let leaf_words = |worker_index| {
+            base_params
+                .clone()
+                .node_offset(worker_index)
+                .node_depth(0)
+                // Note that setting the last_node flag here has no effect,
+                // because it isn't included in the state words.
+                .to_words()
+        };
+        let leaf_words = [leaf_words(0), leaf_words(1), leaf_words(2), leaf_words(3)];
+        let root_words = base_params
+            .clone()
+            .node_offset(0)
+            .node_depth(1)
+            // Note that setting the last_node flag here has no effect, because
+            // it isn't included in the state words.
+            .to_words();
+        (leaf_words, root_words)
+    }
+
+    /// Hash an input all at once with these parameters.
+    pub fn hash(&self, input: &[u8]) -> Hash {
+        // If there's a key, just fall back to using the State.
+        if self.key_length > 0 {
+            return self.to_state().update(input).finalize();
+        }
+        let imp = Implementation::detect();
+        let (mut leaf_words, mut root_words) = self.to_words();
+        // Hash each leaf in parallel.
+        let jobs = leaf_words.iter_mut().enumerate().map(|(i, words)| {
+            let input_start = cmp::min(input.len(), i * BLOCKBYTES);
+            Job {
+                input: &input[input_start..],
+                words,
+                count: 0,
+                last_node: if i == DEGREE - 1 {
+                    LastNode::Yes
+                } else {
+                    LastNode::No
+                },
+            }
+        });
+        many::compress_many(jobs, imp, Finalize::Yes, Stride::Parallel);
+        // Hash each leaf into the root.
+        finalize_root_words(&leaf_words, &mut root_words, self.hash_length, imp)
     }
 
     /// Construct a BLAKE2bp `State` object based on these parameters.
@@ -157,7 +215,7 @@ pub struct State {
     // Note that this is the *per-leaf* count.
     count: u128,
     hash_length: u8,
-    implementation: guts::Implementation,
+    implementation: Implementation,
 }
 
 impl State {
@@ -167,35 +225,8 @@ impl State {
     }
 
     fn with_params(params: &Params) -> Self {
-        let implementation = guts::Implementation::detect();
-        let mut base_params = Blake2bParams::new();
-        base_params
-            .hash_length(params.hash_length as usize)
-            .key(&params.key[..params.key_length as usize])
-            .fanout(DEGREE as u8)
-            .max_depth(2)
-            .max_leaf_length(0)
-            // Note that inner_hash_length is always OUTBYTES, regardless of the hash_length
-            // parameter. This isn't documented in the spec, but it matches the behavior of the
-            // reference implementation: https://github.com/BLAKE2/BLAKE2/blob/320c325437539ae91091ce62efec1913cd8093c2/ref/blake2bp-ref.c#L55
-            .inner_hash_length(OUTBYTES);
-        let leaf_words = |worker_index| {
-            base_params
-                .clone()
-                .node_offset(worker_index)
-                .node_depth(0)
-                // Note that setting the last_node flag here has no effect,
-                // because it isn't included in the state words.
-                .to_state_words()
-        };
-        let leaf_words = [leaf_words(0), leaf_words(1), leaf_words(2), leaf_words(3)];
-        let root_words = base_params
-            .clone()
-            .node_offset(0)
-            .node_depth(1)
-            // Note that setting the last_node flag here has no effect, because
-            // it isn't included in the state words.
-            .to_state_words();
+        let implementation = Implementation::detect();
+        let (leaf_words, root_words) = params.to_words();
 
         // If a key is set, initalize the buffer to contain the key bytes. Note
         // that only the leaves hash key bytes. The root doesn't, even though
@@ -238,7 +269,7 @@ impl State {
         leaves: &mut [guts::u64x8; DEGREE],
         input: &[u8],
         count: &mut u128,
-        implementation: guts::Implementation,
+        implementation: Implementation,
     ) {
         // Input is assumed to be an even number of blocks for each leaf. Since
         // we're not finilizing, debug asserts will fire otherwise.
@@ -321,7 +352,7 @@ impl State {
     /// Finalize the state and return a `Hash`. This method is idempotent, and calling it multiple
     /// times will give the same result. It's also possible to `update` with more input in between.
     pub fn finalize(&self) -> Hash {
-        // First finalize each of the leaves.
+        // Hash whatever's remaining in the buffer and finalize the leaves.
         let buf_len = self.buf_len as usize;
         let inputs = [
             &self.buf[cmp::min(0 * BLOCKBYTES, buf_len)..buf_len],
@@ -345,32 +376,14 @@ impl State {
             });
         many::compress_many(jobs, self.implementation, Finalize::Yes, Stride::Parallel);
 
-        // Compress each of the four finalized hashes into the root words as
-        // input, using two compressions. Note that even if a future version of
-        // this implementation supports the hash_length parameter and sets it
-        // as associated data for all nodes, this step must still use the
-        // untruncated output of each leaf. Note also that, as mentioned above,
-        // the root node doesn't hash any key bytes.
+        // Concatenate each leaf into the root and hash that.
         let mut root_words_copy = self.root_words;
-        let mut block = [0; DEGREE * OUTBYTES];
-        for leaf_index in 0..DEGREE {
-            LittleEndian::write_u64_into(
-                &leaves_copy[leaf_index][..],
-                &mut block[leaf_index * OUTBYTES..][..OUTBYTES],
-            );
-        }
-        self.implementation.compress1_loop(
-            &block,
+        finalize_root_words(
+            &leaves_copy,
             &mut root_words_copy,
-            0,
-            LastNode::Yes,
-            Finalize::Yes,
-            Stride::Serial,
-        );
-        Hash {
-            bytes: crate::state_words_to_bytes(&root_words_copy),
-            len: self.hash_length,
-        }
+            self.hash_length,
+            self.implementation,
+        )
     }
 
     /// Return the total number of bytes input so far.
@@ -411,8 +424,41 @@ impl Default for State {
     }
 }
 
+// Compress each of the four finalized hashes into the root words as input,
+// using two compressions. Note that even if a future version of this
+// implementation supports the hash_length parameter and sets it as associated
+// data for all nodes, this step must still use the untruncated output of each
+// leaf. Note also that, as mentioned above, the root node doesn't hash any key
+// bytes.
+fn finalize_root_words(
+    leaf_words: &[u64x8; DEGREE],
+    root_words: &mut u64x8,
+    hash_length: u8,
+    imp: Implementation,
+) -> Hash {
+    let mut block = [0; DEGREE * OUTBYTES];
+    for leaf_index in 0..DEGREE {
+        LittleEndian::write_u64_into(
+            &leaf_words[leaf_index][..],
+            &mut block[leaf_index * OUTBYTES..][..OUTBYTES],
+        );
+    }
+    imp.compress1_loop(
+        &block,
+        root_words,
+        0,
+        LastNode::Yes,
+        Finalize::Yes,
+        Stride::Serial,
+    );
+    Hash {
+        bytes: crate::state_words_to_bytes(&root_words),
+        len: hash_length,
+    }
+}
+
 pub(crate) fn force_portable(state: &mut State) {
-    state.implementation = guts::Implementation::portable();
+    state.implementation = Implementation::portable();
 }
 
 #[cfg(test)]
@@ -425,25 +471,25 @@ pub(crate) mod test {
     // include any inputs large enough to exercise all the branches in the buffering logic.
     fn blake2bp_reference(input: &[u8]) -> Hash {
         let mut leaves = [
-            Blake2bParams::new()
+            crate::Params::new()
                 .fanout(DEGREE as u8)
                 .max_depth(2)
                 .node_offset(0)
                 .inner_hash_length(OUTBYTES)
                 .to_state(),
-            Blake2bParams::new()
+            crate::Params::new()
                 .fanout(DEGREE as u8)
                 .max_depth(2)
                 .node_offset(1)
                 .inner_hash_length(OUTBYTES)
                 .to_state(),
-            Blake2bParams::new()
+            crate::Params::new()
                 .fanout(DEGREE as u8)
                 .max_depth(2)
                 .node_offset(2)
                 .inner_hash_length(OUTBYTES)
                 .to_state(),
-            Blake2bParams::new()
+            crate::Params::new()
                 .fanout(DEGREE as u8)
                 .max_depth(2)
                 .node_offset(3)
@@ -454,7 +500,7 @@ pub(crate) mod test {
         for (i, chunk) in input.chunks(BLOCKBYTES).enumerate() {
             leaves[i % DEGREE].update(chunk);
         }
-        let mut root = Blake2bParams::new()
+        let mut root = crate::Params::new()
             .fanout(DEGREE as u8)
             .max_depth(2)
             .node_depth(1)
@@ -513,6 +559,9 @@ pub(crate) mod test {
                     assert_eq!(input.len() as u128, state.count());
                     let found = state.finalize();
                     assert_eq!(expected, found);
+
+                    // Finally, do it again with the all-at-once interface.
+                    assert_eq!(expected, blake2bp(input));
                 }
             }
         }

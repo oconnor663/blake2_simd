@@ -255,7 +255,7 @@ impl<'a> HashManyJob<'a> {
     /// Construct a new `HashManyJob` from a set of hashing parameters and an
     /// input.
     pub fn new(params: &'a Params, mut input: &'a [u8]) -> Self {
-        let mut words = params.to_state_words();
+        let mut words = params.to_words();
         let mut count = 0;
         // If we have a key and other input, just hash the key block into the
         // words here during construction. However, if there's no further
