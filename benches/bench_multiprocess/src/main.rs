@@ -1,11 +1,32 @@
-//! There is some random noise associated with benchmarking which is "sticky"
-//! to the process running the benchmark, for example ASLR can affect memory
-//! locality. To account for this and make benchmarks more stable, we run
-//! benchmarks in multiple workers processes and average their results.
+//! There are many sources of variability in the performance of these BLAKE2
+//! functions:
 //!
-//! References:
-//! - https://blog.phusion.nl/2017/07/13/understanding-your-benchmarks-and-easy-tips-for-fixing-them/
-//! - https://lwn.net/Articles/725114/
+//! 1. Random noise. We do many runs to average the noise out.
+//! 2. Random noise that's sticky to a given process. See:
+//!    https://blog.phusion.nl/2017/07/13/understanding-your-benchmarks-and-easy-tips-for-fixing-them
+//!    We split the runs over many worker processes to average this out.
+//! 3. Variable memory throughput depending on the offset of the input. See:
+//!    https://github.com/oconnor663/blake2b_simd/issues/8
+//!
+//! That offset effect especially troublesome. The overall throughput of
+//! BLAKE2bp at the "worst" offset is several percentage points lower than at
+//! the "best". Furthermore, the relationship between offset and throughput is
+//! quite complicated -- there's no simple rule like "start at a page boundary"
+//! that papers over the problem. (A blunt approach like that tend to pessimize
+//! BLAKE2bp in favor of many::hash, which suffers less from this effect when
+//! its multiple inputs are at uncorrelated offsets.) The size of the effect
+//! also grows with the length of the input; 100 MB inputs show it more than 1
+//! MB inputs, probably due to caching effects.
+//!
+//! Currently we try to address this by averaging over throughput at every
+//! possible input offset. Experiments at
+//! https://github.com/oconnor663/blake2b_simd/issues/8 show that the offset
+//! effect has a period of 512 bytes, so we run every offset from 0 to 511.
+//! This does seem to produce stable results, though it raises tricky questions
+//! about how real world performance will compare to these benchmarks. For
+//! example, real world inputs will probably sit at whatever offset the global
+//! memory allocator produces, which 1) isn't random at all and 2) probably
+//! varies depending on memory pressure. But such is life for benchmarks.
 
 extern crate blake2b_simd;
 
@@ -19,93 +40,160 @@ use std::ptr;
 use std::str;
 use std::time::Instant;
 
-// The amount of input to give each worker is determined by the amount of time
-// we want each benchmark to run in total. Defaults to 1 sec, but this is
-// overridable with the MS_PER_BENCH env var.
-const DEFAULT_MS_PER_BENCH: u128 = 1000;
+const WORKERS: usize = 100;
 
-// Copy the strategy used by the Python `perf` tool: 20 workers with 3 runs
-// each (plus a warmup run).
-const WORKERS: usize = 20;
-const RUNS_PER_WORKER: usize = 3;
+// 512 is the measured period of the offset effect in BLAKE2bp.
+// See https://github.com/oconnor663/blake2b_simd/issues/8.
+const OFFSET_PERIOD: usize = 512;
 
-const CALIBRATION_INPUT_LEN: usize = 1 << 20;
+const BENCH_LEN: usize = 1_000_000;
 
-static ALGOS: &[(&str, HashFn)] = &[
+static ALGOS: &[(&str, HashBench)] = &[
     ("blake2b_simd portable", hash_portable),
     ("blake2b_simd AVX2", hash_avx2),
-    ("blake2b_simd many", hash_many),
+    ("blake2b_simd many correlated", hash_many_correlated),
+    ("blake2b_simd many uncorrelated", hash_many_uncorrelated),
     ("blake2b_simd BLAKE2bp", hash_blake2bp),
+    ("blake2b_avx2_neves BLAKE2b", hash_neves_blake2b),
     ("blake2b_avx2_neves BLAKE2bp", hash_neves_blake2bp),
     ("libsodium BLAKE2b", libsodium),
     ("OpenSSL SHA-1", openssl_sha1),
     ("OpenSSL SHA-512", openssl_sha512),
 ];
 
-fn hash_portable(input: &mut RandomInput) {
-    let mut state = blake2b_simd::State::new();
-    blake2b_simd::benchmarks::force_portable(&mut state);
-    state.update(input.get());
-    state.finalize();
-}
+type HashBench = fn() -> u128;
 
-fn hash_avx2(input: &mut RandomInput) {
-    blake2b_simd::blake2b(input.get());
-}
-
-fn hash_many(input: &mut RandomInput) {
-    let mut input_slices = arrayvec::ArrayVec::<[&[u8]; blake2b_simd::many::MAX_DEGREE]>::new();
-    for _ in 0..blake2b_simd::many::degree() {
-        input_slices.push(&[]);
+fn bench(mut f: impl FnMut()) -> u128 {
+    // dummy run
+    f();
+    // real timed runs
+    let before = Instant::now();
+    for _ in 0..OFFSET_PERIOD {
+        f();
     }
-    input.get_n(&mut input_slices);
+    let after = Instant::now();
+    (after - before).as_nanos()
+}
 
+fn hash_portable() -> u128 {
+    let mut input = OffsetInput::new(BENCH_LEN);
+    bench(|| {
+        let mut state = blake2b_simd::State::new();
+        blake2b_simd::benchmarks::force_portable(&mut state);
+        state.update(input.get());
+        state.finalize();
+    })
+}
+
+fn hash_avx2() -> u128 {
+    let mut input = OffsetInput::new(BENCH_LEN);
+    bench(|| {
+        blake2b_simd::blake2b(input.get());
+    })
+}
+
+// This one does each run with N=degree inputs at the same offset. This leads
+// to an offset effect comparable to what we see with BLAKE2bp.
+fn hash_many_correlated() -> u128 {
+    let degree = blake2b_simd::many::degree();
+    let bench_len = BENCH_LEN / degree;
+    let mut inputs = Vec::new();
+    for _ in 0..degree {
+        inputs.push(OffsetInput::new(bench_len));
+    }
     let params = blake2b_simd::Params::new();
-    let mut jobs = arrayvec::ArrayVec::<[_; blake2b_simd::many::MAX_DEGREE]>::new();
-    for &input_slice in &input_slices {
-        let job = blake2b_simd::many::HashManyJob::new(&params, input_slice);
-        jobs.push(job);
+    bench(|| {
+        let mut jobs = arrayvec::ArrayVec::<[_; blake2b_simd::many::MAX_DEGREE]>::new();
+        for input in &mut inputs {
+            let job = blake2b_simd::many::HashManyJob::new(&params, input.get());
+            jobs.push(job);
+        }
+        blake2b_simd::many::hash_many(&mut jobs);
+    })
+}
+
+// This one does each run with N=degree inputs at uncorrelated offsets. This
+// turns out to reduce the offset effect and give better performance. This is
+// currently the number I report in the crate documentation. On the one hand,
+// that's a self-serving decision, because it's a higher number. On the other
+// hand, the fact that numbers are different is pretty important, and I don't
+// want to bury it.
+fn hash_many_uncorrelated() -> u128 {
+    let degree = blake2b_simd::many::degree();
+    let bench_len = BENCH_LEN / degree;
+    let mut inputs = Vec::new();
+    for _ in 0..degree {
+        let mut offset_input = OffsetInput::new(bench_len);
+        offset_input.offsets.shuffle();
+        inputs.push(OffsetInput::new(bench_len));
     }
-
-    blake2b_simd::many::hash_many(&mut jobs);
+    let params = blake2b_simd::Params::new();
+    bench(|| {
+        let mut jobs = arrayvec::ArrayVec::<[_; blake2b_simd::many::MAX_DEGREE]>::new();
+        for input in &mut inputs {
+            let job = blake2b_simd::many::HashManyJob::new(&params, input.get());
+            jobs.push(job);
+        }
+        blake2b_simd::many::hash_many(&mut jobs);
+    })
 }
 
-fn hash_blake2bp(input: &mut RandomInput) {
-    blake2b_simd::blake2bp::blake2bp(input.get());
+fn hash_blake2bp() -> u128 {
+    let mut input = OffsetInput::new(BENCH_LEN);
+    bench(|| {
+        blake2b_simd::blake2bp::blake2bp(input.get());
+    })
 }
 
-fn hash_neves_blake2bp(input: &mut RandomInput) {
-    blake2_avx2_neves::blake2bp(input.get());
+fn hash_neves_blake2b() -> u128 {
+    let mut input = OffsetInput::new(BENCH_LEN);
+    bench(|| {
+        blake2_avx2_neves::blake2b(input.get());
+    })
 }
 
-fn libsodium(input: &mut RandomInput) {
-    let mut out = [0; 64];
-    unsafe {
-        let init_ret = libsodium_ffi::sodium_init();
-        assert!(init_ret != -1);
-    }
-    let input_slice = input.get();
-    unsafe {
-        libsodium_ffi::crypto_generichash(
-            out.as_mut_ptr(),
-            out.len(),
-            input_slice.as_ptr(),
-            input_slice.len() as u64,
-            ptr::null(),
-            0,
-        );
-    };
+fn hash_neves_blake2bp() -> u128 {
+    let mut input = OffsetInput::new(BENCH_LEN);
+    bench(|| {
+        blake2_avx2_neves::blake2bp(input.get());
+    })
 }
 
-fn openssl_sha1(input: &mut RandomInput) {
-    openssl::hash::hash(openssl::hash::MessageDigest::sha1(), input.get()).unwrap();
+fn libsodium() -> u128 {
+    let mut input = OffsetInput::new(BENCH_LEN);
+    bench(|| {
+        let mut out = [0; 64];
+        unsafe {
+            let init_ret = libsodium_ffi::sodium_init();
+            assert!(init_ret != -1);
+        }
+        let input_slice = input.get();
+        unsafe {
+            libsodium_ffi::crypto_generichash(
+                out.as_mut_ptr(),
+                out.len(),
+                input_slice.as_ptr(),
+                input_slice.len() as u64,
+                ptr::null(),
+                0,
+            );
+        };
+    })
 }
 
-fn openssl_sha512(input: &mut RandomInput) {
-    openssl::hash::hash(openssl::hash::MessageDigest::sha512(), input.get()).unwrap();
+fn openssl_sha1() -> u128 {
+    let mut input = OffsetInput::new(BENCH_LEN);
+    bench(|| {
+        openssl::hash::hash(openssl::hash::MessageDigest::sha1(), input.get()).unwrap();
+    })
 }
 
-type HashFn = fn(input: &mut RandomInput);
+fn openssl_sha512() -> u128 {
+    let mut input = OffsetInput::new(BENCH_LEN);
+    bench(|| {
+        openssl::hash::hash(openssl::hash::MessageDigest::sha512(), input.get()).unwrap();
+    })
+}
 
 struct VecIter<T> {
     vec: Vec<T>,
@@ -121,24 +209,30 @@ impl<T: Clone> VecIter<T> {
         }
         item
     }
+
+    fn shuffle(&mut self) {
+        self.vec.shuffle(&mut rand::thread_rng());
+    }
 }
 
-// This struct randomizes two things:
-// 1. The actual bytes of input.
-// 2. The page offset the input starts at.
-struct RandomInput {
+// This struct serves inputs that rotate through all possible memory offsets
+// relative to OFFSET_PERIOD.
+struct OffsetInput {
     buf: Vec<u8>,
     len: usize,
     offsets: VecIter<usize>,
 }
 
-impl RandomInput {
+impl OffsetInput {
     fn new(len: usize) -> Self {
-        let page_size: usize = page_size::get();
-        let mut buf = vec![0u8; len + page_size];
+        let mut buf = vec![0u8; len + OFFSET_PERIOD];
         rand::thread_rng().fill_bytes(&mut buf);
-        let mut offsets: Vec<usize> = (0..page_size).collect();
-        offsets.shuffle(&mut rand::thread_rng());
+        // Make each offset absolute in the address space, by adjusting for
+        // where the Vec was allocated.
+        let adjustment = OFFSET_PERIOD - (buf.as_ptr() as usize % OFFSET_PERIOD);
+        let offsets: Vec<usize> = (0..OFFSET_PERIOD)
+            .map(|off| (off + adjustment) % OFFSET_PERIOD)
+            .collect();
         Self {
             buf,
             len,
@@ -149,29 +243,9 @@ impl RandomInput {
     fn get(&mut self) -> &[u8] {
         &self.buf[self.offsets.next()..][..self.len]
     }
-
-    // for hash_many
-    #[inline]
-    fn get_n<'a>(&'a mut self, out: &mut [&'a [u8]]) {
-        let n = out.len();
-        let slice_len = self.len / n;
-        let mut pos = 0;
-        for slice in out {
-            pos += self.offsets.next() / n;
-            *slice = &self.buf[pos..][..slice_len];
-            pos += slice_len;
-        }
-    }
 }
 
-fn time_ns<F: FnOnce()>(f: F) -> u128 {
-    let before = Instant::now();
-    f();
-    let after = Instant::now();
-    (after - before).as_nanos()
-}
-
-fn get_hash_fn(name: &str) -> HashFn {
+fn get_hash_bench(name: &str) -> HashBench {
     let mut hash_fn = None;
     for &(algo_name, f) in ALGOS {
         if name == algo_name {
@@ -187,61 +261,18 @@ fn rate_f32(ns: u128, input_len: usize) -> f32 {
     input_len as f32 / ns as f32
 }
 
-fn ns_per_worker() -> u128 {
-    let ms_per_bench: u128 = if let Some(secs) = env::var_os("MS_PER_BENCH") {
-        let ms_str = secs.to_str().expect("unicode");
-        if let Ok(ms) = ms_str.trim().parse() {
-            ms
-        } else {
-            panic!("invalid int {:?}", ms_str);
-        }
-    } else {
-        DEFAULT_MS_PER_BENCH
-    };
-    let ns_per_bench = 1_000_000 * ms_per_bench;
-    ns_per_bench / WORKERS as u128
-}
-
 fn worker(algo: &str) {
-    let hash_fn = get_hash_fn(algo);
-    let input_len: usize = env::var("WORKER_LEN").unwrap().parse().unwrap();
-    let mut input = RandomInput::new(input_len);
-
-    // Do a dummy run to warm up.
-    hash_fn(&mut input);
-
-    let mut total_ns = 0;
-    for _ in 0..RUNS_PER_WORKER {
-        let ns = time_ns(|| hash_fn(&mut input));
-        // eprintln!("run throughput: {}", rate_f32(ns, input_len));
-        total_ns += ns;
-    }
+    let hash_bench = get_hash_bench(algo);
+    let total_ns = hash_bench();
     println!("{}", total_ns);
 }
 
 fn run_algo(algo_name: &str) -> f32 {
-    // Test the speed of the hash function on a small input (1 MB), and use
-    // that to figure out how input to give each worker. Note that it's
-    // important to do this in the main process, because doing it
-    // individually in each worker would give more input to slower workers.
-    let hash_fn = get_hash_fn(algo_name);
-    let test_ns = time_ns(|| {
-        let mut test_input = RandomInput::new(CALIBRATION_INPUT_LEN);
-        hash_fn(&mut test_input); // dummy warm up run
-        for _ in 0..RUNS_PER_WORKER {
-            hash_fn(&mut test_input);
-        }
-    });
-
-    // Given the test time found above, compute the worker input length.
-    let worker_len = (CALIBRATION_INPUT_LEN as u128 * ns_per_worker() / test_ns) as usize;
-
     // Fire off all the workers in series and collect their reported times.
-    let mut times = Vec::new();
+    let mut _times = Vec::new();
     let mut _total_ns = 0;
     for _ in 0..WORKERS {
         env::set_var("BENCH_ALGO", algo_name);
-        env::set_var("WORKER_LEN", worker_len.to_string());
         let mut cmd = process::Command::new(env::current_exe().unwrap());
         cmd.stdout(process::Stdio::piped());
         let child = cmd.spawn().unwrap();
@@ -255,15 +286,11 @@ fn run_algo(algo_name: &str) -> f32 {
         //     "worker throughput: {}",
         //     rate_f32(ns, RUNS_PER_WORKER * worker_len)
         // );
-        times.push(ns);
+        _times.push(ns);
         _total_ns += ns;
     }
-    times.sort();
-    let median_time = times[times.len() / 2];
-    let throughput = rate_f32(median_time, RUNS_PER_WORKER * worker_len);
-
-    // an alternative that uses the average instead of the minimum
-    // let throughput = rate_f32(total_ns, WORKERS * RUNS_PER_WORKER * worker_len);
+    _times.sort();
+    let throughput = rate_f32(_total_ns, WORKERS * OFFSET_PERIOD * BENCH_LEN);
 
     // eprintln!("final throughput: {}", throughput);
     throughput
@@ -282,7 +309,7 @@ fn main() {
         let matches: Vec<&str> = ALGOS
             .iter()
             .map(|&(name, _)| name)
-            .filter(|name| name.contains(arg.as_str()))
+            .filter(|&name| name == arg.as_str())
             .collect();
         if matches.is_empty() {
             panic!("no match");
@@ -297,7 +324,6 @@ fn main() {
     }
 
     // Otherwise run all the benchmarks and print them sorted at the end.
-    println!("Units are GB/s. Set bench time with MS_PER_BENCH (default one second).");
     let mut throughputs = Vec::new();
     for &(algo_name, _) in ALGOS {
         print!("{}: ", algo_name);

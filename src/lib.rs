@@ -67,9 +67,8 @@
 //! ```
 //!
 //! The `benches/bench_multiprocess` sub-crate runs various hash functions on
-//! long inputs in memory, using worker subprocesses to average over
-//! process-specific noise. Here are the results from my laptop for
-//! `MS_PER_BENCH=60000 cargo run --release`:
+//! long inputs in memory and tries to average over many sources of
+//! variability. Here are the results from my laptop for `cargo run --release`:
 //!
 //! - Intel Core i5-8250U, Arch Linux, kernel version 5.0.13
 //! - libsodium version 1.0.17
@@ -77,16 +76,17 @@
 //! - rustc 1.34.1
 //!
 //! ```table
-//! ╭───────────────────────┬────────────╮
-//! │blake2b_simd hash_many │ 2.225 GB/s │
-//! │blake2b_simd BLAKE2bp  │ 2.091 GB/s │
-//! │neves BLAKE2bp         │ 2.037 GB/s │
-//! │blake2b_simd AVX2      │ 1.011 GB/s │
-//! │OpenSSL SHA-1          │ 0.972 GB/s │
-//! │libsodium BLAKE2b      │ 0.942 GB/s │
-//! │blake2b_simd portable  │ 0.815 GB/s │
-//! │OpenSSL SHA-512        │ 0.667 GB/s │
-//! ╰───────────────────────┴────────────╯
+//! ╭─────────────────────────┬────────────╮
+//! │ blake2b_simd many::hash │ 2.223 GB/s │
+//! │ blake2b_simd BLAKE2bp   │ 2.211 GB/s │
+//! │ Neves BLAKE2bp          │ 2.143 GB/s │
+//! │ blake2b_simd BLAKE2b    │ 1.008 GB/s │
+//! │ OpenSSL SHA-1           │ 0.971 GB/s │
+//! │ Neves BLAKE2b           │ 0.949 GB/s │
+//! │ libsodium BLAKE2b       │ 0.940 GB/s │
+//! │ blake2b_simd portable   │ 0.812 GB/s │
+//! │ OpenSSL SHA-512         │ 0.666 GB/s │
+//! ╰─────────────────────────┴────────────╯
 //! ```
 //!
 //! The `benches/bench_b2sum.py` script benchmarks `b2sum` against several
