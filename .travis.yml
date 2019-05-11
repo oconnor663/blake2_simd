@@ -12,6 +12,8 @@ script:
   - cargo test -vv --all-features
   # Without std.
   - cargo test -vv --no-default-features
+  # In release mode, for more fuzzing.
+  - cargo test -vv --all-features --release
   # Test the b2sum sub-crate.
   - (cd b2sum && cargo test -vv)
 # Also run the tests on a non-x86, big-endian system.
