@@ -81,10 +81,10 @@ variability. Here are the results from my laptop for `cargo run --release`:
 ╭─────────────────────────┬────────────╮
 │ blake2b_simd many::hash │ 2.223 GB/s │
 │ blake2b_simd BLAKE2bp   │ 2.211 GB/s │
-│ Neves BLAKE2bp          │ 2.143 GB/s │
+│ sneves BLAKE2bp         │ 2.143 GB/s │
 │ blake2b_simd BLAKE2b    │ 1.008 GB/s │
 │ OpenSSL SHA-1           │ 0.971 GB/s │
-│ Neves BLAKE2b           │ 0.949 GB/s │
+│ sneves BLAKE2b          │ 0.949 GB/s │
 │ libsodium BLAKE2b       │ 0.940 GB/s │
 │ blake2b_simd portable   │ 0.812 GB/s │
 │ OpenSSL SHA-512         │ 0.666 GB/s │

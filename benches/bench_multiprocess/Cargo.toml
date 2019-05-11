@@ -9,6 +9,6 @@ blake2b_simd = { path = "../.." }
 rand = "0.6.5"
 openssl = "0.10.20"
 libsodium-ffi = "0.1.16"
-blake2-avx2-neves = { path = "../blake2-avx2-neves" }
+blake2-avx2-sneves = { path = "../blake2-avx2-sneves" }
 page_size = "0.4.1"
 arrayvec = "0.4.10"

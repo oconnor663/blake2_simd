@@ -176,21 +176,21 @@ fn bench_blake2b_hash_many_4x_1mb(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_neves_blake2b_avx2(b: &mut Bencher) {
+fn bench_sneves_blake2b_avx2(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
-    b.iter(|| blake2_avx2_neves::blake2b(input.get()));
+    b.iter(|| blake2_avx2_sneves::blake2b(input.get()));
 }
 
 #[bench]
-fn bench_neves_blake2bp_avx2(b: &mut Bencher) {
+fn bench_sneves_blake2bp_avx2(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
-    b.iter(|| blake2_avx2_neves::blake2bp(input.get()));
+    b.iter(|| blake2_avx2_sneves::blake2bp(input.get()));
 }
 
 #[bench]
-fn bench_neves_blake2sp_avx2(b: &mut Bencher) {
+fn bench_sneves_blake2sp_avx2(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
-    b.iter(|| blake2_avx2_neves::blake2sp(input.get()));
+    b.iter(|| blake2_avx2_sneves::blake2sp(input.get()));
 }
 
 #[cfg(feature = "libsodium-ffi")]

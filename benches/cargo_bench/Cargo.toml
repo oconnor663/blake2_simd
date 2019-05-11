@@ -9,7 +9,7 @@ blake2b_simd = { path = "../.." }
 libsodium-ffi = { version = "0.1.12", optional = true }
 openssl = { version = "0.10.12", optional = true }
 rand = "0.6.5"
-blake2-avx2-neves = { path = "../blake2-avx2-neves" }
+blake2-avx2-sneves = { path = "../blake2-avx2-sneves" }
 page_size = "0.4.1"
 
 [features]

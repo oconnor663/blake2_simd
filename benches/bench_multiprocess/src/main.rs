@@ -54,8 +54,8 @@ static ALGOS: &[(&str, HashBench)] = &[
     ("blake2b_simd many correlated", hash_many_correlated),
     ("blake2b_simd many uncorrelated", hash_many_uncorrelated),
     ("blake2b_simd BLAKE2bp", hash_blake2bp),
-    ("blake2b_avx2_neves BLAKE2b", hash_neves_blake2b),
-    ("blake2b_avx2_neves BLAKE2bp", hash_neves_blake2bp),
+    ("blake2b_avx2_sneves BLAKE2b", hash_sneves_blake2b),
+    ("blake2b_avx2_sneves BLAKE2bp", hash_sneves_blake2bp),
     ("libsodium BLAKE2b", libsodium),
     ("OpenSSL SHA-1", openssl_sha1),
     ("OpenSSL SHA-512", openssl_sha512),
@@ -145,17 +145,17 @@ fn hash_blake2bp() -> u128 {
     })
 }
 
-fn hash_neves_blake2b() -> u128 {
+fn hash_sneves_blake2b() -> u128 {
     let mut input = OffsetInput::new(BENCH_LEN);
     bench(|| {
-        blake2_avx2_neves::blake2b(input.get());
+        blake2_avx2_sneves::blake2b(input.get());
     })
 }
 
-fn hash_neves_blake2bp() -> u128 {
+fn hash_sneves_blake2bp() -> u128 {
     let mut input = OffsetInput::new(BENCH_LEN);
     bench(|| {
-        blake2_avx2_neves::blake2bp(input.get());
+        blake2_avx2_sneves::blake2bp(input.get());
     })
 }
 
