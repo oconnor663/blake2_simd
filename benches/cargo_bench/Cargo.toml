@@ -6,11 +6,12 @@ edition = "2018"
 
 [dependencies]
 blake2b_simd = { path = "../.." }
+blake2-avx2-sneves = { path = "../blake2-avx2-sneves", optional = true }
+kangarootwelve = { path = "../kangarootwelve", optional = true }
 libsodium-ffi = { version = "0.1.12", optional = true }
 openssl = { version = "0.10.12", optional = true }
 rand = "0.6.5"
-blake2-avx2-sneves = { path = "../blake2-avx2-sneves", optional = true }
 page_size = "0.4.1"
 
 [features]
-default = ["libsodium-ffi", "openssl", "blake2-avx2-sneves"]
+default = ["libsodium-ffi", "openssl", "blake2-avx2-sneves", "kangarootwelve"]

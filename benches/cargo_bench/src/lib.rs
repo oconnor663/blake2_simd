@@ -196,6 +196,13 @@ fn bench_sneves_blake2sp_avx2(b: &mut Bencher) {
     b.iter(|| blake2_avx2_sneves::blake2sp(input.get()));
 }
 
+#[cfg(feature = "kangarootwelve")]
+#[bench]
+fn bench_kangarootwelve(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, MB);
+    b.iter(|| kangarootwelve::kangarootwelve(input.get()));
+}
+
 #[cfg(feature = "libsodium-ffi")]
 #[bench]
 fn bench_libsodium_one_mb(b: &mut Bencher) {
