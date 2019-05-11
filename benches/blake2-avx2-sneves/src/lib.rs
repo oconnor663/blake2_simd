@@ -1,4 +1,5 @@
 pub fn blake2b(input: &[u8]) -> [u8; 64] {
+    check_avx2();
     let mut hash = [0u8; 64];
     unsafe {
         sys::blake2b(hash.as_mut_ptr(), input.as_ptr(), input.len());
@@ -7,6 +8,7 @@ pub fn blake2b(input: &[u8]) -> [u8; 64] {
 }
 
 pub fn blake2bp(input: &[u8]) -> [u8; 64] {
+    check_avx2();
     let mut hash = [0u8; 64];
     unsafe {
         sys::blake2bp(hash.as_mut_ptr(), input.as_ptr(), input.len());
@@ -15,11 +17,18 @@ pub fn blake2bp(input: &[u8]) -> [u8; 64] {
 }
 
 pub fn blake2sp(input: &[u8]) -> [u8; 32] {
+    check_avx2();
     let mut hash = [0u8; 32];
     unsafe {
         sys::blake2sp(hash.as_mut_ptr(), input.as_ptr(), input.len());
     }
     hash
+}
+
+fn check_avx2() {
+    if !is_x86_feature_detected!("avx2") {
+        panic!("AVX2 support is missing")
+    }
 }
 
 mod sys {
