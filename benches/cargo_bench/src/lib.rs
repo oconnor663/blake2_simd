@@ -175,18 +175,21 @@ fn bench_blake2b_hash_many_4x_1mb(b: &mut Bencher) {
     });
 }
 
+#[cfg(feature = "blake2_avx2_sneves")]
 #[bench]
 fn bench_sneves_blake2b_avx2(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| blake2_avx2_sneves::blake2b(input.get()));
 }
 
+#[cfg(feature = "blake2_avx2_sneves")]
 #[bench]
 fn bench_sneves_blake2bp_avx2(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| blake2_avx2_sneves::blake2bp(input.get()));
 }
 
+#[cfg(feature = "blake2_avx2_sneves")]
 #[bench]
 fn bench_sneves_blake2sp_avx2(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
