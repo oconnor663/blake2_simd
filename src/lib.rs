@@ -588,8 +588,8 @@ impl State {
 
     /// Return the total number of bytes input so far.
     ///
-    /// Note that `count` does not the bytes of the key block, if any. It is
-    /// exactly the number of input bytes fed to `update`.
+    /// Note that `count` doesn't include the bytes of the key block, if any.
+    /// It's exactly the total number of input bytes fed to `update`.
     pub fn count(&self) -> u128 {
         let mut ret = self.count.wrapping_add(self.buflen as u128);
         if self.is_keyed {
