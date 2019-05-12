@@ -175,6 +175,12 @@ fn bench_blake2b_hash_many_4x_1mb(b: &mut Bencher) {
     });
 }
 
+// Note for comparison: The blake2-avx2-sneves C code is currently compiled
+// with -mavx2 but *not* with -march=native. Upstream uses -march=native, but
+// -mavx2 is closer to how blake2b_simd is compiled, and it makes the benchmark
+// more apples-to-apples. However, since the C code was tuned with
+// -march=native in mind, it's possible this switcharoo makes the comparison
+// unfair in other ways. I haven't asked the author yet.
 #[cfg(feature = "blake2-avx2-sneves")]
 #[bench]
 fn bench_sneves_blake2b_avx2(b: &mut Bencher) {
@@ -196,6 +202,12 @@ fn bench_sneves_blake2sp_avx2(b: &mut Bencher) {
     b.iter(|| blake2_avx2_sneves::blake2sp(input.get()));
 }
 
+// Note for comparison: Unlike the blake2-avx2-sneves C code above, the
+// KangarooTwelve C code *is* compiled with -march=native. Their build system
+// is more involved than above, and I don't want to muck around with it.
+// Current benchmarks are almost exactly on par with blake2b_simd, maybe just a
+// hair faster, which is a surprising coincidence. However, with the equivalent
+// flag RUSTFLAGS="-C target-cpu=native", blake2b_simd pulls ahead.
 #[cfg(feature = "kangarootwelve")]
 #[bench]
 fn bench_kangarootwelve(b: &mut Bencher) {
