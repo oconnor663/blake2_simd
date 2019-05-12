@@ -467,6 +467,7 @@ pub struct State {
     last_node: guts::LastNode,
     hash_length: u8,
     implementation: Implementation,
+    is_keyed: bool,
 }
 
 impl State {
@@ -484,8 +485,9 @@ impl State {
             last_node: params.last_node,
             hash_length: params.hash_length,
             implementation: Implementation::detect(),
+            is_keyed: params.key_length > 0,
         };
-        if params.key_length > 0 {
+        if state.is_keyed {
             state.buf = params.key_block;
             state.buflen = state.buf.len() as u8;
         }
@@ -585,8 +587,15 @@ impl State {
     }
 
     /// Return the total number of bytes input so far.
+    ///
+    /// Note that `count` does not the bytes of the key block, if any. It is
+    /// exactly the number of input bytes fed to `update`.
     pub fn count(&self) -> u128 {
-        self.count.wrapping_add(self.buflen as u128)
+        let mut ret = self.count.wrapping_add(self.buflen as u128);
+        if self.is_keyed {
+            ret -= BLOCKBYTES as u128;
+        }
+        ret
     }
 }
 

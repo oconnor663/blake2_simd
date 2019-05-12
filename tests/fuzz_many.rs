@@ -103,6 +103,7 @@ fn fuzz_update_many() {
         many::update_many(states.iter_mut().zip(inputs.iter()));
         many::update_many(states.iter_mut().zip(inputs.iter()));
         for i in 0..states.len() {
+            assert_eq!(2 * inputs[i].len() as u128, states[i].count());
             assert_eq!(&expected[i], &states[i].finalize(), "state {} mismatch", i);
         }
     });

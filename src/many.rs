@@ -467,6 +467,7 @@ mod test {
                 reference_state.update(inputs[i]);
                 reference_state.update(inputs[i]);
                 assert_eq!(reference_state.finalize(), states[i].finalize());
+                assert_eq!(2 * inputs[i].len() as u128, states[i].count());
             }
         }
     }

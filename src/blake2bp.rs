@@ -216,6 +216,7 @@ pub struct State {
     count: u128,
     hash_length: u8,
     implementation: Implementation,
+    is_keyed: bool,
 }
 
 impl State {
@@ -255,6 +256,7 @@ impl State {
             count: 0, // count gets updated in self.compress()
             hash_length: params.hash_length,
             implementation,
+            is_keyed: params.key_length > 0,
         }
     }
 
@@ -387,11 +389,19 @@ impl State {
     }
 
     /// Return the total number of bytes input so far.
+    ///
+    /// Note that `count` does not the bytes of the key block, if any. It is
+    /// exactly the number of input bytes fed to `update`.
     pub fn count(&self) -> u128 {
         // Remember that self.count is *per-leaf*.
-        self.count
+        let mut ret = self
+            .count
             .wrapping_mul(DEGREE as u128)
-            .wrapping_add(self.buf_len as u128)
+            .wrapping_add(self.buf_len as u128);
+        if self.is_keyed {
+            ret -= (DEGREE * BLOCKBYTES) as u128;
+        }
+        ret
     }
 }
 
