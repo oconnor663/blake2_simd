@@ -1,18 +1,10 @@
 use duct::cmd;
-use std::env::consts::EXE_EXTENSION;
 use std::io::prelude::*;
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
 pub fn b2sum_exe() -> PathBuf {
-    std::env::current_exe()
-        .unwrap()
-        .parent() // strip exe name
-        .unwrap()
-        .parent() // strip "deps/"
-        .unwrap()
-        .join("b2sum")
-        .with_extension(EXE_EXTENSION)
+    assert_cmd::cargo::cargo_bin("b2sum")
 }
 
 #[test]
