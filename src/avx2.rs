@@ -7,6 +7,7 @@ use crate::guts::{
     final_block, input_debug_asserts, u64_flag, u64x4, u64x8, Finalize, Job, LastNode, Stride,
 };
 use crate::{BLOCKBYTES, IV, SIGMA};
+use arrayref::array_refs;
 use core::cmp;
 use core::mem;
 

@@ -116,15 +116,7 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(feature = "std")]
-extern crate core;
-
-#[macro_use]
-extern crate arrayref;
-extern crate arrayvec;
-extern crate byteorder;
-extern crate constant_time_eq;
-
+use arrayref::{array_refs, mut_array_refs};
 use byteorder::{ByteOrder, LittleEndian};
 use core::cmp;
 use core::fmt;
@@ -516,7 +508,7 @@ impl State {
                     guts::Finalize::No,
                     guts::Stride::Serial,
                 );
-                self.count += BLOCKBYTES as u128;
+                self.count = self.count.wrapping_add(BLOCKBYTES as u128);
                 self.buflen = 0;
             }
         }
@@ -539,7 +531,7 @@ impl State {
                 guts::Finalize::No,
                 guts::Stride::Serial,
             );
-            self.count += end as u128;
+            self.count = self.count.wrapping_add(end as u128);
             input = &input[end..];
         }
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.

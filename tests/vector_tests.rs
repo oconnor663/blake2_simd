@@ -5,14 +5,8 @@
 //! test the other associated data features, and they don't test any inputs longer than a couple
 //! blocks.
 
-extern crate blake2b_simd;
-extern crate hex;
-#[macro_use]
-extern crate lazy_static;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate serde_json;
+use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
 
 lazy_static! {
     static ref TEST_CASES: Vec<TestCase> =

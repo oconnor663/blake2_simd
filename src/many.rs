@@ -48,6 +48,7 @@ use crate::Hash;
 use crate::Params;
 use crate::State;
 use crate::BLOCKBYTES;
+use arrayref::array_mut_ref;
 use arrayvec::ArrayVec;
 
 /// The largest possible value of [`degree`](fn.degree.html) on the target

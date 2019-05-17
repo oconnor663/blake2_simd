@@ -210,7 +210,7 @@ pub struct State {
     root_words: guts::u64x8,
     // Note that this buffer is twice as large as what compress4 needs. That guarantees that we
     // have enough input when we compress to know we don't need to finalize any of the leaves.
-    buf: [u8; 8 * BLOCKBYTES],
+    buf: [u8; 2 * DEGREE * BLOCKBYTES],
     buf_len: u16,
     // Note that this is the *per-leaf* count.
     count: u128,
