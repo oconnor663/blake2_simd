@@ -1,21 +1,16 @@
 use duct::cmd;
 use std::env::consts::EXE_EXTENSION;
 use std::io::prelude::*;
-use std::path::{Path, PathBuf};
-use std::sync::{Once, ONCE_INIT};
+use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
 pub fn b2sum_exe() -> PathBuf {
-    // `cargo test` doesn't automatically run `cargo build`, so we do that ourselves.
-    static CARGO_BUILD_ONCE: Once = ONCE_INIT;
-    CARGO_BUILD_ONCE.call_once(|| {
-        cmd!("cargo", "build", "--quiet")
-            .run()
-            .expect("build failed");
-    });
-
-    Path::new("target")
-        .join("debug")
+    std::env::current_exe()
+        .unwrap()
+        .parent() // strip exe name
+        .unwrap()
+        .parent() // strip "deps/"
+        .unwrap()
         .join("b2sum")
         .with_extension(EXE_EXTENSION)
 }

@@ -5,6 +5,7 @@ authors = ["Jack O'Connor"]
 description = "a clone of the coreutils b2sum utility based on blake2b_simd"
 license = "MIT"
 repository = "https://github.com/oconnor663/blake2b_simd/tree/master/b2sum"
+edition = "2018"
 
 [dependencies]
 blake2b_simd = { path = ".." }

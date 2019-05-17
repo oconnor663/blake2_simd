@@ -13,13 +13,6 @@ use std::path::{Path, PathBuf};
 use std::process::exit;
 use structopt::StructOpt;
 
-#[cfg(test)]
-mod test;
-#[cfg(test)]
-extern crate duct;
-#[cfg(test)]
-extern crate tempfile;
-
 const CANT_MMAP_ERROR: &str = "memory mapping requires a filepath";
 
 #[derive(Debug, StructOpt)]
@@ -184,9 +177,11 @@ fn read_write_all<R: Read>(reader: &mut R, writer: &mut EitherState) -> io::Resu
         match reader.read(&mut buf) {
             Ok(0) => return Ok(()),
             Ok(n) => writer.write_all(&buf[..n])?,
-            Err(e) => if e.kind() != io::ErrorKind::Interrupted {
-                return Err(e);
-            },
+            Err(e) => {
+                if e.kind() != io::ErrorKind::Interrupted {
+                    return Err(e);
+                }
+            }
         }
     }
 }
