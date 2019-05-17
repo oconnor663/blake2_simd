@@ -653,4 +653,17 @@ mod test {
             exercise_compress4_loop(imp);
         }
     }
+
+    #[test]
+    fn sanity_check_alignment() {
+        assert_eq!(mem::align_of::<Word>(), mem::size_of::<Word>());
+        assert_eq!(mem::align_of::<u64x2>(), 2 * mem::align_of::<Word>());
+        assert_eq!(mem::align_of::<u64x4>(), 4 * mem::align_of::<Word>());
+        assert_eq!(mem::align_of::<u64x8>(), 8 * mem::align_of::<Word>());
+    }
+
+    #[test]
+    fn sanity_check_count_size() {
+        assert_eq!(mem::size_of::<Count>(), 2 * mem::size_of::<Word>());
+    }
 }
