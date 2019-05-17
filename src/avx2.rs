@@ -4,9 +4,10 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 use crate::guts::{
-    final_block, input_debug_asserts, u64_flag, u64x4, u64x8, Finalize, Job, LastNode, Stride,
+    assemble_count, count_high, count_low, final_block, flag_word, input_debug_asserts, u64x4,
+    u64x8, Finalize, Job, LastNode, Stride,
 };
-use crate::{BLOCKBYTES, IV, SIGMA};
+use crate::{Count, Word, BLOCKBYTES, IV, SIGMA};
 use arrayref::array_refs;
 use core::cmp;
 use core::mem;
@@ -151,16 +152,14 @@ unsafe fn blake2b_undiag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, 
 unsafe fn compress_block(
     block: &[u8; BLOCKBYTES],
     words: &mut u64x8,
-    count: u128,
-    last_block: u64,
-    last_node: u64,
+    count: Count,
+    last_block: Word,
+    last_node: Word,
 ) {
     let mut a = load_u64x4(&words.split()[0]);
     let mut b = load_u64x4(&words.split()[1]);
     let mut c = load_u64x4(&IV.split()[0]);
-    let count_low = count as u64;
-    let count_high = (count >> 64) as u64;
-    let flags = set4(count_low, count_high, last_block, last_node);
+    let flags = set4(count_low(count), count_high(count), last_block, last_node);
     let mut d = xor(load_u64x4(&IV.split()[1]), flags);
 
     let msg_chunks = array_refs!(block, 16, 16, 16, 16, 16, 16, 16, 16);
@@ -432,7 +431,7 @@ unsafe fn compress_block(
 pub unsafe fn compress1_loop(
     input: &[u8],
     words: &mut u64x8,
-    mut count: u128,
+    mut count: Count,
     last_node: LastNode,
     finalize: Finalize,
     stride: Stride,
@@ -445,8 +444,8 @@ pub unsafe fn compress1_loop(
     fin_offset -= fin_offset % stride.padded_blockbytes();
     let mut buf = [0; BLOCKBYTES];
     let (fin_block, fin_len, _) = final_block(input, fin_offset, &mut buf, stride);
-    let fin_last_block = u64_flag(finalize.yes());
-    let fin_last_node = u64_flag(finalize.yes() && last_node.yes());
+    let fin_last_block = flag_word(finalize.yes());
+    let fin_last_node = flag_word(finalize.yes() && last_node.yes());
 
     let mut offset = 0;
     loop {
@@ -464,11 +463,11 @@ pub unsafe fn compress1_loop(
             // enough input because `offset < fin_offset`.
             block = &*(input.as_ptr().add(offset) as *const [u8; BLOCKBYTES]);
             count_delta = BLOCKBYTES;
-            last_block = u64_flag(false);
-            last_node = u64_flag(false);
+            last_block = flag_word(false);
+            last_node = flag_word(false);
         };
 
-        count = count.wrapping_add(count_delta as u128);
+        count = count.wrapping_add(count_delta as Count);
         compress_block(block, &mut local_words, count, last_block, last_node);
 
         // Check for termination before bumping the offset, to avoid overflow.
@@ -792,37 +791,37 @@ unsafe fn transpose_msg_vecs(blocks: [*const u8; 4]) -> [__m256i; 16] {
 #[inline(always)]
 unsafe fn load_counts(jobs: &[Job; 4]) -> (__m256i, __m256i) {
     (
-        _mm256_setr_epi64x(
-            jobs[0].count as i64,
-            jobs[1].count as i64,
-            jobs[2].count as i64,
-            jobs[3].count as i64,
+        set4(
+            count_low(jobs[0].count),
+            count_low(jobs[1].count),
+            count_low(jobs[2].count),
+            count_low(jobs[3].count),
         ),
-        _mm256_setr_epi64x(
-            (jobs[0].count >> 64) as i64,
-            (jobs[1].count >> 64) as i64,
-            (jobs[2].count >> 64) as i64,
-            (jobs[3].count >> 64) as i64,
+        set4(
+            count_high(jobs[0].count),
+            count_high(jobs[1].count),
+            count_high(jobs[2].count),
+            count_high(jobs[3].count),
         ),
     )
 }
 
 #[inline(always)]
 unsafe fn store_counts(jobs: &mut [Job; 4], low: __m256i, high: __m256i) {
-    let low_ints: [u64; 4] = mem::transmute(low);
-    let high_ints: [u64; 4] = mem::transmute(high);
+    let low_ints: [Word; 4] = mem::transmute(low);
+    let high_ints: [Word; 4] = mem::transmute(high);
     for i in 0..jobs.len() {
-        jobs[i].count = low_ints[i] as u128 + ((high_ints[i] as u128) << 64);
+        jobs[i].count = assemble_count(low_ints[i], high_ints[i]);
     }
 }
 
 #[inline(always)]
 unsafe fn flags_vec(flags: [bool; 4]) -> __m256i {
     set4(
-        u64_flag(flags[0]),
-        u64_flag(flags[1]),
-        u64_flag(flags[2]),
-        u64_flag(flags[3]),
+        flag_word(flags[0]),
+        flag_word(flags[1]),
+        flag_word(flags[2]),
+        flag_word(flags[3]),
     )
 }
 
@@ -863,7 +862,7 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4], finalize: Finalize, stride: St
         block2.as_ptr(),
         block3.as_ptr(),
     ];
-    let fin_counts_delta = set4(len0 as u64, len1 as u64, len2 as u64, len3 as u64);
+    let fin_counts_delta = set4(len0 as Word, len1 as Word, len2 as Word, len3 as Word);
     let fin_last_block;
     let fin_last_node;
     if finalize.yes() {
@@ -898,7 +897,7 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4], finalize: Finalize, stride: St
                 msg_ptrs[2].add(offset),
                 msg_ptrs[3].add(offset),
             ];
-            counts_delta = set1(BLOCKBYTES as u64);
+            counts_delta = set1(BLOCKBYTES as Word);
             last_block = set1(0);
             last_node = set1(0);
         };

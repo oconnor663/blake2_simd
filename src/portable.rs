@@ -1,8 +1,10 @@
 use arrayref::{array_ref, array_refs};
-use byteorder::{ByteOrder, LittleEndian};
 
 use super::*;
-use crate::guts::{final_block, input_debug_asserts, u64_flag, u64x8, Finalize, LastNode, Stride};
+use crate::guts::{
+    count_high, count_low, final_block, flag_word, input_debug_asserts, u64x8, Finalize, LastNode,
+    Stride,
+};
 
 // G is the mixing function, called eight times per round in the compression
 // function. V is the 16-word state vector of the compression function, usually
@@ -11,7 +13,7 @@ use crate::guts::{final_block, input_debug_asserts, u64_flag, u64x8, Finalize, L
 // Y are words of input, chosen by the caller according to the message
 // schedule, SIGMA.
 #[inline(always)]
-fn g(v: &mut [u64; 16], a: usize, b: usize, c: usize, d: usize, x: u64, y: u64) {
+fn g(v: &mut [Word; 16], a: usize, b: usize, c: usize, d: usize, x: Word, y: Word) {
     v[a] = v[a].wrapping_add(v[b]).wrapping_add(x);
     v[d] = (v[d] ^ v[a]).rotate_right(32);
     v[c] = v[c].wrapping_add(v[d]);
@@ -23,7 +25,7 @@ fn g(v: &mut [u64; 16], a: usize, b: usize, c: usize, d: usize, x: u64, y: u64) 
 }
 
 #[inline(always)]
-fn round(r: usize, m: &[u64; 16], v: &mut [u64; 16]) {
+fn round(r: usize, m: &[Word; 16], v: &mut [Word; 16]) {
     // Select the message schedule based on the round.
     let s = SIGMA[r];
 
@@ -44,9 +46,9 @@ fn round(r: usize, m: &[u64; 16], v: &mut [u64; 16]) {
 fn compress_block(
     block: &[u8; BLOCKBYTES],
     words: &mut u64x8,
-    count: u128,
-    last_block: u64,
-    last_node: u64,
+    count: Count,
+    last_block: Word,
+    last_node: Word,
 ) {
     // Initialize the compression state.
     let mut v = [
@@ -62,8 +64,8 @@ fn compress_block(
         IV[1],
         IV[2],
         IV[3],
-        IV[4] ^ count as u64,
-        IV[5] ^ (count >> 64) as u64,
+        IV[4] ^ count_low(count),
+        IV[5] ^ count_high(count),
         IV[6] ^ last_block,
         IV[7] ^ last_node,
     ];
@@ -71,22 +73,22 @@ fn compress_block(
     // Parse the message bytes as ints in little endian order.
     let msg_refs = array_refs!(block, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8);
     let m = [
-        LittleEndian::read_u64(msg_refs.0),
-        LittleEndian::read_u64(msg_refs.1),
-        LittleEndian::read_u64(msg_refs.2),
-        LittleEndian::read_u64(msg_refs.3),
-        LittleEndian::read_u64(msg_refs.4),
-        LittleEndian::read_u64(msg_refs.5),
-        LittleEndian::read_u64(msg_refs.6),
-        LittleEndian::read_u64(msg_refs.7),
-        LittleEndian::read_u64(msg_refs.8),
-        LittleEndian::read_u64(msg_refs.9),
-        LittleEndian::read_u64(msg_refs.10),
-        LittleEndian::read_u64(msg_refs.11),
-        LittleEndian::read_u64(msg_refs.12),
-        LittleEndian::read_u64(msg_refs.13),
-        LittleEndian::read_u64(msg_refs.14),
-        LittleEndian::read_u64(msg_refs.15),
+        Word::from_le_bytes(*msg_refs.0),
+        Word::from_le_bytes(*msg_refs.1),
+        Word::from_le_bytes(*msg_refs.2),
+        Word::from_le_bytes(*msg_refs.3),
+        Word::from_le_bytes(*msg_refs.4),
+        Word::from_le_bytes(*msg_refs.5),
+        Word::from_le_bytes(*msg_refs.6),
+        Word::from_le_bytes(*msg_refs.7),
+        Word::from_le_bytes(*msg_refs.8),
+        Word::from_le_bytes(*msg_refs.9),
+        Word::from_le_bytes(*msg_refs.10),
+        Word::from_le_bytes(*msg_refs.11),
+        Word::from_le_bytes(*msg_refs.12),
+        Word::from_le_bytes(*msg_refs.13),
+        Word::from_le_bytes(*msg_refs.14),
+        Word::from_le_bytes(*msg_refs.15),
     ];
 
     round(0, &m, &mut v);
@@ -115,7 +117,7 @@ fn compress_block(
 pub fn compress1_loop(
     input: &[u8],
     words: &mut u64x8,
-    mut count: u128,
+    mut count: Count,
     last_node: LastNode,
     finalize: Finalize,
     stride: Stride,
@@ -128,8 +130,8 @@ pub fn compress1_loop(
     fin_offset -= fin_offset % stride.padded_blockbytes();
     let mut buf = [0; BLOCKBYTES];
     let (fin_block, fin_len, _) = final_block(input, fin_offset, &mut buf, stride);
-    let fin_last_block = u64_flag(finalize.yes());
-    let fin_last_node = u64_flag(finalize.yes() && last_node.yes());
+    let fin_last_block = flag_word(finalize.yes());
+    let fin_last_node = flag_word(finalize.yes() && last_node.yes());
 
     let mut offset = 0;
     loop {
@@ -145,11 +147,11 @@ pub fn compress1_loop(
         } else {
             block = array_ref!(input, offset, BLOCKBYTES);
             count_delta = BLOCKBYTES;
-            last_block = u64_flag(false);
-            last_node = u64_flag(false);
+            last_block = flag_word(false);
+            last_node = flag_word(false);
         };
 
-        count = count.wrapping_add(count_delta as u128);
+        count = count.wrapping_add(count_delta as Count);
         compress_block(block, &mut local_words, count, last_block, last_node);
 
         // Check for termination before bumping the offset, to avoid overflow.

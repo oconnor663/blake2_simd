@@ -117,9 +117,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use arrayref::{array_refs, mut_array_refs};
-use byteorder::{ByteOrder, LittleEndian};
 use core::cmp;
 use core::fmt;
+use core::mem::size_of;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod avx2;
@@ -136,17 +136,20 @@ use guts::{u64x8, Implementation};
 #[cfg(test)]
 mod test;
 
+type Word = u64;
+type Count = u128;
+
 /// The max hash length.
-pub const OUTBYTES: usize = 64;
+pub const OUTBYTES: usize = 8 * size_of::<Word>();
 /// The max key length.
-pub const KEYBYTES: usize = 64;
+pub const KEYBYTES: usize = 8 * size_of::<Word>();
 /// The max salt length.
-pub const SALTBYTES: usize = 16;
+pub const SALTBYTES: usize = 2 * size_of::<Word>();
 /// The max personalization length.
-pub const PERSONALBYTES: usize = 16;
+pub const PERSONALBYTES: usize = 2 * size_of::<Word>();
 /// The number input bytes passed to each call to the compression function. Small benchmarks need
 /// to use an even multiple of `BLOCKBYTES`, or else their apparent throughput will be low.
-pub const BLOCKBYTES: usize = 128;
+pub const BLOCKBYTES: usize = 16 * size_of::<Word>();
 
 const IV: u64x8 = u64x8([
     0x6A09E667F3BCC908,
@@ -237,8 +240,9 @@ impl Params {
     }
 
     fn to_words(&self) -> u64x8 {
-        let (salt_left, salt_right) = array_refs!(&self.salt, 8, 8);
-        let (personal_left, personal_right) = array_refs!(&self.personal, 8, 8);
+        let (salt_left, salt_right) = array_refs!(&self.salt, SALTBYTES / 2, SALTBYTES / 2);
+        let (personal_left, personal_right) =
+            array_refs!(&self.personal, PERSONALBYTES / 2, PERSONALBYTES / 2);
         u64x8([
             IV[0]
                 ^ self.hash_length as u64
@@ -249,10 +253,10 @@ impl Params {
             IV[1] ^ self.node_offset,
             IV[2] ^ self.node_depth as u64 ^ (self.inner_hash_length as u64) << 8,
             IV[3],
-            IV[4] ^ LittleEndian::read_u64(salt_left),
-            IV[5] ^ LittleEndian::read_u64(salt_right),
-            IV[6] ^ LittleEndian::read_u64(personal_left),
-            IV[7] ^ LittleEndian::read_u64(personal_right),
+            IV[4] ^ Word::from_le_bytes(*salt_left),
+            IV[5] ^ Word::from_le_bytes(*salt_right),
+            IV[6] ^ Word::from_le_bytes(*personal_left),
+            IV[7] ^ Word::from_le_bytes(*personal_right),
         ])
     }
 
@@ -453,7 +457,7 @@ impl fmt::Debug for Params {
 #[derive(Clone)]
 pub struct State {
     words: guts::u64x8,
-    count: u128,
+    count: Count,
     buf: [u8; BLOCKBYTES],
     buflen: u8,
     last_node: guts::LastNode,
@@ -508,7 +512,7 @@ impl State {
                     guts::Finalize::No,
                     guts::Stride::Serial,
                 );
-                self.count = self.count.wrapping_add(BLOCKBYTES as u128);
+                self.count = self.count.wrapping_add(BLOCKBYTES as Count);
                 self.buflen = 0;
             }
         }
@@ -531,7 +535,7 @@ impl State {
                 guts::Finalize::No,
                 guts::Stride::Serial,
             );
-            self.count = self.count.wrapping_add(end as u128);
+            self.count = self.count.wrapping_add(end as Count);
             input = &input[end..];
         }
         // Buffer any remaining input, to be either compressed or finalized in a subsequent call.
@@ -582,10 +586,10 @@ impl State {
     ///
     /// Note that `count` doesn't include the bytes of the key block, if any.
     /// It's exactly the total number of input bytes fed to `update`.
-    pub fn count(&self) -> u128 {
-        let mut ret = self.count.wrapping_add(self.buflen as u128);
+    pub fn count(&self) -> Count {
+        let mut ret = self.count.wrapping_add(self.buflen as Count);
         if self.is_keyed {
-            ret -= BLOCKBYTES as u128;
+            ret -= BLOCKBYTES as Count;
         }
         ret
     }
@@ -595,14 +599,14 @@ fn state_words_to_bytes(state_words: &u64x8) -> [u8; OUTBYTES] {
     let mut bytes = [0; OUTBYTES];
     {
         let refs = mut_array_refs!(&mut bytes, 8, 8, 8, 8, 8, 8, 8, 8);
-        LittleEndian::write_u64(refs.0, state_words[0]);
-        LittleEndian::write_u64(refs.1, state_words[1]);
-        LittleEndian::write_u64(refs.2, state_words[2]);
-        LittleEndian::write_u64(refs.3, state_words[3]);
-        LittleEndian::write_u64(refs.4, state_words[4]);
-        LittleEndian::write_u64(refs.5, state_words[5]);
-        LittleEndian::write_u64(refs.6, state_words[6]);
-        LittleEndian::write_u64(refs.7, state_words[7]);
+        *refs.0 = state_words[0].to_le_bytes();
+        *refs.1 = state_words[1].to_le_bytes();
+        *refs.2 = state_words[2].to_le_bytes();
+        *refs.3 = state_words[3].to_le_bytes();
+        *refs.4 = state_words[4].to_le_bytes();
+        *refs.5 = state_words[5].to_le_bytes();
+        *refs.6 = state_words[6].to_le_bytes();
+        *refs.7 = state_words[7].to_le_bytes();
     }
     bytes
 }

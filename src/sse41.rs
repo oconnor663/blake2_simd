@@ -3,8 +3,11 @@ use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-use crate::guts::{final_block, input_debug_asserts, u64x2, Finalize, Job, Stride};
-use crate::{BLOCKBYTES, IV, SIGMA};
+use crate::guts::{
+    assemble_count, count_high, count_low, final_block, flag_word, input_debug_asserts, u64x2,
+    Finalize, Job, Stride,
+};
+use crate::{Word, BLOCKBYTES, IV, SIGMA};
 use core::cmp;
 use core::mem;
 
@@ -352,25 +355,23 @@ unsafe fn transpose_msg_vecs(blocks: [*const u8; 2]) -> [__m128i; 16] {
 #[inline(always)]
 unsafe fn load_counts(jobs: &[Job; 2]) -> (__m128i, __m128i) {
     (
-        // There's no _mm_setr_epi64x, so note the arg order.
-        _mm_set_epi64x(jobs[1].count as i64, jobs[0].count as i64),
-        _mm_set_epi64x((jobs[1].count >> 64) as i64, (jobs[0].count >> 64) as i64),
+        set2(count_low(jobs[0].count), count_low(jobs[1].count)),
+        set2(count_high(jobs[0].count), count_high(jobs[1].count)),
     )
 }
 
 #[inline(always)]
 unsafe fn store_counts(jobs: &mut [Job; 2], low: __m128i, high: __m128i) {
-    let low_ints: [u64; 2] = mem::transmute(low);
-    let high_ints: [u64; 2] = mem::transmute(high);
+    let low_ints: [Word; 2] = mem::transmute(low);
+    let high_ints: [Word; 2] = mem::transmute(high);
     for i in 0..jobs.len() {
-        jobs[i].count = low_ints[i] as u128 + ((high_ints[i] as u128) << 64);
+        jobs[i].count = assemble_count(low_ints[i], high_ints[i]);
     }
 }
 
 #[inline(always)]
 unsafe fn flags_vec(flags: [bool; 2]) -> __m128i {
-    // There's no _mm_setr_epi64x, so note the arg order.
-    _mm_set_epi64x(if flags[1] { !0 } else { 0 }, if flags[0] { !0 } else { 0 })
+    set2(flag_word(flags[0]), flag_word(flags[1]))
 }
 
 #[target_feature(enable = "sse4.1")]
@@ -396,7 +397,7 @@ pub unsafe fn compress2_loop(jobs: &mut [Job; 2], finalize: Finalize, stride: St
     let (block0, len0, finalize0) = final_block(jobs[0].input, fin_offset, &mut buf0, stride);
     let (block1, len1, finalize1) = final_block(jobs[1].input, fin_offset, &mut buf1, stride);
     let fin_blocks = [block0.as_ptr(), block1.as_ptr()];
-    let fin_counts_delta = set2(len0 as u64, len1 as u64);
+    let fin_counts_delta = set2(len0 as Word, len1 as Word);
     let fin_last_block;
     let fin_last_node;
     if finalize.yes() {
@@ -424,7 +425,7 @@ pub unsafe fn compress2_loop(jobs: &mut [Job; 2], finalize: Finalize, stride: St
             last_node = fin_last_node;
         } else {
             blocks = [msg_ptrs[0].add(offset), msg_ptrs[1].add(offset)];
-            counts_delta = set1(BLOCKBYTES as u64);
+            counts_delta = set1(BLOCKBYTES as Word);
             last_block = set1(0);
             last_node = set1(0);
         };

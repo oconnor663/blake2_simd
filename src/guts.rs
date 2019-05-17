@@ -98,7 +98,7 @@ impl Implementation {
         &self,
         input: &[u8],
         words: &mut u64x8,
-        count: u128,
+        count: Count,
         last_node: LastNode,
         finalize: Finalize,
         stride: Stride,
@@ -228,7 +228,7 @@ impl core::ops::DerefMut for u64x8 {
 pub struct Job<'a, 'b> {
     pub input: &'a [u8],
     pub words: &'b mut u64x8,
-    pub count: u128,
+    pub count: Count,
     pub last_node: LastNode,
 }
 
@@ -294,7 +294,22 @@ impl Stride {
 }
 
 #[inline(always)]
-pub(crate) fn u64_flag(flag: bool) -> u64 {
+pub(crate) fn count_low(count: Count) -> Word {
+    count as Word
+}
+
+#[inline(always)]
+pub(crate) fn count_high(count: Count) -> Word {
+    (count >> 8 * size_of::<Word>()) as Word
+}
+
+#[inline(always)]
+pub(crate) fn assemble_count(low: Word, high: Word) -> Count {
+    low as Count + ((high as Count) << 8 * size_of::<Word>())
+}
+
+#[inline(always)]
+pub(crate) fn flag_word(flag: bool) -> Word {
     if flag {
         !0
     } else {
@@ -379,13 +394,13 @@ mod test {
 
     fn exercise_cases<F>(mut f: F)
     where
-        F: FnMut(Stride, usize, LastNode, Finalize, u128),
+        F: FnMut(Stride, usize, LastNode, Finalize, Count),
     {
         // Chose counts to hit the relevant overflow cases.
         let counts = &[
-            0u128,
-            (1u128 << 64) - BLOCKBYTES as u128,
-            0u128.wrapping_sub(BLOCKBYTES as u128),
+            (0 as Count),
+            ((1 as Count) << (8 * size_of::<Word>())) - BLOCKBYTES as Count,
+            (0 as Count).wrapping_sub(BLOCKBYTES as Count),
         ];
         for &stride in &[Stride::Serial, Stride::Parallel] {
             let lengths = [
@@ -440,7 +455,7 @@ mod test {
         stride: Stride,
         last_node: LastNode,
         finalize: Finalize,
-        mut count: u128,
+        mut count: Count,
         input_index: usize,
     ) -> u64x8 {
         let mut words = initial_test_words(input_index);
@@ -461,7 +476,7 @@ mod test {
                 Stride::Serial,
             );
             offset += stride.padded_blockbytes();
-            count = count.wrapping_add(BLOCKBYTES as u128);
+            count = count.wrapping_add(BLOCKBYTES as Count);
         }
         words
     }
@@ -538,7 +553,7 @@ mod test {
                     stride,
                     last_node,
                     finalize,
-                    count.wrapping_add((i * BLOCKBYTES) as u128),
+                    count.wrapping_add((i * BLOCKBYTES) as Count),
                     i,
                 );
                 reference_words.push(words);
@@ -553,7 +568,7 @@ mod test {
                 jobs.push(Job {
                     input: &inputs[i][..length],
                     words,
-                    count: count.wrapping_add((i * BLOCKBYTES) as u128),
+                    count: count.wrapping_add((i * BLOCKBYTES) as Count),
                     last_node,
                 });
             }
@@ -603,7 +618,7 @@ mod test {
                     stride,
                     last_node,
                     finalize,
-                    count.wrapping_add((i * BLOCKBYTES) as u128),
+                    count.wrapping_add((i * BLOCKBYTES) as Count),
                     i,
                 );
                 reference_words.push(words);
@@ -618,7 +633,7 @@ mod test {
                 jobs.push(Job {
                     input: &inputs[i][..length],
                     words,
-                    count: count.wrapping_add((i * BLOCKBYTES) as u128),
+                    count: count.wrapping_add((i * BLOCKBYTES) as Count),
                     last_node,
                 });
             }

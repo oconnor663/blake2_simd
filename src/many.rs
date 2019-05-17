@@ -44,6 +44,7 @@
 
 use crate::guts::{self, u64x8, Finalize, Implementation, Job, LastNode, Stride};
 use crate::state_words_to_bytes;
+use crate::Count;
 use crate::Hash;
 use crate::Params;
 use crate::State;
@@ -225,7 +226,7 @@ where
             None
         } else {
             let count = state.count;
-            state.count = state.count.wrapping_add(blocks.len() as u128);
+            state.count = state.count.wrapping_add(blocks.len() as Count);
             Some(Job {
                 input: blocks,
                 words: &mut state.words,
@@ -245,7 +246,7 @@ where
 /// [`to_hash`]: struct.HashManyJob.html#method.to_hash
 pub struct HashManyJob<'a> {
     words: u64x8,
-    count: u128,
+    count: Count,
     last_node: LastNode,
     hash_length: u8,
     input: &'a [u8],
@@ -273,7 +274,7 @@ impl<'a> HashManyJob<'a> {
                     Finalize::No,
                     Stride::Serial,
                 );
-                count = BLOCKBYTES as u128;
+                count = BLOCKBYTES as Count;
             }
         }
         Self {
@@ -468,7 +469,7 @@ mod test {
                 reference_state.update(inputs[i]);
                 reference_state.update(inputs[i]);
                 assert_eq!(reference_state.finalize(), states[i].finalize());
-                assert_eq!(2 * inputs[i].len() as u128, states[i].count());
+                assert_eq!(2 * inputs[i].len() as Count, states[i].count());
             }
         }
     }

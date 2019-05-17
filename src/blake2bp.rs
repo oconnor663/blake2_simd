@@ -22,13 +22,15 @@
 
 use crate::guts::{self, u64x8, Finalize, Implementation, Job, LastNode, Stride};
 use crate::many;
+use crate::Count;
 use crate::Hash;
+use crate::Word;
 use crate::BLOCKBYTES;
 use crate::KEYBYTES;
 use crate::OUTBYTES;
-use byteorder::{ByteOrder, LittleEndian};
 use core::cmp;
 use core::fmt;
+use core::mem::size_of;
 
 #[cfg(feature = "std")]
 use std;
@@ -213,7 +215,7 @@ pub struct State {
     buf: [u8; 2 * DEGREE * BLOCKBYTES],
     buf_len: u16,
     // Note that this is the *per-leaf* count.
-    count: u128,
+    count: Count,
     hash_length: u8,
     implementation: Implementation,
     is_keyed: bool,
@@ -270,7 +272,7 @@ impl State {
     fn compress_to_leaves(
         leaves: &mut [guts::u64x8; DEGREE],
         input: &[u8],
-        count: &mut u128,
+        count: &mut Count,
         implementation: Implementation,
     ) {
         // Input is assumed to be an even number of blocks for each leaf. Since
@@ -285,7 +287,7 @@ impl State {
         });
         many::compress_many(jobs, implementation, Finalize::No, Stride::Parallel);
         // Note that count is the bytes input *per-leaf*.
-        *count = count.wrapping_add((input.len() / DEGREE) as u128);
+        *count = count.wrapping_add((input.len() / DEGREE) as Count);
     }
 
     /// Add input to the hash. You can call `update` any number of times.
@@ -392,14 +394,14 @@ impl State {
     ///
     /// Note that `count` doesn't include the bytes of the key block, if any.
     /// It's exactly the total number of input bytes fed to `update`.
-    pub fn count(&self) -> u128 {
+    pub fn count(&self) -> Count {
         // Remember that self.count is *per-leaf*.
         let mut ret = self
             .count
-            .wrapping_mul(DEGREE as u128)
-            .wrapping_add(self.buf_len as u128);
+            .wrapping_mul(DEGREE as Count)
+            .wrapping_add(self.buf_len as Count);
         if self.is_keyed {
-            ret -= (DEGREE * BLOCKBYTES) as u128;
+            ret -= (DEGREE * BLOCKBYTES) as Count;
         }
         ret
     }
@@ -446,12 +448,14 @@ fn finalize_root_words(
     hash_length: u8,
     imp: Implementation,
 ) -> Hash {
+    debug_assert_eq!(OUTBYTES, 8 * size_of::<Word>());
     let mut block = [0; DEGREE * OUTBYTES];
-    for leaf_index in 0..DEGREE {
-        LittleEndian::write_u64_into(
-            &leaf_words[leaf_index][..],
-            &mut block[leaf_index * OUTBYTES..][..OUTBYTES],
-        );
+    for (word, chunk) in leaf_words
+        .iter()
+        .flat_map(|words| words.iter())
+        .zip(block.chunks_exact_mut(size_of::<Word>()))
+    {
+        chunk.copy_from_slice(&word.to_le_bytes());
     }
     imp.compress1_loop(
         &block,
@@ -562,11 +566,11 @@ pub(crate) mod test {
                     }
                     let maybe_one = cmp::min(1, input.len());
                     state.update(&input[..maybe_one]);
-                    assert_eq!(maybe_one as u128, state.count());
+                    assert_eq!(maybe_one as Count, state.count());
                     // Do a throwaway finalize here to check for idempotency.
                     state.finalize();
                     state.update(&input[maybe_one..]);
-                    assert_eq!(input.len() as u128, state.count());
+                    assert_eq!(input.len() as Count, state.count());
                     let found = state.finalize();
                     assert_eq!(expected, found);
 

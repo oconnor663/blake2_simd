@@ -28,9 +28,9 @@ fn test_update_state() {
         let mut state = State::new();
         let split = input.len() / 2;
         state.update(&input[..split]);
-        assert_eq!(split as u128, state.count());
+        assert_eq!(split as Count, state.count());
         state.update(&input[split..]);
-        assert_eq!(input.len() as u128, state.count());
+        assert_eq!(input.len() as Count, state.count());
         let hash = state.finalize();
         assert_eq!(&hash.to_hex(), output, "hash mismatch");
     }
