@@ -84,13 +84,14 @@ impl Implementation {
     }
 
     pub fn degree(&self) -> usize {
-        match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => 4,
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::SSE41 => 2,
-            Platform::Portable => 1,
-        }
+        // match self.0 {
+        //     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        //     Platform::AVX2 => 4,
+        //     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        //     Platform::SSE41 => 2,
+        //     Platform::Portable => 1,
+        // }
+        1
     }
 
     pub fn compress1_loop(
@@ -103,10 +104,10 @@ impl Implementation {
         stride: Stride,
     ) {
         match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => unsafe {
-                avx2::compress1_loop(input, words, count, last_node, finalize, stride);
-            },
+            // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // Platform::AVX2 => unsafe {
+            //     avx2::compress1_loop(input, words, count, last_node, finalize, stride);
+            // },
             // Note that there's an SSE version of compress1 in the official C
             // implementation, but I haven't ported it yet.
             _ => {
@@ -117,18 +118,18 @@ impl Implementation {
 
     pub fn compress2_loop(&self, jobs: &mut [Job; 2], finalize: Finalize, stride: Stride) {
         match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 | Platform::SSE41 => unsafe {
-                sse41::compress2_loop(jobs, finalize, stride)
-            },
+            // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // Platform::AVX2 | Platform::SSE41 => unsafe {
+            //     sse41::compress2_loop(jobs, finalize, stride)
+            // },
             _ => panic!("unsupported"),
         }
     }
 
     pub fn compress4_loop(&self, jobs: &mut [Job; 4], finalize: Finalize, stride: Stride) {
         match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::AVX2 => unsafe { avx2::compress4_loop(jobs, finalize, stride) },
+            // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // Platform::AVX2 => unsafe { avx2::compress4_loop(jobs, finalize, stride) },
             _ => panic!("unsupported"),
         }
     }
@@ -423,22 +424,24 @@ mod test {
         exercise_compress1_loop(Implementation::portable());
     }
 
-    #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn test_compress1_loop_sse41() {
-        // Currently this just falls back to portable, but we test it anyway.
-        if let Some(imp) = Implementation::sse41_if_supported() {
-            exercise_compress1_loop(imp);
-        }
-    }
+    // TODO
+    // #[test]
+    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    // fn test_compress1_loop_sse41() {
+    //     // Currently this just falls back to portable, but we test it anyway.
+    //     if let Some(imp) = Implementation::sse41_if_supported() {
+    //         exercise_compress1_loop(imp);
+    //     }
+    // }
 
-    #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn test_compress1_loop_avx2() {
-        if let Some(imp) = Implementation::avx2_if_supported() {
-            exercise_compress1_loop(imp);
-        }
-    }
+    // TODO
+    // #[test]
+    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    // fn test_compress1_loop_avx2() {
+    //     if let Some(imp) = Implementation::avx2_if_supported() {
+    //         exercise_compress1_loop(imp);
+    //     }
+    // }
 
     // I use ArrayVec everywhere in here becuase currently these tests pass
     // under no_std. I might decide that's not worth maintaining at some point,
@@ -491,22 +494,24 @@ mod test {
         });
     }
 
-    #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn test_compress2_loop_sse41() {
-        if let Some(imp) = Implementation::sse41_if_supported() {
-            exercise_compress2_loop(imp);
-        }
-    }
+    // TODO
+    // #[test]
+    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    // fn test_compress2_loop_sse41() {
+    //     if let Some(imp) = Implementation::sse41_if_supported() {
+    //         exercise_compress2_loop(imp);
+    //     }
+    // }
 
-    #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn test_compress2_loop_avx2() {
-        // Currently this just falls back to SSE4.1, but we test it anyway.
-        if let Some(imp) = Implementation::avx2_if_supported() {
-            exercise_compress2_loop(imp);
-        }
-    }
+    // TODO
+    // #[test]
+    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    // fn test_compress2_loop_avx2() {
+    //     // Currently this just falls back to SSE4.1, but we test it anyway.
+    //     if let Some(imp) = Implementation::avx2_if_supported() {
+    //         exercise_compress2_loop(imp);
+    //     }
+    // }
 
     // Copied from exercise_compress2_loop, with a different value of N and an
     // interior call to compress4_loop.
@@ -556,13 +561,14 @@ mod test {
         });
     }
 
-    #[test]
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    fn test_compress4_loop_avx2() {
-        if let Some(imp) = Implementation::avx2_if_supported() {
-            exercise_compress4_loop(imp);
-        }
-    }
+    // TODO
+    // #[test]
+    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    // fn test_compress4_loop_avx2() {
+    //     if let Some(imp) = Implementation::avx2_if_supported() {
+    //         exercise_compress4_loop(imp);
+    //     }
+    // }
 
     #[test]
     fn sanity_check_count_size() {
