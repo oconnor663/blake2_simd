@@ -303,7 +303,7 @@ impl Params {
         self
     }
 
-    /// Use a secret key, so that BLAKE2b acts as a MAC. The maximum key length is `KEYBYTES` (64).
+    /// Use a secret key, so that BLAKE2 acts as a MAC. The maximum key length is `KEYBYTES` (64).
     /// An empty key is equivalent to having no key at all.
     pub fn key(&mut self, key: &[u8]) -> &mut Self {
         assert!(key.len() <= KEYBYTES, "Bad key length: {}", key.len());
@@ -651,7 +651,7 @@ pub struct Hash {
 }
 
 impl Hash {
-    /// Convert the hash to a byte slice. Note that if you're using BLAKE2b as a MAC, you need
+    /// Convert the hash to a byte slice. Note that if you're using BLAKE2 as a MAC, you need
     /// constant time equality, which `&[u8]` doesn't provide.
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes[..self.len as usize]
