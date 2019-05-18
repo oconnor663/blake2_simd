@@ -198,7 +198,7 @@ impl Stride {
     pub fn padded_blockbytes(&self) -> usize {
         match self {
             Stride::Serial => BLOCKBYTES,
-            Stride::Parallel => blake2bp::DEGREE * BLOCKBYTES,
+            Stride::Parallel => blake2sp::DEGREE * BLOCKBYTES,
         }
     }
 }

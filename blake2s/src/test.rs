@@ -19,7 +19,7 @@ fn test_update_state() {
     ];
     // Test each input all at once.
     for &(input, output) in io {
-        let hash = blake2b(input);
+        let hash = blake2s(input);
         assert_eq!(&hash.to_hex(), output, "hash mismatch");
     }
     // Now in two chunks. This is especially important for the ONE_BLOCK case, because it would be
@@ -120,8 +120,8 @@ fn test_all_parameters() {
 }
 
 #[test]
-fn test_all_parameters_blake2bp() {
-    let hash = blake2bp::Params::new()
+fn test_all_parameters_blake2sp() {
+    let hash = blake2sp::Params::new()
         .hash_length(18)
         // Make sure a shorter key properly overwrites a longer one.
         .key(b"not the real key")
@@ -176,18 +176,18 @@ fn test_long_inner_hash_length_panics() {
 
 #[test]
 #[should_panic]
-fn test_blake2bp_short_hash_length_panics() {
-    blake2bp::Params::new().hash_length(0);
+fn test_blake2sp_short_hash_length_panics() {
+    blake2sp::Params::new().hash_length(0);
 }
 
 #[test]
 #[should_panic]
-fn test_blake2bp_long_hash_length_panics() {
-    blake2bp::Params::new().hash_length(OUTBYTES + 1);
+fn test_blake2sp_long_hash_length_panics() {
+    blake2sp::Params::new().hash_length(OUTBYTES + 1);
 }
 
 #[test]
 #[should_panic]
-fn test_blake2bp_long_key_panics() {
-    blake2bp::Params::new().key(&[0; KEYBYTES + 1]);
+fn test_blake2sp_long_key_panics() {
+    blake2sp::Params::new().key(&[0; KEYBYTES + 1]);
 }

@@ -1,8 +1,8 @@
 //! Interfaces for hashing multiple inputs at once, using SIMD more
 //! efficiently.
 //!
-//! The throughput of these interfaces is comparable to BLAKE2bp, about twice
-//! the throughput of regular BLAKE2b when AVX2 is available.
+//! The throughput of these interfaces is comparable to BLAKE2sp, much larger
+//! than that of regular BLAKE2s when AVX2 is available.
 //!
 //! These interfaces can accept any number of inputs, and the implementation
 //! does its best to parallelize them. In general, the more inputs you can pass
@@ -19,7 +19,7 @@
 //! # Example
 //!
 //! ```
-//! use blake2b_simd::{blake2b, State, many::update_many};
+//! use blake2s_simd::{blake2s, State, many::update_many};
 //!
 //! let mut states = [
 //!     State::new(),
@@ -38,7 +38,7 @@
 //! update_many(states.iter_mut().zip(inputs.iter()));
 //!
 //! for (state, input) in states.iter_mut().zip(inputs.iter()) {
-//!     assert_eq!(blake2b(input), state.finalize());
+//!     assert_eq!(blake2s(input), state.finalize());
 //! }
 //! ```
 
@@ -68,8 +68,8 @@ pub const MAX_DEGREE: usize = guts::MAX_DEGREE;
 /// hash your inputs in small batches, making the batch size a multiple of
 /// `degree` will generally give good performance.
 ///
-/// For example, an x86 processor that supports AVX2 can compute four BLAKE2b
-/// hashes in parallel, so `degree` returns 4 on that machine. If you call
+/// For example, an x86 processor that supports AVX2 can compute eight BLAKE2s
+/// hashes in parallel, so `degree` returns 8 on that machine. If you call
 /// [`hash_many`] with only three inputs, though, that's not enough input for
 /// the AVX2 implementation, and performance will be lower. Likewise if you
 /// call it with five inputs of equal length, the first four will be hashed in
@@ -177,7 +177,7 @@ pub(crate) fn compress_many<'a, 'b, I>(
 /// # Example
 ///
 /// ```
-/// use blake2b_simd::{blake2b, State, many::update_many};
+/// use blake2s_simd::{blake2s, State, many::update_many};
 ///
 /// let mut states = [
 ///     State::new(),
@@ -196,7 +196,7 @@ pub(crate) fn compress_many<'a, 'b, I>(
 /// update_many(states.iter_mut().zip(inputs.iter()));
 ///
 /// for (state, input) in states.iter_mut().zip(inputs.iter()) {
-///     assert_eq!(blake2b(input), state.finalize());
+///     assert_eq!(blake2s(input), state.finalize());
 /// }
 /// ```
 pub fn update_many<'a, 'b, I, T>(pairs: I)
@@ -312,7 +312,7 @@ impl<'a> HashManyJob<'a> {
 /// # Example
 ///
 /// ```
-/// use blake2b_simd::{blake2b, Params, many::{HashManyJob, hash_many}};
+/// use blake2s_simd::{blake2s, Params, many::{HashManyJob, hash_many}};
 ///
 /// let inputs = [
 ///     &b"foo"[..],
@@ -369,9 +369,9 @@ mod test {
     fn test_degree() {
         assert!(degree() <= MAX_DEGREE);
 
-        // Make reference to BLAKE2bp to avoid copy/paste errors between
+        // Make reference to blake2sp to avoid copy/paste errors between
         // BLAKE2b/BLAKE2s.
-        const AVX2_DEGREE: usize = crate::blake2bp::DEGREE;
+        const AVX2_DEGREE: usize = crate::blake2sp::DEGREE;
 
         // TODO
         // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

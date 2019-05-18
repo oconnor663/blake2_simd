@@ -1,15 +1,15 @@
-//! BLAKE2bp, a variant of BLAKE2b that uses SIMD more efficiently.
+//! BLAKE2sp, a variant of BLAKE2s that uses SIMD more efficiently.
 //!
-//! The AVX2 implementation of BLAKE2bp is about twice as fast that of BLAKE2b.
+//! The AVX2 implementation of BLAKE2sp is about twice as fast that of BLAKE2s.
 //! However, note that it's a different hash function, and it gives a different
-//! hash from BLAKE2b for the same input.
+//! hash from BLAKE2s for the same input.
 //!
 //! # Example
 //!
 //! ```
-//! use blake2b_simd::blake2bp;
+//! use blake2s_simd::blake2sp;
 //!
-//! let hash = blake2bp::Params::new()
+//! let hash = blake2sp::Params::new()
 //!     .hash_length(16)
 //!     .key(b"The Magic Words are Squeamish Ossifrage")
 //!     .to_state()
@@ -37,24 +37,24 @@ use std;
 
 pub(crate) const DEGREE: usize = 4;
 
-/// Compute the BLAKE2bp hash of a slice of bytes all at once, using default
+/// Compute the BLAKE2sp hash of a slice of bytes all at once, using default
 /// parameters.
 ///
 /// # Example
 ///
 /// ```
-/// # use blake2b_simd::blake2bp::blake2bp;
+/// # use blake2s_simd::blake2sp::blake2sp;
 /// let expected = "8ca9ccee7946afcb686fe7556628b5ba1bf9a691da37ca58cd049354d99f3704\
 ///                 2c007427e5f219b9ab5063707ec6823872dee413ee014b4d02f2ebb6abb5f643";
-/// let hash = blake2bp(b"foo");
+/// let hash = blake2sp(b"foo");
 /// assert_eq!(expected, &hash.to_hex());
 /// ```
-pub fn blake2bp(input: &[u8]) -> Hash {
+pub fn blake2sp(input: &[u8]) -> Hash {
     Params::new().hash(input)
 }
 
-/// A parameter builder for BLAKE2bp, just like the [`Params`](../struct.Params.html) type for
-/// BLAKE2b.
+/// A parameter builder for BLAKE2sp, just like the [`Params`](../struct.Params.html) type for
+/// BLAKE2s.
 ///
 /// This builder only supports configuring the hash length and a secret key. This matches the
 /// options provided by the [reference
@@ -63,8 +63,8 @@ pub fn blake2bp(input: &[u8]) -> Hash {
 /// # Example
 ///
 /// ```
-/// use blake2b_simd::blake2bp;
-/// let mut state = blake2bp::Params::new().hash_length(32).to_state();
+/// use blake2s_simd::blake2sp;
+/// let mut state = blake2sp::Params::new().hash_length(32).to_state();
 /// ```
 #[derive(Clone)]
 pub struct Params {
@@ -138,7 +138,7 @@ impl Params {
         finalize_root_words(&leaf_words, &mut root_words, self.hash_length, imp)
     }
 
-    /// Construct a BLAKE2bp `State` object based on these parameters.
+    /// Construct a BLAKE2sp `State` object based on these parameters.
     pub fn to_state(&self) -> State {
         State::with_params(self)
     }
@@ -156,7 +156,7 @@ impl Params {
         self
     }
 
-    /// Use a secret key, so that BLAKE2bp acts as a MAC. The maximum key length is `KEYBYTES`
+    /// Use a secret key, so that BLAKE2sp acts as a MAC. The maximum key length is `KEYBYTES`
     /// (64). An empty key is equivalent to having no key at all.
     pub fn key(&mut self, key: &[u8]) -> &mut Self {
         assert!(key.len() <= KEYBYTES, "Bad key length: {}", key.len());
@@ -189,15 +189,15 @@ impl fmt::Debug for Params {
     }
 }
 
-/// An incremental hasher for BLAKE2bp, just like the [`State`](../struct.State.html) type for
-/// BLAKE2b.
+/// An incremental hasher for BLAKE2sp, just like the [`State`](../struct.State.html) type for
+/// BLAKE2s.
 ///
 /// # Example
 ///
 /// ```
-/// use blake2b_simd::blake2bp;
+/// use blake2s_simd::blake2sp;
 ///
-/// let mut state = blake2bp::State::new();
+/// let mut state = blake2sp::State::new();
 /// state.update(b"foo");
 /// state.update(b"bar");
 /// let hash = state.finalize();
@@ -295,7 +295,7 @@ impl State {
         // If we have a partial buffer, try to complete it. If we complete it and there's more
         // input waiting, we need to compress to make more room. However, because we need to be
         // sure that *none* of the leaves would need to be finalized as part of this round of
-        // compression, we need to buffer more than we would for BLAKE2b.
+        // compression, we need to buffer more than we would for BLAKE2s.
         if self.buf_len > 0 {
             self.fill_buf(&mut input);
             // The buffer is large enough for two compressions. If we've filled
@@ -480,7 +480,7 @@ pub(crate) mod test {
     // This is a simple reference implementation without the complicated buffering or parameter
     // support of the real implementation. We need this because the official test vectors don't
     // include any inputs large enough to exercise all the branches in the buffering logic.
-    fn blake2bp_reference(input: &[u8]) -> Hash {
+    fn blake2sp_reference(input: &[u8]) -> Hash {
         let mut leaves = arrayvec::ArrayVec::<[_; DEGREE]>::new();
         for leaf_index in 0..DEGREE {
             leaves.push(
@@ -532,7 +532,7 @@ pub(crate) mod test {
 
                     // First hash the input all at once, as a sanity check.
                     let input = &buf[..num_blocks * BLOCKBYTES + extra];
-                    let expected = blake2bp_reference(&input);
+                    let expected = blake2sp_reference(&input);
                     let mut state = State::new();
                     if portable {
                         force_portable(&mut state);
@@ -557,7 +557,7 @@ pub(crate) mod test {
                     assert_eq!(expected, found);
 
                     // Finally, do it again with the all-at-once interface.
-                    assert_eq!(expected, blake2bp(input));
+                    assert_eq!(expected, blake2sp(input));
                 }
             }
         }

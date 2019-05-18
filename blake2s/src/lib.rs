@@ -1,8 +1,8 @@
-//! [Repo](https://github.com/oconnor663/blake2b_simd) —
-//! [Docs](https://docs.rs/blake2b_simd) —
-//! [Crate](https://crates.io/crates/blake2b_simd)
+//! [Repo](https://github.com/oconnor663/blake2_simd) —
+//! [Docs](https://docs.rs/blake2s_simd) —
+//! [Crate](https://crates.io/crates/blake2s_simd)
 //!
-//! An implementation of the BLAKE2b hash with:
+//! An implementation of the BLAKE2s hash with:
 //!
 //! - 100% stable Rust.
 //! - A SIMD implementation based on Samuel Neves' [`blake2-avx2`]. This implementation is very
@@ -16,21 +16,21 @@
 //!   includes command line flags for all the BLAKE2 associated data features.
 //! - `no_std` support. The `std` Cargo feature is on by default, for CPU feature detection and
 //!   for implementing `std::io::Write`.
-//! - The SIMD-friendly [BLAKE2bp] variant. This implementation is single-threaded, but it's faster
-//!   than BLAKE2b, because it uses AVX2 more efficiently. It's available on the command line as
-//!   `b2sum --blake2bp`.
-//! - Support for computing multiple BLAKE2b hashes in parallel. See [`many::hash_many`] and
-//!   [`many::update_many`]. These interfaces match the efficiency of BLAKE2bp but produce BLAKE2b
+//! - The SIMD-friendly [BLAKE2sp] variant. This implementation is single-threaded, but it's faster
+//!   than BLAKE2s, because it uses AVX2 more efficiently. It's available on the command line as
+//!   `b2sum --blake2sp`.
+//! - Support for computing multiple BLAKE2s hashes in parallel. See [`many::hash_many`] and
+//!   [`many::update_many`]. These interfaces match the efficiency of BLAKE2sp but produce BLAKE2s
 //!   hashes. They're a building block for the [Bao project].
 //!
 //! # Example
 //!
 //! ```
-//! use blake2b_simd::{blake2b, Params};
+//! use blake2s_simd::{blake2s, Params};
 //!
 //! let expected = "ca002330e69d3e6b84a46a56a6533fd79d51d97a3bb7cad6c2ff43b354185d6d\
 //!                 c1e723fb3db4ae0737e120378424c714bb982d9dc5bbd7a0ab318240ddd18f8d";
-//! let hash = blake2b(b"foo");
+//! let hash = blake2s(b"foo");
 //! assert_eq!(expected, &hash.to_hex());
 //!
 //! let hash = Params::new()
@@ -108,9 +108,9 @@
 //! [the BLAKE2 spec]: https://blake2.net/blake2.pdf
 //! [`blake2-avx2`]: https://github.com/sneves/blake2-avx2
 //! [included in libsodium]: https://github.com/jedisct1/libsodium/commit/0131a720826045e476e6dd6a8e7a1991f1d941aa
-//! [BLAKE2bp]: https://docs.rs/blake2b_simd/latest/blake2b_simd/blake2bp/index.html
-//! [`many::hash_many`]: https://docs.rs/blake2b_simd/latest/blake2b_simd/many/fn.hash_many.html
-//! [`many::update_many`]: https://docs.rs/blake2b_simd/latest/blake2b_simd/many/fn.update_many.html
+//! [BLAKE2sp]: https://docs.rs/blake2s_simd/latest/blake2s_simd/blake2sp/index.html
+//! [`many::hash_many`]: https://docs.rs/blake2s_simd/latest/blake2s_simd/many/fn.hash_many.html
+//! [`many::update_many`]: https://docs.rs/blake2s_simd/latest/blake2s_simd/many/fn.update_many.html
 //! [Bao project]: https://github.com/oconnor663/bao
 // Note that the links above wind up in README.md, so they need to be absolute.
 
@@ -127,7 +127,7 @@ mod portable;
 // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 // mod sse41;
 
-pub mod blake2bp;
+pub mod blake2sp;
 mod guts;
 pub mod many;
 
@@ -175,19 +175,19 @@ const SIGMA: [[u8; 16]; 12] = [
     [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
 ];
 
-/// Compute the BLAKE2b hash of a slice of bytes all at once, using default
+/// Compute the BLAKE2s hash of a slice of bytes all at once, using default
 /// parameters.
 ///
 /// # Example
 ///
 /// ```
-/// # use blake2b_simd::{blake2b, Params};
+/// # use blake2s_simd::{blake2s, Params};
 /// let expected = "ca002330e69d3e6b84a46a56a6533fd79d51d97a3bb7cad6c2ff43b354185d6d\
 ///                 c1e723fb3db4ae0737e120378424c714bb982d9dc5bbd7a0ab318240ddd18f8d";
-/// let hash = blake2b(b"foo");
+/// let hash = blake2s(b"foo");
 /// assert_eq!(&hash.to_hex(), expected);
 /// ```
-pub fn blake2b(input: &[u8]) -> Hash {
+pub fn blake2s(input: &[u8]) -> Hash {
     Params::new().hash(input)
 }
 
@@ -203,7 +203,7 @@ pub fn blake2b(input: &[u8]) -> Hash {
 /// # Example
 ///
 /// ```
-/// # use blake2b_simd::Params;
+/// # use blake2s_simd::Params;
 /// // Create a Params object with a secret key and a non-default length.
 /// let mut params = Params::new();
 /// params.key(b"my secret key");
@@ -435,22 +435,22 @@ impl fmt::Debug for Params {
     }
 }
 
-/// An incremental hasher for BLAKE2b.
+/// An incremental hasher for BLAKE2s.
 ///
 /// To construct a `State` with non-default parameters, see `Params::to_state`.
 ///
 /// # Example
 ///
 /// ```
-/// use blake2b_simd::{State, blake2b};
+/// use blake2s_simd::{State, blake2s};
 ///
-/// let mut state = blake2b_simd::State::new();
+/// let mut state = blake2s_simd::State::new();
 ///
 /// state.update(b"foo");
-/// assert_eq!(blake2b(b"foo"), state.finalize());
+/// assert_eq!(blake2s(b"foo"), state.finalize());
 ///
 /// state.update(b"bar");
-/// assert_eq!(blake2b(b"foobar"), state.finalize());
+/// assert_eq!(blake2s(b"foobar"), state.finalize());
 /// ```
 #[derive(Clone)]
 pub struct State {
@@ -727,7 +727,7 @@ pub mod benchmarks {
         state.implementation = guts::Implementation::portable();
     }
 
-    pub fn force_portable_blake2bp(state: &mut blake2bp::State) {
-        crate::blake2bp::force_portable(state);
+    pub fn force_portable_blake2sp(state: &mut blake2sp::State) {
+        crate::blake2sp::force_portable(state);
     }
 }
