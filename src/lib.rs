@@ -185,7 +185,7 @@ const SIGMA: [[u8; 16]; 12] = [
 /// let expected = "ca002330e69d3e6b84a46a56a6533fd79d51d97a3bb7cad6c2ff43b354185d6d\
 ///                 c1e723fb3db4ae0737e120378424c714bb982d9dc5bbd7a0ab318240ddd18f8d";
 /// let hash = blake2b(b"foo");
-/// assert_eq!(&hash.to_hex(), expected);
+/// assert_eq!(expected, &hash.to_hex());
 /// ```
 pub fn blake2b(input: &[u8]) -> Hash {
     Params::new().hash(input)

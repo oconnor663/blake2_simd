@@ -14,13 +14,13 @@ use crate::guts::{
 #[inline(always)]
 fn g(v: &mut [Word; 16], a: usize, b: usize, c: usize, d: usize, x: Word, y: Word) {
     v[a] = v[a].wrapping_add(v[b]).wrapping_add(x);
-    v[d] = (v[d] ^ v[a]).rotate_right(32);
-    v[c] = v[c].wrapping_add(v[d]);
-    v[b] = (v[b] ^ v[c]).rotate_right(24);
-    v[a] = v[a].wrapping_add(v[b]).wrapping_add(y);
     v[d] = (v[d] ^ v[a]).rotate_right(16);
     v[c] = v[c].wrapping_add(v[d]);
-    v[b] = (v[b] ^ v[c]).rotate_right(63);
+    v[b] = (v[b] ^ v[c]).rotate_right(12);
+    v[a] = v[a].wrapping_add(v[b]).wrapping_add(y);
+    v[d] = (v[d] ^ v[a]).rotate_right(8);
+    v[c] = v[c].wrapping_add(v[d]);
+    v[b] = (v[b] ^ v[c]).rotate_right(7);
 }
 
 #[inline(always)]
@@ -101,8 +101,6 @@ fn compress_block(
     round(7, &m, &mut v);
     round(8, &m, &mut v);
     round(9, &m, &mut v);
-    round(10, &m, &mut v);
-    round(11, &m, &mut v);
 
     words[0] ^= v[0] ^ v[8];
     words[1] ^= v[1] ^ v[9];

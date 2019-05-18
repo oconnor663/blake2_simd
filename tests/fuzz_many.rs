@@ -201,7 +201,7 @@ fn fuzz_blake2s_update_many() {
         blake2s_simd::many::update_many(states.iter_mut().zip(inputs.iter()));
         blake2s_simd::many::update_many(states.iter_mut().zip(inputs.iter()));
         for i in 0..states.len() {
-            assert_eq!(2 * inputs[i].len() as u128, states[i].count());
+            assert_eq!(2 * inputs[i].len() as u64, states[i].count());
             assert_eq!(&expected[i], &states[i].finalize(), "state {} mismatch", i);
         }
     });

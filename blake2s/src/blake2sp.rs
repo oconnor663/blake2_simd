@@ -11,13 +11,13 @@
 //!
 //! let hash = blake2sp::Params::new()
 //!     .hash_length(16)
-//!     .key(b"The Magic Words are Squeamish Ossifrage")
+//!     .key(b"Squeamish Ossifrage")
 //!     .to_state()
 //!     .update(b"foo")
 //!     .update(b"bar")
 //!     .update(b"baz")
 //!     .finalize();
-//! assert_eq!("e69c7d2c42a5ac14948772231c68c552", &hash.to_hex());
+//! assert_eq!("9a604f1653c25063debb3aeea79671c0", &hash.to_hex());
 //! ```
 
 use crate::guts::{Finalize, Implementation, Job, LastNode, Stride};
@@ -35,7 +35,7 @@ use core::mem::size_of;
 #[cfg(feature = "std")]
 use std;
 
-pub(crate) const DEGREE: usize = 4;
+pub(crate) const DEGREE: usize = 8;
 
 /// Compute the BLAKE2sp hash of a slice of bytes all at once, using default
 /// parameters.
@@ -44,8 +44,7 @@ pub(crate) const DEGREE: usize = 4;
 ///
 /// ```
 /// # use blake2s_simd::blake2sp::blake2sp;
-/// let expected = "8ca9ccee7946afcb686fe7556628b5ba1bf9a691da37ca58cd049354d99f3704\
-///                 2c007427e5f219b9ab5063707ec6823872dee413ee014b4d02f2ebb6abb5f643";
+/// let expected = "050dc5786037ea72cb9ed9d0324afcab03c97ec02e8c47368fc5dfb4cf49d8c9";
 /// let hash = blake2sp(b"foo");
 /// assert_eq!(expected, &hash.to_hex());
 /// ```
@@ -100,7 +99,16 @@ impl Params {
                 // because it isn't included in the state words.
                 .to_words()
         };
-        let leaf_words = [leaf_words(0), leaf_words(1), leaf_words(2), leaf_words(3)];
+        let leaf_words = [
+            leaf_words(0),
+            leaf_words(1),
+            leaf_words(2),
+            leaf_words(3),
+            leaf_words(4),
+            leaf_words(5),
+            leaf_words(6),
+            leaf_words(7),
+        ];
         let root_words = base_params
             .clone()
             .node_offset(0)
@@ -202,8 +210,7 @@ impl fmt::Debug for Params {
 /// state.update(b"bar");
 /// let hash = state.finalize();
 ///
-/// let expected = "e654427b6ef02949471712263e59071abbb6aa94855674c1daeed6cfaf127c33\
-///                 dfa3205f7f7f71e4f0673d25fa82a368488911f446bccd323af3ab03f53e56e5";
+/// let expected = "268120e51df583c61d6bfb7915f1c8ead299696c42f413092cd0b2247e1a388d";
 /// assert_eq!(expected, &hash.to_hex());
 /// ```
 #[derive(Clone)]

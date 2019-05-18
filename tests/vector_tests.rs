@@ -108,7 +108,7 @@ fn blake2s_vectors() {
             let mut state = params.to_state();
             state.update(&input_bytes);
             assert_eq!(case.out, &*state.finalize().to_hex());
-            assert_eq!(input_bytes.len() as u128, state.count());
+            assert_eq!(input_bytes.len() as u64, state.count());
         }
     }
 
@@ -140,7 +140,7 @@ fn blake2sp_vectors() {
             let mut state = params.to_state();
             state.update(&input_bytes);
             assert_eq!(case.out, &*state.finalize().to_hex());
-            assert_eq!(input_bytes.len() as u128, state.count());
+            assert_eq!(input_bytes.len() as u64, state.count());
         }
     }
 

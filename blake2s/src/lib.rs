@@ -28,21 +28,20 @@
 //! ```
 //! use blake2s_simd::{blake2s, Params};
 //!
-//! let expected = "ca002330e69d3e6b84a46a56a6533fd79d51d97a3bb7cad6c2ff43b354185d6d\
-//!                 c1e723fb3db4ae0737e120378424c714bb982d9dc5bbd7a0ab318240ddd18f8d";
+//! let expected = "08d6cad88075de8f192db097573d0e829411cd91eb6ec65e8fc16c017edfdb74";
 //! let hash = blake2s(b"foo");
 //! assert_eq!(expected, &hash.to_hex());
 //!
 //! let hash = Params::new()
 //!     .hash_length(16)
-//!     .key(b"The Magic Words are Squeamish Ossifrage")
-//!     .personal(b"L. P. Waterhouse")
+//!     .key(b"Squeamish Ossifrage")
+//!     .personal(b"Shaftoe")
 //!     .to_state()
 //!     .update(b"foo")
 //!     .update(b"bar")
 //!     .update(b"baz")
 //!     .finalize();
-//! assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.to_hex());
+//! assert_eq!("28325512782cbf5019424fa65da9a6c7", &hash.to_hex());
 //! ```
 //!
 //! An example using the included `b2sum` command line utility:
@@ -134,8 +133,8 @@ pub mod many;
 #[cfg(test)]
 mod test;
 
-type Word = u64;
-type Count = u128;
+type Word = u32;
+type Count = u64;
 
 /// The max hash length.
 pub const OUTBYTES: usize = 8 * size_of::<Word>();
@@ -150,17 +149,10 @@ pub const PERSONALBYTES: usize = 2 * size_of::<Word>();
 pub const BLOCKBYTES: usize = 16 * size_of::<Word>();
 
 const IV: [Word; 8] = [
-    0x6A09E667F3BCC908,
-    0xBB67AE8584CAA73B,
-    0x3C6EF372FE94F82B,
-    0xA54FF53A5F1D36F1,
-    0x510E527FADE682D1,
-    0x9B05688C2B3E6C1F,
-    0x1F83D9ABFB41BD6B,
-    0x5BE0CD19137E2179,
+    0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
 ];
 
-const SIGMA: [[u8; 16]; 12] = [
+const SIGMA: [[u8; 16]; 10] = [
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
     [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
     [11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4],
@@ -171,8 +163,6 @@ const SIGMA: [[u8; 16]; 12] = [
     [13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10],
     [6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5],
     [10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0],
-    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-    [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
 ];
 
 /// Compute the BLAKE2s hash of a slice of bytes all at once, using default
@@ -182,10 +172,9 @@ const SIGMA: [[u8; 16]; 12] = [
 ///
 /// ```
 /// # use blake2s_simd::{blake2s, Params};
-/// let expected = "ca002330e69d3e6b84a46a56a6533fd79d51d97a3bb7cad6c2ff43b354185d6d\
-///                 c1e723fb3db4ae0737e120378424c714bb982d9dc5bbd7a0ab318240ddd18f8d";
+/// let expected = "08d6cad88075de8f192db097573d0e829411cd91eb6ec65e8fc16c017edfdb74";
 /// let hash = blake2s(b"foo");
-/// assert_eq!(&hash.to_hex(), expected);
+/// assert_eq!(expected, &hash.to_hex());
 /// ```
 pub fn blake2s(input: &[u8]) -> Hash {
     Params::new().hash(input)
@@ -243,14 +232,16 @@ impl Params {
             array_refs!(&self.personal, PERSONALBYTES / 2, PERSONALBYTES / 2);
         [
             IV[0]
-                ^ self.hash_length as u64
-                ^ (self.key_length as u64) << 8
-                ^ (self.fanout as u64) << 16
-                ^ (self.max_depth as u64) << 24
-                ^ (self.max_leaf_length as u64) << 32,
-            IV[1] ^ self.node_offset,
-            IV[2] ^ self.node_depth as u64 ^ (self.inner_hash_length as u64) << 8,
-            IV[3],
+                ^ self.hash_length as u32
+                ^ (self.key_length as u32) << 8
+                ^ (self.fanout as u32) << 16
+                ^ (self.max_depth as u32) << 24,
+            IV[1] ^ self.max_leaf_length,
+            IV[2] ^ self.node_offset as u32,
+            IV[3]
+                ^ (self.node_offset >> 32) as u32
+                ^ (self.node_depth as u32) << 16
+                ^ (self.inner_hash_length as u32) << 24,
             IV[4] ^ Word::from_le_bytes(*salt_left),
             IV[5] ^ Word::from_le_bytes(*salt_right),
             IV[6] ^ Word::from_le_bytes(*personal_left),
@@ -286,7 +277,7 @@ impl Params {
         State::with_params(self)
     }
 
-    /// Set the length of the final hash in bytes, from 1 to `OUTBYTES` (64). Apart from
+    /// Set the length of the final hash in bytes, from 1 to `OUTBYTES` (32). Apart from
     /// controlling the length of the final `Hash`, this is also associated data, and changing it
     /// will result in a totally different hash.
     ///
@@ -303,7 +294,7 @@ impl Params {
         self
     }
 
-    /// Use a secret key, so that BLAKE2 acts as a MAC. The maximum key length is `KEYBYTES` (64).
+    /// Use a secret key, so that BLAKE2 acts as a MAC. The maximum key length is `KEYBYTES` (32).
     /// An empty key is equivalent to having no key at all.
     pub fn key(&mut self, key: &[u8]) -> &mut Self {
         assert!(key.len() <= KEYBYTES, "Bad key length: {}", key.len());
@@ -313,7 +304,7 @@ impl Params {
         self
     }
 
-    /// At most `SALTBYTES` (16). Shorter salts are padded with null bytes. An empty salt is
+    /// At most `SALTBYTES` (8). Shorter salts are padded with null bytes. An empty salt is
     /// equivalent to having no salt at all.
     pub fn salt(&mut self, salt: &[u8]) -> &mut Self {
         assert!(salt.len() <= SALTBYTES, "Bad salt length: {}", salt.len());
@@ -322,7 +313,7 @@ impl Params {
         self
     }
 
-    /// At most `PERSONALBYTES` (16). Shorter personalizations are padded with null bytes. An empty
+    /// At most `PERSONALBYTES` (8). Shorter personalizations are padded with null bytes. An empty
     /// personalization is equivalent to having no personalization at all.
     pub fn personal(&mut self, personalization: &[u8]) -> &mut Self {
         assert!(
@@ -354,8 +345,9 @@ impl Params {
         self
     }
 
-    /// From 0 (the default, meaning first, leftmost, leaf, or sequential) to `2^64 - 1`.
+    /// From 0 (the default, meaning first, leftmost, leaf, or sequential) to `2^48 - 1`.
     pub fn node_offset(&mut self, offset: u64) -> &mut Self {
+        assert!(offset < (1 << 48), "Bad node offset: {}", offset);
         self.node_offset = offset;
         self
     }
@@ -366,7 +358,7 @@ impl Params {
         self
     }
 
-    /// From 0 (the default, meaning sequential) to `OUTBYTES` (64).
+    /// From 0 (the default, meaning sequential) to `OUTBYTES` (32).
     ///
     /// Note that the `b2sum` command line utility expects the `--inner-hash-length` flag in bits
     /// rather than bytes, to stay consistent with `--length`. The BLAKE2 standard defines the
