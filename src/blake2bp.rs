@@ -358,25 +358,22 @@ impl State {
     pub fn finalize(&self) -> Hash {
         // Hash whatever's remaining in the buffer and finalize the leaves.
         let buf_len = self.buf_len as usize;
-        let inputs = [
-            &self.buf[cmp::min(0 * BLOCKBYTES, buf_len)..buf_len],
-            &self.buf[cmp::min(1 * BLOCKBYTES, buf_len)..buf_len],
-            &self.buf[cmp::min(2 * BLOCKBYTES, buf_len)..buf_len],
-            &self.buf[cmp::min(3 * BLOCKBYTES, buf_len)..buf_len],
-        ];
         let mut leaves_copy = self.leaf_words;
         let jobs = leaves_copy
             .iter_mut()
             .enumerate()
-            .map(|(leaf_index, leaf_words)| Job {
-                input: inputs[leaf_index],
-                words: leaf_words,
-                count: self.count,
-                last_node: if leaf_index == DEGREE - 1 {
-                    LastNode::Yes
-                } else {
-                    LastNode::No
-                },
+            .map(|(leaf_index, leaf_words)| {
+                let input = &self.buf[cmp::min(leaf_index * BLOCKBYTES, buf_len)..buf_len];
+                Job {
+                    input,
+                    words: leaf_words,
+                    count: self.count,
+                    last_node: if leaf_index == DEGREE - 1 {
+                        LastNode::Yes
+                    } else {
+                        LastNode::No
+                    },
+                }
             });
         many::compress_many(jobs, self.implementation, Finalize::Yes, Stride::Parallel);
 
