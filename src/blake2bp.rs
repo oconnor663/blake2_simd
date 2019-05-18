@@ -481,33 +481,18 @@ pub(crate) mod test {
     // support of the real implementation. We need this because the official test vectors don't
     // include any inputs large enough to exercise all the branches in the buffering logic.
     fn blake2bp_reference(input: &[u8]) -> Hash {
-        let mut leaves = [
-            crate::Params::new()
-                .fanout(DEGREE as u8)
-                .max_depth(2)
-                .node_offset(0)
-                .inner_hash_length(OUTBYTES)
-                .to_state(),
-            crate::Params::new()
-                .fanout(DEGREE as u8)
-                .max_depth(2)
-                .node_offset(1)
-                .inner_hash_length(OUTBYTES)
-                .to_state(),
-            crate::Params::new()
-                .fanout(DEGREE as u8)
-                .max_depth(2)
-                .node_offset(2)
-                .inner_hash_length(OUTBYTES)
-                .to_state(),
-            crate::Params::new()
-                .fanout(DEGREE as u8)
-                .max_depth(2)
-                .node_offset(3)
-                .inner_hash_length(OUTBYTES)
-                .last_node(true)
-                .to_state(),
-        ];
+        let mut leaves = arrayvec::ArrayVec::<[_; DEGREE]>::new();
+        for leaf_index in 0..DEGREE {
+            leaves.push(
+                crate::Params::new()
+                    .fanout(DEGREE as u8)
+                    .max_depth(2)
+                    .node_offset(leaf_index as u64)
+                    .inner_hash_length(OUTBYTES)
+                    .to_state(),
+            );
+        }
+        leaves[DEGREE - 1].set_last_node(true);
         for (i, chunk) in input.chunks(BLOCKBYTES).enumerate() {
             leaves[i % DEGREE].update(chunk);
         }
