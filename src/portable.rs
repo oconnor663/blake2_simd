@@ -70,7 +70,8 @@ fn compress_block(
     ];
 
     // Parse the message bytes as ints in little endian order.
-    let msg_refs = array_refs!(block, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8);
+    const W: usize = size_of::<Word>();
+    let msg_refs = array_refs!(block, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W);
     let m = [
         Word::from_le_bytes(*msg_refs.0),
         Word::from_le_bytes(*msg_refs.1),

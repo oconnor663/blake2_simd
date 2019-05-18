@@ -597,7 +597,8 @@ impl State {
 fn state_words_to_bytes(state_words: &[Word; 8]) -> [u8; OUTBYTES] {
     let mut bytes = [0; OUTBYTES];
     {
-        let refs = mut_array_refs!(&mut bytes, 8, 8, 8, 8, 8, 8, 8, 8);
+        const W: usize = size_of::<Word>();
+        let refs = mut_array_refs!(&mut bytes, W, W, W, W, W, W, W, W);
         *refs.0 = state_words[0].to_le_bytes();
         *refs.1 = state_words[1].to_le_bytes();
         *refs.2 = state_words[2].to_le_bytes();
