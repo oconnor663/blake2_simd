@@ -1,7 +1,6 @@
 use crate::*;
 use arrayref::array_ref;
 use core::cmp;
-use core::mem;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub const MAX_DEGREE: usize = 4;
@@ -97,7 +96,7 @@ impl Implementation {
     pub fn compress1_loop(
         &self,
         input: &[u8],
-        words: &mut u64x8,
+        words: &mut [Word; 8],
         count: Count,
         last_node: LastNode,
         finalize: Finalize,
@@ -135,99 +134,9 @@ impl Implementation {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[repr(C, align(16))]
-pub struct u64x2(pub [u64; 2]);
-
-impl core::ops::Deref for u64x2 {
-    type Target = [u64; 2];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl core::ops::DerefMut for u64x2 {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[repr(C, align(32))]
-pub struct u64x4(pub [u64; 4]);
-
-impl u64x4 {
-    #[inline(always)]
-    pub(crate) fn split(&self) -> &[u64x2; 2] {
-        // Safety note: The 32-byte alignment of u64x4 guarantees that each
-        // half of it will be 16-byte aligned, and the C repr guarantees that
-        // the layout is exactly four packed u64's.
-        unsafe { mem::transmute(self) }
-    }
-
-    #[inline(always)]
-    pub(crate) fn split_mut(&mut self) -> &mut [u64x2; 2] {
-        // Safety note: The 32-byte alignment of u64x4 guarantees that each
-        // half of it will be 16-byte aligned, and the C repr guarantees that
-        // the layout is exactly four packed u64's.
-        unsafe { mem::transmute(self) }
-    }
-}
-
-impl core::ops::Deref for u64x4 {
-    type Target = [u64; 4];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl core::ops::DerefMut for u64x4 {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[repr(C, align(64))]
-pub struct u64x8(pub [u64; 8]);
-
-impl u64x8 {
-    #[inline(always)]
-    pub(crate) fn split(&self) -> &[u64x4; 2] {
-        // Safety note: The 64-byte alignment of u64x8 guarantees that each
-        // half of it will be 32-byte aligned, and the C repr guarantees that
-        // the layout is exactly eight packed u64's.
-        unsafe { mem::transmute(self) }
-    }
-
-    #[inline(always)]
-    pub(crate) fn split_mut(&mut self) -> &mut [u64x4; 2] {
-        // Safety note: The 64-byte alignment of u64x8 guarantees that each
-        // half of it will be 32-byte aligned, and the C repr guarantees that
-        // the layout is exactly eight packed u64's.
-        unsafe { mem::transmute(self) }
-    }
-}
-
-impl core::ops::Deref for u64x8 {
-    type Target = [u64; 8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl core::ops::DerefMut for u64x8 {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 pub struct Job<'a, 'b> {
     pub input: &'a [u8],
-    pub words: &'b mut u64x8,
+    pub words: &'b mut [Word; 8],
     pub count: Count,
     pub last_node: LastNode,
 }
@@ -359,6 +268,7 @@ pub fn input_debug_asserts(input: &[u8], finalize: Finalize) {
 mod test {
     use super::*;
     use arrayvec::ArrayVec;
+    use core::mem::size_of;
 
     #[test]
     fn test_detection() {
@@ -442,7 +352,7 @@ mod test {
         }
     }
 
-    fn initial_test_words(input_index: usize) -> u64x8 {
+    fn initial_test_words(input_index: usize) -> [Word; 8] {
         crate::Params::new()
             .node_offset(input_index as u64)
             .to_words()
@@ -457,7 +367,7 @@ mod test {
         finalize: Finalize,
         mut count: Count,
         input_index: usize,
-    ) -> u64x8 {
+    ) -> [Word; 8] {
         let mut words = initial_test_words(input_index);
         let mut offset = 0;
         while offset == 0 || offset < input.len() {
@@ -655,15 +565,7 @@ mod test {
     }
 
     #[test]
-    fn sanity_check_alignment() {
-        assert_eq!(mem::align_of::<Word>(), mem::size_of::<Word>());
-        assert_eq!(mem::align_of::<u64x2>(), 2 * mem::align_of::<Word>());
-        assert_eq!(mem::align_of::<u64x4>(), 4 * mem::align_of::<Word>());
-        assert_eq!(mem::align_of::<u64x8>(), 8 * mem::align_of::<Word>());
-    }
-
-    #[test]
     fn sanity_check_count_size() {
-        assert_eq!(mem::size_of::<Count>(), 2 * mem::size_of::<Word>());
+        assert_eq!(size_of::<Count>(), 2 * size_of::<Word>());
     }
 }

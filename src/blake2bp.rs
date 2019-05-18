@@ -20,7 +20,7 @@
 //! assert_eq!("e69c7d2c42a5ac14948772231c68c552", &hash.to_hex());
 //! ```
 
-use crate::guts::{self, u64x8, Finalize, Implementation, Job, LastNode, Stride};
+use crate::guts::{Finalize, Implementation, Job, LastNode, Stride};
 use crate::many;
 use crate::Count;
 use crate::Hash;
@@ -79,7 +79,7 @@ impl Params {
         Self::default()
     }
 
-    fn to_words(&self) -> ([u64x8; DEGREE], u64x8) {
+    fn to_words(&self) -> ([[Word; 8]; DEGREE], [Word; 8]) {
         let mut base_params = crate::Params::new();
         base_params
             .hash_length(self.hash_length as usize)
@@ -208,8 +208,8 @@ impl fmt::Debug for Params {
 /// ```
 #[derive(Clone)]
 pub struct State {
-    leaf_words: [guts::u64x8; DEGREE],
-    root_words: guts::u64x8,
+    leaf_words: [[Word; 8]; DEGREE],
+    root_words: [Word; 8],
     // Note that this buffer is twice as large as what compress4 needs. That guarantees that we
     // have enough input when we compress to know we don't need to finalize any of the leaves.
     buf: [u8; 2 * DEGREE * BLOCKBYTES],
@@ -270,7 +270,7 @@ impl State {
     }
 
     fn compress_to_leaves(
-        leaves: &mut [guts::u64x8; DEGREE],
+        leaves: &mut [[Word; 8]; DEGREE],
         input: &[u8],
         count: &mut Count,
         implementation: Implementation,
@@ -443,8 +443,8 @@ impl Default for State {
 // leaf. Note also that, as mentioned above, the root node doesn't hash any key
 // bytes.
 fn finalize_root_words(
-    leaf_words: &[u64x8; DEGREE],
-    root_words: &mut u64x8,
+    leaf_words: &[[Word; 8]; DEGREE],
+    root_words: &mut [Word; 8],
     hash_length: u8,
     imp: Implementation,
 ) -> Hash {

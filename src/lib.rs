@@ -131,8 +131,6 @@ pub mod blake2bp;
 mod guts;
 pub mod many;
 
-use guts::{u64x8, Implementation};
-
 #[cfg(test)]
 mod test;
 
@@ -151,7 +149,7 @@ pub const PERSONALBYTES: usize = 2 * size_of::<Word>();
 /// to use an even multiple of `BLOCKBYTES`, or else their apparent throughput will be low.
 pub const BLOCKBYTES: usize = 16 * size_of::<Word>();
 
-const IV: u64x8 = u64x8([
+const IV: [Word; 8] = [
     0x6A09E667F3BCC908,
     0xBB67AE8584CAA73B,
     0x3C6EF372FE94F82B,
@@ -160,7 +158,7 @@ const IV: u64x8 = u64x8([
     0x9B05688C2B3E6C1F,
     0x1F83D9ABFB41BD6B,
     0x5BE0CD19137E2179,
-]);
+];
 
 const SIGMA: [[u8; 16]; 12] = [
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
@@ -239,11 +237,11 @@ impl Params {
         Self::default()
     }
 
-    fn to_words(&self) -> u64x8 {
+    fn to_words(&self) -> [Word; 8] {
         let (salt_left, salt_right) = array_refs!(&self.salt, SALTBYTES / 2, SALTBYTES / 2);
         let (personal_left, personal_right) =
             array_refs!(&self.personal, PERSONALBYTES / 2, PERSONALBYTES / 2);
-        u64x8([
+        [
             IV[0]
                 ^ self.hash_length as u64
                 ^ (self.key_length as u64) << 8
@@ -257,7 +255,7 @@ impl Params {
             IV[5] ^ Word::from_le_bytes(*salt_right),
             IV[6] ^ Word::from_le_bytes(*personal_left),
             IV[7] ^ Word::from_le_bytes(*personal_right),
-        ])
+        ]
     }
 
     /// Hash an input all at once with these parameters.
@@ -456,13 +454,13 @@ impl fmt::Debug for Params {
 /// ```
 #[derive(Clone)]
 pub struct State {
-    words: guts::u64x8,
+    words: [Word; 8],
     count: Count,
     buf: [u8; BLOCKBYTES],
     buflen: u8,
     last_node: guts::LastNode,
     hash_length: u8,
-    implementation: Implementation,
+    implementation: guts::Implementation,
     is_keyed: bool,
 }
 
@@ -480,7 +478,7 @@ impl State {
             buflen: 0,
             last_node: params.last_node,
             hash_length: params.hash_length,
-            implementation: Implementation::detect(),
+            implementation: guts::Implementation::detect(),
             is_keyed: params.key_length > 0,
         };
         if state.is_keyed {
@@ -595,7 +593,8 @@ impl State {
     }
 }
 
-fn state_words_to_bytes(state_words: &u64x8) -> [u8; OUTBYTES] {
+#[inline(always)]
+fn state_words_to_bytes(state_words: &[Word; 8]) -> [u8; OUTBYTES] {
     let mut bytes = [0; OUTBYTES];
     {
         let refs = mut_array_refs!(&mut bytes, 8, 8, 8, 8, 8, 8, 8, 8);
@@ -721,11 +720,13 @@ fn paint_test_input(buf: &mut [u8]) {
 // This module is pub for internal benchmarks only. Please don't use it.
 #[doc(hidden)]
 pub mod benchmarks {
+    use super::*;
+
     pub fn force_portable(state: &mut crate::State) {
-        state.implementation = crate::guts::Implementation::portable();
+        state.implementation = guts::Implementation::portable();
     }
 
-    pub fn force_portable_blake2bp(state: &mut crate::blake2bp::State) {
+    pub fn force_portable_blake2bp(state: &mut blake2bp::State) {
         crate::blake2bp::force_portable(state);
     }
 }

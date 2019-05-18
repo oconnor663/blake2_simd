@@ -42,12 +42,13 @@
 //! }
 //! ```
 
-use crate::guts::{self, u64x8, Finalize, Implementation, Job, LastNode, Stride};
+use crate::guts::{self, Finalize, Implementation, Job, LastNode, Stride};
 use crate::state_words_to_bytes;
 use crate::Count;
 use crate::Hash;
 use crate::Params;
 use crate::State;
+use crate::Word;
 use crate::BLOCKBYTES;
 use arrayref::array_mut_ref;
 use arrayvec::ArrayVec;
@@ -245,7 +246,7 @@ where
 /// [`hash_many`]: fn.hash_many.html
 /// [`to_hash`]: struct.HashManyJob.html#method.to_hash
 pub struct HashManyJob<'a> {
-    words: u64x8,
+    words: [Word; 8],
     count: Count,
     last_node: LastNode,
     hash_length: u8,

@@ -4,28 +4,30 @@ use core::arch::x86::*;
 use core::arch::x86_64::*;
 
 use crate::guts::{
-    assemble_count, count_high, count_low, final_block, flag_word, input_debug_asserts, u64x4,
-    u64x8, Finalize, Job, LastNode, Stride,
+    assemble_count, count_high, count_low, final_block, flag_word, input_debug_asserts, Finalize,
+    Job, LastNode, Stride,
 };
 use crate::{Count, Word, BLOCKBYTES, IV, SIGMA};
-use arrayref::array_refs;
+use arrayref::{array_refs, mut_array_refs};
 use core::cmp;
 use core::mem;
 
+const DEGREE: usize = 4;
+
 #[inline(always)]
-unsafe fn load_u64x4(a: &u64x4) -> __m256i {
-    // u64x4 is fully aligned, so this load is safe.
-    _mm256_load_si256(a.as_ptr() as *const __m256i)
+unsafe fn loadu(src: *const [Word; DEGREE]) -> __m256i {
+    // This is an unaligned load, so the pointer cast is allowed.
+    _mm256_loadu_si256(src as *const __m256i)
 }
 
 #[inline(always)]
-unsafe fn store_u64x4(a: __m256i, dest: &mut u64x4) {
-    // u64x4 is fully aligned, so this store is safe.
-    _mm256_store_si256(dest.as_mut_ptr() as *mut __m256i, a)
+unsafe fn storeu(src: __m256i, dest: *mut [Word; DEGREE]) {
+    // This is an unaligned store, so the pointer cast is allowed.
+    _mm256_storeu_si256(dest as *mut __m256i, src)
 }
 
 #[inline(always)]
-unsafe fn load_128_unaligned(mem_addr: &[u8; 16]) -> __m128i {
+unsafe fn loadu_128(mem_addr: &[u8; 16]) -> __m128i {
     _mm_loadu_si128(mem_addr.as_ptr() as *const __m128i)
 }
 
@@ -151,26 +153,28 @@ unsafe fn blake2b_undiag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, 
 #[inline(always)]
 unsafe fn compress_block(
     block: &[u8; BLOCKBYTES],
-    words: &mut u64x8,
+    words: &mut [Word; 8],
     count: Count,
     last_block: Word,
     last_node: Word,
 ) {
-    let mut a = load_u64x4(&words.split()[0]);
-    let mut b = load_u64x4(&words.split()[1]);
-    let mut c = load_u64x4(&IV.split()[0]);
+    let (words0, words1) = mut_array_refs!(words, DEGREE, DEGREE);
+    let (iv0, iv1) = array_refs!(&IV, DEGREE, DEGREE);
+    let mut a = loadu(words0);
+    let mut b = loadu(words1);
+    let mut c = loadu(iv0);
     let flags = set4(count_low(count), count_high(count), last_block, last_node);
-    let mut d = xor(load_u64x4(&IV.split()[1]), flags);
+    let mut d = xor(loadu(iv1), flags);
 
     let msg_chunks = array_refs!(block, 16, 16, 16, 16, 16, 16, 16, 16);
-    let m0 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.0));
-    let m1 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.1));
-    let m2 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.2));
-    let m3 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.3));
-    let m4 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.4));
-    let m5 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.5));
-    let m6 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.6));
-    let m7 = _mm256_broadcastsi128_si256(load_128_unaligned(msg_chunks.7));
+    let m0 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.0));
+    let m1 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.1));
+    let m2 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.2));
+    let m3 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.3));
+    let m4 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.4));
+    let m5 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.5));
+    let m6 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.6));
+    let m7 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.7));
 
     let iv0 = a;
     let iv1 = b;
@@ -423,14 +427,14 @@ unsafe fn compress_block(
     a = xor(a, iv0);
     b = xor(b, iv1);
 
-    store_u64x4(a, &mut words.split_mut()[0]);
-    store_u64x4(b, &mut words.split_mut()[1]);
+    storeu(a, words0);
+    storeu(b, words1);
 }
 
 #[target_feature(enable = "avx2")]
 pub unsafe fn compress1_loop(
     input: &[u8],
-    words: &mut u64x8,
+    words: &mut [Word; 8],
     mut count: Count,
     last_node: LastNode,
     finalize: Finalize,
@@ -489,7 +493,7 @@ pub unsafe fn compress1_loop(
 // different Intel microarchitectures. Smaller code size is nice, but a
 // divergence between the BLAKE2b and BLAKE2s implementations is less nice.
 #[inline(always)]
-unsafe fn blake2b_round_4x(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
+unsafe fn round(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
     v[0] = add(v[0], m[SIGMA[r][0] as usize]);
     v[1] = add(v[1], m[SIGMA[r][2] as usize]);
     v[2] = add(v[2], m[SIGMA[r][4] as usize]);
@@ -605,40 +609,6 @@ unsafe fn blake2b_round_4x(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
     v[4] = rot63(v[4]);
 }
 
-#[inline(always)]
-unsafe fn interleave128(a: __m256i, b: __m256i) -> (__m256i, __m256i) {
-    (
-        _mm256_permute2x128_si256(a, b, 0x20),
-        _mm256_permute2x128_si256(a, b, 0x31),
-    )
-}
-
-// There are several ways to do a transposition. We could do it naively, with 8 separate
-// _mm256_set_epi64x instructions, referencing each of the 64 words explicitly. Or we could copy
-// the vecs into contiguous storage and then use gather instructions. This third approach is to use
-// a series of unpack instructions to interleave the vectors. In my benchmarks, interleaving is the
-// fastest approach. To test this, run `cargo +nightly bench --bench libtest load_4` in the
-// https://github.com/oconnor663/bao_experiments repo.
-#[inline(always)]
-unsafe fn transpose_vecs(
-    vec_a: __m256i,
-    vec_b: __m256i,
-    vec_c: __m256i,
-    vec_d: __m256i,
-) -> [__m256i; 4] {
-    // Interleave 64-bit lates. The low unpack is lanes 00/22 and the high is 11/33.
-    let ab_02 = _mm256_unpacklo_epi64(vec_a, vec_b);
-    let ab_13 = _mm256_unpackhi_epi64(vec_a, vec_b);
-    let cd_02 = _mm256_unpacklo_epi64(vec_c, vec_d);
-    let cd_13 = _mm256_unpackhi_epi64(vec_c, vec_d);
-
-    // Interleave 128-bit lanes.
-    let (abcd_0, abcd_2) = interleave128(ab_02, cd_02);
-    let (abcd_1, abcd_3) = interleave128(ab_13, cd_13);
-
-    [abcd_0, abcd_1, abcd_2, abcd_3]
-}
-
 // We'd rather make this a regular function with #[inline(always)], but for
 // some reason that blows up compile times by about 10 seconds, at least in
 // some cases (BLAKE2b avx2.rs). This macro seems to get the same performance
@@ -678,18 +648,18 @@ macro_rules! compress4_transposed {
             xor(set1(IV[7]), lastnode),
         ];
 
-        blake2b_round_4x(&mut v, &msg_vecs, 0);
-        blake2b_round_4x(&mut v, &msg_vecs, 1);
-        blake2b_round_4x(&mut v, &msg_vecs, 2);
-        blake2b_round_4x(&mut v, &msg_vecs, 3);
-        blake2b_round_4x(&mut v, &msg_vecs, 4);
-        blake2b_round_4x(&mut v, &msg_vecs, 5);
-        blake2b_round_4x(&mut v, &msg_vecs, 6);
-        blake2b_round_4x(&mut v, &msg_vecs, 7);
-        blake2b_round_4x(&mut v, &msg_vecs, 8);
-        blake2b_round_4x(&mut v, &msg_vecs, 9);
-        blake2b_round_4x(&mut v, &msg_vecs, 10);
-        blake2b_round_4x(&mut v, &msg_vecs, 11);
+        round(&mut v, &msg_vecs, 0);
+        round(&mut v, &msg_vecs, 1);
+        round(&mut v, &msg_vecs, 2);
+        round(&mut v, &msg_vecs, 3);
+        round(&mut v, &msg_vecs, 4);
+        round(&mut v, &msg_vecs, 5);
+        round(&mut v, &msg_vecs, 6);
+        round(&mut v, &msg_vecs, 7);
+        round(&mut v, &msg_vecs, 8);
+        round(&mut v, &msg_vecs, 9);
+        round(&mut v, &msg_vecs, 10);
+        round(&mut v, &msg_vecs, 11);
 
         h_vecs[0] = xor(xor(h_vecs[0], v[0]), v[8]);
         h_vecs[1] = xor(xor(h_vecs[1], v[1]), v[9]);
@@ -700,6 +670,40 @@ macro_rules! compress4_transposed {
         h_vecs[6] = xor(xor(h_vecs[6], v[6]), v[14]);
         h_vecs[7] = xor(xor(h_vecs[7], v[7]), v[15]);
     };
+}
+
+#[inline(always)]
+unsafe fn interleave128(a: __m256i, b: __m256i) -> (__m256i, __m256i) {
+    (
+        _mm256_permute2x128_si256(a, b, 0x20),
+        _mm256_permute2x128_si256(a, b, 0x31),
+    )
+}
+
+// There are several ways to do a transposition. We could do it naively, with 8 separate
+// _mm256_set_epi64x instructions, referencing each of the 64 words explicitly. Or we could copy
+// the vecs into contiguous storage and then use gather instructions. This third approach is to use
+// a series of unpack instructions to interleave the vectors. In my benchmarks, interleaving is the
+// fastest approach. To test this, run `cargo +nightly bench --bench libtest load_4` in the
+// https://github.com/oconnor663/bao_experiments repo.
+#[inline(always)]
+unsafe fn transpose_vecs(
+    vec_a: __m256i,
+    vec_b: __m256i,
+    vec_c: __m256i,
+    vec_d: __m256i,
+) -> [__m256i; DEGREE] {
+    // Interleave 64-bit lates. The low unpack is lanes 00/22 and the high is 11/33.
+    let ab_02 = _mm256_unpacklo_epi64(vec_a, vec_b);
+    let ab_13 = _mm256_unpackhi_epi64(vec_a, vec_b);
+    let cd_02 = _mm256_unpacklo_epi64(vec_c, vec_d);
+    let cd_13 = _mm256_unpackhi_epi64(vec_c, vec_d);
+
+    // Interleave 128-bit lanes.
+    let (abcd_0, abcd_2) = interleave128(ab_02, cd_02);
+    let (abcd_1, abcd_3) = interleave128(ab_13, cd_13);
+
+    [abcd_0, abcd_1, abcd_2, abcd_3]
 }
 
 #[inline(always)]
@@ -714,74 +718,80 @@ unsafe fn add_to_counts(lo: &mut __m256i, hi: &mut __m256i, delta: __m256i) {
 }
 
 #[inline(always)]
-unsafe fn transpose_state_vecs(jobs: &[Job; 4]) -> [__m256i; 8] {
+unsafe fn transpose_state_vecs(jobs: &[Job; DEGREE]) -> [__m256i; 8] {
     // Load all the state words into transposed vectors, where the first vector
-    // has the first word of each state, etc. This is the form that 4-way
-    // compression operates on, and transposing once at the beginning and once
-    // at the end is more efficient that repeating it for each block. Note that
-    // these loads are aligned, because u64x4 and u64x8 guarantee alignment.
+    // has the first word of each state, etc. Transposing once at the beginning
+    // and once at the end is more efficient that repeating it for each block.
+    let words0 = array_refs!(&jobs[0].words, DEGREE, DEGREE);
+    let words1 = array_refs!(&jobs[1].words, DEGREE, DEGREE);
+    let words2 = array_refs!(&jobs[2].words, DEGREE, DEGREE);
+    let words3 = array_refs!(&jobs[3].words, DEGREE, DEGREE);
     let [h0, h1, h2, h3] = transpose_vecs(
-        load_u64x4(&jobs[0].words.split()[0]),
-        load_u64x4(&jobs[1].words.split()[0]),
-        load_u64x4(&jobs[2].words.split()[0]),
-        load_u64x4(&jobs[3].words.split()[0]),
+        loadu(words0.0),
+        loadu(words1.0),
+        loadu(words2.0),
+        loadu(words3.0),
     );
     let [h4, h5, h6, h7] = transpose_vecs(
-        load_u64x4(&jobs[0].words.split()[1]),
-        load_u64x4(&jobs[1].words.split()[1]),
-        load_u64x4(&jobs[2].words.split()[1]),
-        load_u64x4(&jobs[3].words.split()[1]),
+        loadu(words0.1),
+        loadu(words1.1),
+        loadu(words2.1),
+        loadu(words3.1),
     );
     [h0, h1, h2, h3, h4, h5, h6, h7]
 }
 
 #[inline(always)]
-unsafe fn untranspose_state_vecs(h_vecs: &[__m256i; 8], jobs: &mut [Job; 4]) {
+unsafe fn untranspose_state_vecs(h_vecs: &[__m256i; 8], jobs: &mut [Job; DEGREE]) {
     // Un-transpose the updated state vectors back into the caller's arrays.
-    // These are aligned stores.
-    let low_words = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
-    store_u64x4(low_words[0], &mut jobs[0].words.split_mut()[0]);
-    store_u64x4(low_words[1], &mut jobs[1].words.split_mut()[0]);
-    store_u64x4(low_words[2], &mut jobs[2].words.split_mut()[0]);
-    store_u64x4(low_words[3], &mut jobs[3].words.split_mut()[0]);
-    let high_words = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
-    store_u64x4(high_words[0], &mut jobs[0].words.split_mut()[1]);
-    store_u64x4(high_words[1], &mut jobs[1].words.split_mut()[1]);
-    store_u64x4(high_words[2], &mut jobs[2].words.split_mut()[1]);
-    store_u64x4(high_words[3], &mut jobs[3].words.split_mut()[1]);
+    let [job0, job1, job2, job3] = jobs;
+    let words0 = mut_array_refs!(&mut job0.words, DEGREE, DEGREE);
+    let words1 = mut_array_refs!(&mut job1.words, DEGREE, DEGREE);
+    let words2 = mut_array_refs!(&mut job2.words, DEGREE, DEGREE);
+    let words3 = mut_array_refs!(&mut job3.words, DEGREE, DEGREE);
+    let out = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
+    storeu(out[0], words0.0);
+    storeu(out[1], words1.0);
+    storeu(out[2], words2.0);
+    storeu(out[3], words3.0);
+    let out = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
+    storeu(out[0], words0.1);
+    storeu(out[1], words1.1);
+    storeu(out[2], words2.1);
+    storeu(out[3], words3.1);
 }
 
 #[inline(always)]
-unsafe fn transpose_msg_vecs(blocks: [*const u8; 4]) -> [__m256i; 16] {
+unsafe fn transpose_msg_vecs(blocks: [*const [u8; BLOCKBYTES]; DEGREE]) -> [__m256i; 16] {
     // These input arrays have no particular alignment, so we use unaligned
     // loads to read from them.
-    let ptr0 = blocks[0] as *const __m256i;
-    let ptr1 = blocks[1] as *const __m256i;
-    let ptr2 = blocks[2] as *const __m256i;
-    let ptr3 = blocks[3] as *const __m256i;
+    let block0 = blocks[0] as *const [Word; DEGREE];
+    let block1 = blocks[1] as *const [Word; DEGREE];
+    let block2 = blocks[2] as *const [Word; DEGREE];
+    let block3 = blocks[3] as *const [Word; DEGREE];
     let [m0, m1, m2, m3] = transpose_vecs(
-        _mm256_loadu_si256(ptr0.add(0)),
-        _mm256_loadu_si256(ptr1.add(0)),
-        _mm256_loadu_si256(ptr2.add(0)),
-        _mm256_loadu_si256(ptr3.add(0)),
+        loadu(block0.add(0)),
+        loadu(block1.add(0)),
+        loadu(block2.add(0)),
+        loadu(block3.add(0)),
     );
     let [m4, m5, m6, m7] = transpose_vecs(
-        _mm256_loadu_si256(ptr0.add(1)),
-        _mm256_loadu_si256(ptr1.add(1)),
-        _mm256_loadu_si256(ptr2.add(1)),
-        _mm256_loadu_si256(ptr3.add(1)),
+        loadu(block0.add(1)),
+        loadu(block1.add(1)),
+        loadu(block2.add(1)),
+        loadu(block3.add(1)),
     );
     let [m8, m9, m10, m11] = transpose_vecs(
-        _mm256_loadu_si256(ptr0.add(2)),
-        _mm256_loadu_si256(ptr1.add(2)),
-        _mm256_loadu_si256(ptr2.add(2)),
-        _mm256_loadu_si256(ptr3.add(2)),
+        loadu(block0.add(2)),
+        loadu(block1.add(2)),
+        loadu(block2.add(2)),
+        loadu(block3.add(2)),
     );
     let [m12, m13, m14, m15] = transpose_vecs(
-        _mm256_loadu_si256(ptr0.add(3)),
-        _mm256_loadu_si256(ptr1.add(3)),
-        _mm256_loadu_si256(ptr2.add(3)),
-        _mm256_loadu_si256(ptr3.add(3)),
+        loadu(block0.add(3)),
+        loadu(block1.add(3)),
+        loadu(block2.add(3)),
+        loadu(block3.add(3)),
     );
     [
         m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15,
@@ -789,7 +799,7 @@ unsafe fn transpose_msg_vecs(blocks: [*const u8; 4]) -> [__m256i; 16] {
 }
 
 #[inline(always)]
-unsafe fn load_counts(jobs: &[Job; 4]) -> (__m256i, __m256i) {
+unsafe fn load_counts(jobs: &[Job; DEGREE]) -> (__m256i, __m256i) {
     (
         set4(
             count_low(jobs[0].count),
@@ -807,16 +817,16 @@ unsafe fn load_counts(jobs: &[Job; 4]) -> (__m256i, __m256i) {
 }
 
 #[inline(always)]
-unsafe fn store_counts(jobs: &mut [Job; 4], low: __m256i, high: __m256i) {
-    let low_ints: [Word; 4] = mem::transmute(low);
-    let high_ints: [Word; 4] = mem::transmute(high);
-    for i in 0..jobs.len() {
+unsafe fn store_counts(jobs: &mut [Job; DEGREE], low: __m256i, high: __m256i) {
+    let low_ints: [Word; DEGREE] = mem::transmute(low);
+    let high_ints: [Word; DEGREE] = mem::transmute(high);
+    for i in 0..DEGREE {
         jobs[i].count = assemble_count(low_ints[i], high_ints[i]);
     }
 }
 
 #[inline(always)]
-unsafe fn flags_vec(flags: [bool; 4]) -> __m256i {
+unsafe fn flags_vec(flags: [bool; DEGREE]) -> __m256i {
     set4(
         flag_word(flags[0]),
         flag_word(flags[1]),
@@ -826,7 +836,7 @@ unsafe fn flags_vec(flags: [bool; 4]) -> __m256i {
 }
 
 #[target_feature(enable = "avx2")]
-pub unsafe fn compress4_loop(jobs: &mut [Job; 4], finalize: Finalize, stride: Stride) {
+pub unsafe fn compress4_loop(jobs: &mut [Job; DEGREE], finalize: Finalize, stride: Stride) {
     // If we're not finalizing, there can't be a partial block at the end.
     for job in jobs.iter() {
         input_debug_asserts(job.input, finalize);
@@ -856,12 +866,7 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4], finalize: Finalize, stride: St
     let (block1, len1, finalize1) = final_block(jobs[1].input, fin_offset, &mut buf1, stride);
     let (block2, len2, finalize2) = final_block(jobs[2].input, fin_offset, &mut buf2, stride);
     let (block3, len3, finalize3) = final_block(jobs[3].input, fin_offset, &mut buf3, stride);
-    let fin_blocks = [
-        block0.as_ptr(),
-        block1.as_ptr(),
-        block2.as_ptr(),
-        block3.as_ptr(),
-    ];
+    let fin_blocks: [*const [u8; BLOCKBYTES]; DEGREE] = [block0, block1, block2, block3];
     let fin_counts_delta = set4(len0 as Word, len1 as Word, len2 as Word, len3 as Word);
     let fin_last_block;
     let fin_last_node;
@@ -892,10 +897,10 @@ pub unsafe fn compress4_loop(jobs: &mut [Job; 4], finalize: Finalize, stride: St
             last_node = fin_last_node;
         } else {
             blocks = [
-                msg_ptrs[0].add(offset),
-                msg_ptrs[1].add(offset),
-                msg_ptrs[2].add(offset),
-                msg_ptrs[3].add(offset),
+                msg_ptrs[0].add(offset) as *const [u8; BLOCKBYTES],
+                msg_ptrs[1].add(offset) as *const [u8; BLOCKBYTES],
+                msg_ptrs[2].add(offset) as *const [u8; BLOCKBYTES],
+                msg_ptrs[3].add(offset) as *const [u8; BLOCKBYTES],
             ];
             counts_delta = set1(BLOCKBYTES as Word);
             last_block = set1(0);

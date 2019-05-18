@@ -2,8 +2,7 @@ use arrayref::{array_ref, array_refs};
 
 use super::*;
 use crate::guts::{
-    count_high, count_low, final_block, flag_word, input_debug_asserts, u64x8, Finalize, LastNode,
-    Stride,
+    count_high, count_low, final_block, flag_word, input_debug_asserts, Finalize, LastNode, Stride,
 };
 
 // G is the mixing function, called eight times per round in the compression
@@ -45,7 +44,7 @@ fn round(r: usize, m: &[Word; 16], v: &mut [Word; 16]) {
 #[inline(always)]
 fn compress_block(
     block: &[u8; BLOCKBYTES],
-    words: &mut u64x8,
+    words: &mut [Word; 8],
     count: Count,
     last_block: Word,
     last_node: Word,
@@ -116,7 +115,7 @@ fn compress_block(
 
 pub fn compress1_loop(
     input: &[u8],
-    words: &mut u64x8,
+    words: &mut [Word; 8],
     mut count: Count,
     last_node: LastNode,
     finalize: Finalize,
