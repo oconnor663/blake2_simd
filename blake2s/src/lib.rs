@@ -120,8 +120,8 @@ use core::cmp;
 use core::fmt;
 use core::mem::size_of;
 
-// #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-// mod avx2;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+mod avx2;
 mod portable;
 // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 // mod sse41;
