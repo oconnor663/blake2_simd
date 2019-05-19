@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 blake2b_simd = { path = "../.." }
+blake2s_simd = { path = "../../blake2s" }
 blake2-avx2-sneves = { path = "../blake2-avx2-sneves", optional = true }
 kangarootwelve = { path = "../kangarootwelve", optional = true }
 libsodium-ffi = { version = "0.1.12", optional = true }
