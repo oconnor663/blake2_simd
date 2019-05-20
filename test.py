@@ -13,19 +13,20 @@ TARGETS = [
 ]
 
 
-def do(*args, cwd):
-    print("=== TEST COMMAND ===")
-    print("cd", cwd, "&&", " ".join(args))
-    print()
-    subprocess.run(args, check=True, cwd=cwd)
-
-
 def main():
     os.environ["CARGO_TARGET_DIR"] = str((HERE / "target").absolute())
 
     for target in TARGETS:
-        do("cargo", "test", "--all-features", cwd=target)
-        do("cargo", "test", "--no-default-features", cwd=target)
+        for features in ["--all-features", "--no-default-features"]:
+            for release in [False, True]:
+                command = ["cargo", "test"]
+                command.append(features)
+                if release:
+                    command.append("--release")
+                print("=== TEST COMMAND ===")
+                print("cd", target, "&&", " ".join(command))
+                print()
+                subprocess.run(command, check=True, cwd=target)
 
 
 if __name__ == "__main__":

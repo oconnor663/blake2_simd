@@ -73,6 +73,8 @@ fn bench_blake2b_portable_one_block(b: &mut Bencher) {
     let mut input = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
     b.iter(|| {
         let mut state = blake2b_simd::State::new();
+        // TODO: Put an implementation parameter on the params object, so we
+        // don't have to pay the copying overhead of update.
         blake2b_simd::benchmarks::force_portable(&mut state);
         state.update(input.get());
         state.finalize()
