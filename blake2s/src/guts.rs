@@ -103,13 +103,11 @@ impl Implementation {
         stride: Stride,
     ) {
         match self.0 {
-            // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            // Platform::AVX2 => unsafe {
-            //     avx2::compress1_loop(input, words, count, last_node, finalize, stride);
-            // },
-            // Note that there's an SSE version of compress1 in the official C
-            // implementation, but I haven't ported it yet.
-            _ => {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::AVX2 | Platform::SSE41 => unsafe {
+                sse41::compress1_loop(input, words, count, last_node, finalize, stride);
+            },
+            Platform::Portable => {
                 portable::compress1_loop(input, words, count, last_node, finalize, stride);
             }
         }
@@ -423,24 +421,22 @@ mod test {
         exercise_compress1_loop(Implementation::portable());
     }
 
-    // TODO
-    // #[test]
-    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    // fn test_compress1_loop_sse41() {
-    //     // Currently this just falls back to portable, but we test it anyway.
-    //     if let Some(imp) = Implementation::sse41_if_supported() {
-    //         exercise_compress1_loop(imp);
-    //     }
-    // }
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_compress1_loop_sse41() {
+        if let Some(imp) = Implementation::sse41_if_supported() {
+            exercise_compress1_loop(imp);
+        }
+    }
 
-    // TODO
-    // #[test]
-    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    // fn test_compress1_loop_avx2() {
-    //     if let Some(imp) = Implementation::avx2_if_supported() {
-    //         exercise_compress1_loop(imp);
-    //     }
-    // }
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_compress1_loop_avx2() {
+        // Currently this just falls back to SSE4.1, but we test it anyway.
+        if let Some(imp) = Implementation::avx2_if_supported() {
+            exercise_compress1_loop(imp);
+        }
+    }
 
     // I use ArrayVec everywhere in here becuase currently these tests pass
     // under no_std. I might decide that's not worth maintaining at some point,

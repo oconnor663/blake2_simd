@@ -103,13 +103,7 @@ unsafe fn rot63(x: __m256i) -> __m256i {
 }
 
 #[inline(always)]
-unsafe fn blake2b_g1_v1(
-    a: &mut __m256i,
-    b: &mut __m256i,
-    c: &mut __m256i,
-    d: &mut __m256i,
-    m: &mut __m256i,
-) {
+unsafe fn g1(a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, d: &mut __m256i, m: &mut __m256i) {
     *a = add(*a, *m);
     *a = add(*a, *b);
     *d = xor(*d, *a);
@@ -120,13 +114,7 @@ unsafe fn blake2b_g1_v1(
 }
 
 #[inline(always)]
-unsafe fn blake2b_g2_v1(
-    a: &mut __m256i,
-    b: &mut __m256i,
-    c: &mut __m256i,
-    d: &mut __m256i,
-    m: &mut __m256i,
-) {
+unsafe fn g2(a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, d: &mut __m256i, m: &mut __m256i) {
     *a = add(*a, *m);
     *a = add(*a, *b);
     *d = xor(*d, *a);
@@ -137,14 +125,14 @@ unsafe fn blake2b_g2_v1(
 }
 
 #[inline(always)]
-unsafe fn blake2b_diag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, d: &mut __m256i) {
+unsafe fn diagonalize(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, d: &mut __m256i) {
     *d = _mm256_permute4x64_epi64(*d, _MM_SHUFFLE!(2, 1, 0, 3));
     *c = _mm256_permute4x64_epi64(*c, _MM_SHUFFLE!(1, 0, 3, 2));
     *b = _mm256_permute4x64_epi64(*b, _MM_SHUFFLE!(0, 3, 2, 1));
 }
 
 #[inline(always)]
-unsafe fn blake2b_undiag_v1(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, d: &mut __m256i) {
+unsafe fn undiagonalize(_a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, d: &mut __m256i) {
     *d = _mm256_permute4x64_epi64(*d, _MM_SHUFFLE!(0, 3, 2, 1));
     *c = _mm256_permute4x64_epi64(*c, _MM_SHUFFLE!(1, 0, 3, 2));
     *b = _mm256_permute4x64_epi64(*b, _MM_SHUFFLE!(2, 1, 0, 3));
@@ -158,13 +146,13 @@ unsafe fn compress_block(
     last_block: Word,
     last_node: Word,
 ) {
-    let (words0, words1) = mut_array_refs!(words, DEGREE, DEGREE);
-    let (iv0, iv1) = array_refs!(&IV, DEGREE, DEGREE);
-    let mut a = loadu(words0);
-    let mut b = loadu(words1);
-    let mut c = loadu(iv0);
+    let (words_low, words_high) = mut_array_refs!(words, DEGREE, DEGREE);
+    let (iv_low, iv_high) = array_refs!(&IV, DEGREE, DEGREE);
+    let mut a = loadu(words_low);
+    let mut b = loadu(words_high);
+    let mut c = loadu(iv_low);
     let flags = set4(count_low(count), count_high(count), last_block, last_node);
-    let mut d = xor(loadu(iv1), flags);
+    let mut d = xor(loadu(iv_high), flags);
 
     let msg_chunks = array_refs!(block, 16, 16, 16, 16, 16, 16, 16, 16);
     let m0 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.0));
@@ -182,253 +170,253 @@ unsafe fn compress_block(
     let mut t1;
     let mut b0;
 
-    // round 0
+    // round 1
     t0 = _mm256_unpacklo_epi64(m0, m1);
     t1 = _mm256_unpacklo_epi64(m2, m3);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpackhi_epi64(m0, m1);
     t1 = _mm256_unpackhi_epi64(m2, m3);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_diag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    diagonalize(&mut a, &mut b, &mut c, &mut d);
     t0 = _mm256_unpacklo_epi64(m4, m5);
     t1 = _mm256_unpacklo_epi64(m6, m7);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpackhi_epi64(m4, m5);
     t1 = _mm256_unpackhi_epi64(m6, m7);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
-    // round 1
+    // round 2
     t0 = _mm256_unpacklo_epi64(m7, m2);
     t1 = _mm256_unpackhi_epi64(m4, m6);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpacklo_epi64(m5, m4);
     t1 = _mm256_alignr_epi8(m3, m7, 8);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_diag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    diagonalize(&mut a, &mut b, &mut c, &mut d);
     t0 = _mm256_shuffle_epi32(m0, _MM_SHUFFLE!(1, 0, 3, 2));
     t1 = _mm256_unpackhi_epi64(m5, m2);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpacklo_epi64(m6, m1);
     t1 = _mm256_unpackhi_epi64(m3, m1);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
-    // round 2
+    // round 3
     t0 = _mm256_alignr_epi8(m6, m5, 8);
     t1 = _mm256_unpackhi_epi64(m2, m7);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpacklo_epi64(m4, m0);
     t1 = _mm256_blend_epi32(m6, m1, 0x33);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_diag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    diagonalize(&mut a, &mut b, &mut c, &mut d);
     t0 = _mm256_blend_epi32(m1, m5, 0x33);
     t1 = _mm256_unpackhi_epi64(m3, m4);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpacklo_epi64(m7, m3);
     t1 = _mm256_alignr_epi8(m2, m0, 8);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
-    // round 3
+    // round 4
     t0 = _mm256_unpackhi_epi64(m3, m1);
     t1 = _mm256_unpackhi_epi64(m6, m5);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpackhi_epi64(m4, m0);
     t1 = _mm256_unpacklo_epi64(m6, m7);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_diag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    diagonalize(&mut a, &mut b, &mut c, &mut d);
     t0 = _mm256_blend_epi32(m2, m1, 0x33);
     t1 = _mm256_blend_epi32(m7, m2, 0x33);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpacklo_epi64(m3, m5);
     t1 = _mm256_unpacklo_epi64(m0, m4);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
-    // round 4
+    // round 5
     t0 = _mm256_unpackhi_epi64(m4, m2);
     t1 = _mm256_unpacklo_epi64(m1, m5);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_blend_epi32(m3, m0, 0x33);
     t1 = _mm256_blend_epi32(m7, m2, 0x33);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_diag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    diagonalize(&mut a, &mut b, &mut c, &mut d);
     t0 = _mm256_blend_epi32(m5, m7, 0x33);
     t1 = _mm256_blend_epi32(m1, m3, 0x33);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_alignr_epi8(m6, m0, 8);
     t1 = _mm256_blend_epi32(m6, m4, 0x33);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
-    // round 5
+    // round 6
     t0 = _mm256_unpacklo_epi64(m1, m3);
     t1 = _mm256_unpacklo_epi64(m0, m4);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpacklo_epi64(m6, m5);
     t1 = _mm256_unpackhi_epi64(m5, m1);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_diag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    diagonalize(&mut a, &mut b, &mut c, &mut d);
     t0 = _mm256_blend_epi32(m3, m2, 0x33);
     t1 = _mm256_unpackhi_epi64(m7, m0);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpackhi_epi64(m6, m2);
     t1 = _mm256_blend_epi32(m4, m7, 0x33);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
-    // round 6
+    // round 7
     t0 = _mm256_blend_epi32(m0, m6, 0x33);
     t1 = _mm256_unpacklo_epi64(m7, m2);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpackhi_epi64(m2, m7);
     t1 = _mm256_alignr_epi8(m5, m6, 8);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_diag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    diagonalize(&mut a, &mut b, &mut c, &mut d);
     t0 = _mm256_unpacklo_epi64(m0, m3);
     t1 = _mm256_shuffle_epi32(m4, _MM_SHUFFLE!(1, 0, 3, 2));
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpackhi_epi64(m3, m1);
     t1 = _mm256_blend_epi32(m5, m1, 0x33);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
-    // round 7
+    // round 8
     t0 = _mm256_unpackhi_epi64(m6, m3);
     t1 = _mm256_blend_epi32(m1, m6, 0x33);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_alignr_epi8(m7, m5, 8);
     t1 = _mm256_unpackhi_epi64(m0, m4);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_diag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    diagonalize(&mut a, &mut b, &mut c, &mut d);
     t0 = _mm256_unpackhi_epi64(m2, m7);
     t1 = _mm256_unpacklo_epi64(m4, m1);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpacklo_epi64(m0, m2);
     t1 = _mm256_unpacklo_epi64(m3, m5);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
-    // round 8
+    // round 9
     t0 = _mm256_unpacklo_epi64(m3, m7);
     t1 = _mm256_alignr_epi8(m0, m5, 8);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpackhi_epi64(m7, m4);
     t1 = _mm256_alignr_epi8(m4, m1, 8);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_diag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    diagonalize(&mut a, &mut b, &mut c, &mut d);
     t0 = m6;
     t1 = _mm256_alignr_epi8(m5, m0, 8);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_blend_epi32(m3, m1, 0x33);
     t1 = m2;
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
-    // round 9
+    // round 10
     t0 = _mm256_unpacklo_epi64(m5, m4);
     t1 = _mm256_unpackhi_epi64(m3, m0);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpacklo_epi64(m1, m2);
     t1 = _mm256_blend_epi32(m2, m3, 0x33);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_diag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    diagonalize(&mut a, &mut b, &mut c, &mut d);
     t0 = _mm256_unpackhi_epi64(m7, m4);
     t1 = _mm256_unpackhi_epi64(m1, m6);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_alignr_epi8(m7, m5, 8);
     t1 = _mm256_unpacklo_epi64(m6, m0);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
-    // round 10
+    // round 11
     t0 = _mm256_unpacklo_epi64(m0, m1);
     t1 = _mm256_unpacklo_epi64(m2, m3);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpackhi_epi64(m0, m1);
     t1 = _mm256_unpackhi_epi64(m2, m3);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_diag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    diagonalize(&mut a, &mut b, &mut c, &mut d);
     t0 = _mm256_unpacklo_epi64(m4, m5);
     t1 = _mm256_unpacklo_epi64(m6, m7);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpackhi_epi64(m4, m5);
     t1 = _mm256_unpackhi_epi64(m6, m7);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
-    // round 11
+    // round 12
     t0 = _mm256_unpacklo_epi64(m7, m2);
     t1 = _mm256_unpackhi_epi64(m4, m6);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpacklo_epi64(m5, m4);
     t1 = _mm256_alignr_epi8(m3, m7, 8);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_diag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    diagonalize(&mut a, &mut b, &mut c, &mut d);
     t0 = _mm256_shuffle_epi32(m0, _MM_SHUFFLE!(1, 0, 3, 2));
     t1 = _mm256_unpackhi_epi64(m5, m2);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g1_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    g1(&mut a, &mut b, &mut c, &mut d, &mut b0);
     t0 = _mm256_unpacklo_epi64(m6, m1);
     t1 = _mm256_unpackhi_epi64(m3, m1);
     b0 = _mm256_blend_epi32(t0, t1, 0xF0);
-    blake2b_g2_v1(&mut a, &mut b, &mut c, &mut d, &mut b0);
-    blake2b_undiag_v1(&mut a, &mut b, &mut c, &mut d);
+    g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
+    undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
     a = xor(a, c);
     b = xor(b, d);
     a = xor(a, iv0);
     b = xor(b, iv1);
 
-    storeu(a, words0);
-    storeu(b, words1);
+    storeu(a, words_low);
+    storeu(b, words_high);
 }
 
 #[target_feature(enable = "avx2")]

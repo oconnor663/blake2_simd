@@ -51,21 +51,9 @@ fn bench_blake2b_avx2_one_block(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2s_avx2_one_block(b: &mut Bencher) {
-    let mut input = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
-    b.iter(|| blake2s_simd::blake2s(input.get()));
-}
-
-#[bench]
 fn bench_blake2b_avx2_one_mb(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| blake2b_simd::blake2b(input.get()));
-}
-
-#[bench]
-fn bench_blake2s_avx2_one_mb(b: &mut Bencher) {
-    let mut input = RandomInput::new(b, MB);
-    b.iter(|| blake2s_simd::blake2s(input.get()));
 }
 
 #[bench]
@@ -82,22 +70,34 @@ fn bench_blake2b_portable_one_block(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2s_portable_one_block(b: &mut Bencher) {
-    let mut input = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+fn bench_blake2b_portable_one_mb(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, MB);
     b.iter(|| {
-        let mut state = blake2s_simd::State::new();
-        blake2s_simd::benchmarks::force_portable(&mut state);
+        let mut state = blake2b_simd::State::new();
+        blake2b_simd::benchmarks::force_portable(&mut state);
         state.update(input.get());
         state.finalize()
     });
 }
 
 #[bench]
-fn bench_blake2b_portable_one_mb(b: &mut Bencher) {
+fn bench_blake2s_sse41_one_block(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    b.iter(|| blake2s_simd::blake2s(input.get()));
+}
+
+#[bench]
+fn bench_blake2s_sse41_one_mb(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
+    b.iter(|| blake2s_simd::blake2s(input.get()));
+}
+
+#[bench]
+fn bench_blake2s_portable_one_block(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
     b.iter(|| {
-        let mut state = blake2b_simd::State::new();
-        blake2b_simd::benchmarks::force_portable(&mut state);
+        let mut state = blake2s_simd::State::new();
+        blake2s_simd::benchmarks::force_portable(&mut state);
         state.update(input.get());
         state.finalize()
     });
