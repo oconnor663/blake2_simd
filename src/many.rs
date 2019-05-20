@@ -370,18 +370,14 @@ mod test {
     fn test_degree() {
         assert!(degree() <= MAX_DEGREE);
 
-        // Make reference to BLAKE2bp to avoid copy/paste errors between
-        // BLAKE2b/BLAKE2s.
-        const AVX2_DEGREE: usize = crate::blake2bp::DEGREE;
-
         #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         #[cfg(feature = "std")]
         {
             if is_x86_feature_detected!("avx2") {
-                assert!(degree() >= AVX2_DEGREE);
+                assert!(degree() >= 4);
             }
             if is_x86_feature_detected!("sse4.1") {
-                assert!(degree() >= AVX2_DEGREE / 2);
+                assert!(degree() >= 2);
             }
         }
     }

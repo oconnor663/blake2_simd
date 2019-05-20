@@ -237,14 +237,14 @@ macro_rules! compress2_transposed {
             h_vecs[5],
             h_vecs[6],
             h_vecs[7],
-            _mm_set1_epi64x(IV[0] as i64),
-            _mm_set1_epi64x(IV[1] as i64),
-            _mm_set1_epi64x(IV[2] as i64),
-            _mm_set1_epi64x(IV[3] as i64),
-            xor(_mm_set1_epi64x(IV[4] as i64), count_low),
-            xor(_mm_set1_epi64x(IV[5] as i64), count_high),
-            xor(_mm_set1_epi64x(IV[6] as i64), lastblock),
-            xor(_mm_set1_epi64x(IV[7] as i64), lastnode),
+            set1(IV[0]),
+            set1(IV[1]),
+            set1(IV[2]),
+            set1(IV[3]),
+            xor(set1(IV[4]), count_low),
+            xor(set1(IV[5]), count_high),
+            xor(set1(IV[6]), lastblock),
+            xor(set1(IV[7]), lastnode),
         ];
 
         round(&mut v, &msg_vecs, 0);

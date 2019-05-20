@@ -87,10 +87,9 @@ impl Implementation {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => avx2::DEGREE,
-            // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            // Platform::SSE41 => 2,
-            // Platform::Portable => 1,
-            _ => 1,
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::SSE41 => 2,
+            Platform::Portable => 1,
         }
     }
 
@@ -118,10 +117,10 @@ impl Implementation {
 
     pub fn compress4_loop(&self, jobs: &mut [Job; 4], finalize: Finalize, stride: Stride) {
         match self.0 {
-            // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            // Platform::AVX2 | Platform::SSE41 => unsafe {
-            //     sse41::compress2_loop(jobs, finalize, stride)
-            // },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::AVX2 | Platform::SSE41 => unsafe {
+                sse41::compress4_loop(jobs, finalize, stride)
+            },
             _ => panic!("unsupported"),
         }
     }
@@ -494,24 +493,22 @@ mod test {
         });
     }
 
-    // TODO
-    // #[test]
-    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    // fn test_compress4_loop_sse41() {
-    //     if let Some(imp) = Implementation::sse41_if_supported() {
-    //         exercise_compress4_loop(imp);
-    //     }
-    // }
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_compress4_loop_sse41() {
+        if let Some(imp) = Implementation::sse41_if_supported() {
+            exercise_compress4_loop(imp);
+        }
+    }
 
-    // TODO
-    // #[test]
-    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    // fn test_compress4_loop_avx2() {
-    //     // Currently this just falls back to SSE4.1, but we test it anyway.
-    //     if let Some(imp) = Implementation::avx2_if_supported() {
-    //         exercise_compress4_loop(imp);
-    //     }
-    // }
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_compress4_loop_avx2() {
+        // Currently this just falls back to SSE4.1, but we test it anyway.
+        if let Some(imp) = Implementation::avx2_if_supported() {
+            exercise_compress4_loop(imp);
+        }
+    }
 
     // Copied from exercise_compress2_loop, with a different value of N and an
     // interior call to compress4_loop.

@@ -12,7 +12,7 @@ use arrayref::{array_refs, mut_array_refs};
 use core::cmp;
 use core::mem;
 
-pub const DEGREE: usize = 2;
+pub const DEGREE: usize = 4;
 
 #[inline(always)]
 unsafe fn loadu(src: *const [Word; DEGREE]) -> __m128i {
@@ -28,12 +28,12 @@ unsafe fn storeu(src: __m128i, dest: *mut [Word; DEGREE]) {
 
 #[inline(always)]
 unsafe fn add(a: __m128i, b: __m128i) -> __m128i {
-    _mm_add_epi64(a, b)
+    _mm_add_epi32(a, b)
 }
 
 #[inline(always)]
 unsafe fn eq(a: __m128i, b: __m128i) -> __m128i {
-    _mm_cmpeq_epi64(a, b)
+    _mm_cmpeq_epi32(a, b)
 }
 
 #[inline(always)]
@@ -53,43 +53,39 @@ unsafe fn xor(a: __m128i, b: __m128i) -> __m128i {
 }
 
 #[inline(always)]
-unsafe fn set1(x: u64) -> __m128i {
-    _mm_set1_epi64x(x as i64)
+unsafe fn set1(x: u32) -> __m128i {
+    _mm_set1_epi32(x as i32)
 }
 
 #[inline(always)]
-unsafe fn set2(a: u64, b: u64) -> __m128i {
-    // There's no _mm_setr_epi64x, so note the arg order is backwards.
-    _mm_set_epi64x(b as i64, a as i64)
-}
-
-// Adapted from https://github.com/rust-lang-nursery/stdsimd/pull/479.
-macro_rules! _MM_SHUFFLE {
-    ($z:expr, $y:expr, $x:expr, $w:expr) => {
-        ($z << 6) | ($y << 4) | ($x << 2) | $w
-    };
+unsafe fn set4(a: u32, b: u32, c: u32, d: u32) -> __m128i {
+    _mm_setr_epi32(a as i32, b as i32, c as i32, d as i32)
 }
 
 #[inline(always)]
-unsafe fn rot32(x: __m128i) -> __m128i {
-    _mm_shuffle_epi32(x, _MM_SHUFFLE!(2, 3, 0, 1))
+unsafe fn rot7(a: __m128i) -> __m128i {
+    xor(_mm_srli_epi32(a, 7), _mm_slli_epi32(a, 32 - 7))
 }
 
 #[inline(always)]
-unsafe fn rot24(x: __m128i) -> __m128i {
-    let rotate24 = _mm_setr_epi8(3, 4, 5, 6, 7, 0, 1, 2, 11, 12, 13, 14, 15, 8, 9, 10);
-    _mm_shuffle_epi8(x, rotate24)
+unsafe fn rot8(a: __m128i) -> __m128i {
+    _mm_shuffle_epi8(
+        a,
+        _mm_set_epi8(12, 15, 14, 13, 8, 11, 10, 9, 4, 7, 6, 5, 0, 3, 2, 1),
+    )
 }
 
 #[inline(always)]
-unsafe fn rot16(x: __m128i) -> __m128i {
-    let rotate16 = _mm_setr_epi8(2, 3, 4, 5, 6, 7, 0, 1, 10, 11, 12, 13, 14, 15, 8, 9);
-    _mm_shuffle_epi8(x, rotate16)
+unsafe fn rot12(a: __m128i) -> __m128i {
+    xor(_mm_srli_epi32(a, 12), _mm_slli_epi32(a, 32 - 12))
 }
 
 #[inline(always)]
-unsafe fn rot63(x: __m128i) -> __m128i {
-    _mm_or_si128(_mm_srli_epi64(x, 63), add(x, x))
+unsafe fn rot16(a: __m128i) -> __m128i {
+    _mm_shuffle_epi8(
+        a,
+        _mm_set_epi8(13, 12, 15, 14, 9, 8, 11, 10, 5, 4, 7, 6, 1, 0, 3, 2),
+    )
 }
 
 #[inline(always)]
@@ -106,34 +102,6 @@ unsafe fn round(v: &mut [__m128i; 16], m: &[__m128i; 16], r: usize) {
     v[13] = xor(v[13], v[1]);
     v[14] = xor(v[14], v[2]);
     v[15] = xor(v[15], v[3]);
-    v[12] = rot32(v[12]);
-    v[13] = rot32(v[13]);
-    v[14] = rot32(v[14]);
-    v[15] = rot32(v[15]);
-    v[8] = add(v[8], v[12]);
-    v[9] = add(v[9], v[13]);
-    v[10] = add(v[10], v[14]);
-    v[11] = add(v[11], v[15]);
-    v[4] = xor(v[4], v[8]);
-    v[5] = xor(v[5], v[9]);
-    v[6] = xor(v[6], v[10]);
-    v[7] = xor(v[7], v[11]);
-    v[4] = rot24(v[4]);
-    v[5] = rot24(v[5]);
-    v[6] = rot24(v[6]);
-    v[7] = rot24(v[7]);
-    v[0] = add(v[0], m[SIGMA[r][1] as usize]);
-    v[1] = add(v[1], m[SIGMA[r][3] as usize]);
-    v[2] = add(v[2], m[SIGMA[r][5] as usize]);
-    v[3] = add(v[3], m[SIGMA[r][7] as usize]);
-    v[0] = add(v[0], v[4]);
-    v[1] = add(v[1], v[5]);
-    v[2] = add(v[2], v[6]);
-    v[3] = add(v[3], v[7]);
-    v[12] = xor(v[12], v[0]);
-    v[13] = xor(v[13], v[1]);
-    v[14] = xor(v[14], v[2]);
-    v[15] = xor(v[15], v[3]);
     v[12] = rot16(v[12]);
     v[13] = rot16(v[13]);
     v[14] = rot16(v[14]);
@@ -146,10 +114,38 @@ unsafe fn round(v: &mut [__m128i; 16], m: &[__m128i; 16], r: usize) {
     v[5] = xor(v[5], v[9]);
     v[6] = xor(v[6], v[10]);
     v[7] = xor(v[7], v[11]);
-    v[4] = rot63(v[4]);
-    v[5] = rot63(v[5]);
-    v[6] = rot63(v[6]);
-    v[7] = rot63(v[7]);
+    v[4] = rot12(v[4]);
+    v[5] = rot12(v[5]);
+    v[6] = rot12(v[6]);
+    v[7] = rot12(v[7]);
+    v[0] = add(v[0], m[SIGMA[r][1] as usize]);
+    v[1] = add(v[1], m[SIGMA[r][3] as usize]);
+    v[2] = add(v[2], m[SIGMA[r][5] as usize]);
+    v[3] = add(v[3], m[SIGMA[r][7] as usize]);
+    v[0] = add(v[0], v[4]);
+    v[1] = add(v[1], v[5]);
+    v[2] = add(v[2], v[6]);
+    v[3] = add(v[3], v[7]);
+    v[12] = xor(v[12], v[0]);
+    v[13] = xor(v[13], v[1]);
+    v[14] = xor(v[14], v[2]);
+    v[15] = xor(v[15], v[3]);
+    v[12] = rot8(v[12]);
+    v[13] = rot8(v[13]);
+    v[14] = rot8(v[14]);
+    v[15] = rot8(v[15]);
+    v[8] = add(v[8], v[12]);
+    v[9] = add(v[9], v[13]);
+    v[10] = add(v[10], v[14]);
+    v[11] = add(v[11], v[15]);
+    v[4] = xor(v[4], v[8]);
+    v[5] = xor(v[5], v[9]);
+    v[6] = xor(v[6], v[10]);
+    v[7] = xor(v[7], v[11]);
+    v[4] = rot7(v[4]);
+    v[5] = rot7(v[5]);
+    v[6] = rot7(v[6]);
+    v[7] = rot7(v[7]);
 
     v[0] = add(v[0], m[SIGMA[r][8] as usize]);
     v[1] = add(v[1], m[SIGMA[r][10] as usize]);
@@ -163,34 +159,6 @@ unsafe fn round(v: &mut [__m128i; 16], m: &[__m128i; 16], r: usize) {
     v[12] = xor(v[12], v[1]);
     v[13] = xor(v[13], v[2]);
     v[14] = xor(v[14], v[3]);
-    v[15] = rot32(v[15]);
-    v[12] = rot32(v[12]);
-    v[13] = rot32(v[13]);
-    v[14] = rot32(v[14]);
-    v[10] = add(v[10], v[15]);
-    v[11] = add(v[11], v[12]);
-    v[8] = add(v[8], v[13]);
-    v[9] = add(v[9], v[14]);
-    v[5] = xor(v[5], v[10]);
-    v[6] = xor(v[6], v[11]);
-    v[7] = xor(v[7], v[8]);
-    v[4] = xor(v[4], v[9]);
-    v[5] = rot24(v[5]);
-    v[6] = rot24(v[6]);
-    v[7] = rot24(v[7]);
-    v[4] = rot24(v[4]);
-    v[0] = add(v[0], m[SIGMA[r][9] as usize]);
-    v[1] = add(v[1], m[SIGMA[r][11] as usize]);
-    v[2] = add(v[2], m[SIGMA[r][13] as usize]);
-    v[3] = add(v[3], m[SIGMA[r][15] as usize]);
-    v[0] = add(v[0], v[5]);
-    v[1] = add(v[1], v[6]);
-    v[2] = add(v[2], v[7]);
-    v[3] = add(v[3], v[4]);
-    v[15] = xor(v[15], v[0]);
-    v[12] = xor(v[12], v[1]);
-    v[13] = xor(v[13], v[2]);
-    v[14] = xor(v[14], v[3]);
     v[15] = rot16(v[15]);
     v[12] = rot16(v[12]);
     v[13] = rot16(v[13]);
@@ -203,17 +171,45 @@ unsafe fn round(v: &mut [__m128i; 16], m: &[__m128i; 16], r: usize) {
     v[6] = xor(v[6], v[11]);
     v[7] = xor(v[7], v[8]);
     v[4] = xor(v[4], v[9]);
-    v[5] = rot63(v[5]);
-    v[6] = rot63(v[6]);
-    v[7] = rot63(v[7]);
-    v[4] = rot63(v[4]);
+    v[5] = rot12(v[5]);
+    v[6] = rot12(v[6]);
+    v[7] = rot12(v[7]);
+    v[4] = rot12(v[4]);
+    v[0] = add(v[0], m[SIGMA[r][9] as usize]);
+    v[1] = add(v[1], m[SIGMA[r][11] as usize]);
+    v[2] = add(v[2], m[SIGMA[r][13] as usize]);
+    v[3] = add(v[3], m[SIGMA[r][15] as usize]);
+    v[0] = add(v[0], v[5]);
+    v[1] = add(v[1], v[6]);
+    v[2] = add(v[2], v[7]);
+    v[3] = add(v[3], v[4]);
+    v[15] = xor(v[15], v[0]);
+    v[12] = xor(v[12], v[1]);
+    v[13] = xor(v[13], v[2]);
+    v[14] = xor(v[14], v[3]);
+    v[15] = rot8(v[15]);
+    v[12] = rot8(v[12]);
+    v[13] = rot8(v[13]);
+    v[14] = rot8(v[14]);
+    v[10] = add(v[10], v[15]);
+    v[11] = add(v[11], v[12]);
+    v[8] = add(v[8], v[13]);
+    v[9] = add(v[9], v[14]);
+    v[5] = xor(v[5], v[10]);
+    v[6] = xor(v[6], v[11]);
+    v[7] = xor(v[7], v[8]);
+    v[4] = xor(v[4], v[9]);
+    v[5] = rot7(v[5]);
+    v[6] = rot7(v[6]);
+    v[7] = rot7(v[7]);
+    v[4] = rot7(v[4]);
 }
 
 // We'd rather make this a regular function with #[inline(always)], but for
 // some reason that blows up compile times by about 10 seconds, at least in
 // some cases (BLAKE2b avx2.rs). This macro seems to get the same performance
 // result, without the compile time issue.
-macro_rules! compress2_transposed {
+macro_rules! compress4_transposed {
     (
         $h_vecs:expr,
         $msg_vecs:expr,
@@ -237,14 +233,14 @@ macro_rules! compress2_transposed {
             h_vecs[5],
             h_vecs[6],
             h_vecs[7],
-            _mm_set1_epi64x(IV[0] as i64),
-            _mm_set1_epi64x(IV[1] as i64),
-            _mm_set1_epi64x(IV[2] as i64),
-            _mm_set1_epi64x(IV[3] as i64),
-            xor(_mm_set1_epi64x(IV[4] as i64), count_low),
-            xor(_mm_set1_epi64x(IV[5] as i64), count_high),
-            xor(_mm_set1_epi64x(IV[6] as i64), lastblock),
-            xor(_mm_set1_epi64x(IV[7] as i64), lastnode),
+            set1(IV[0]),
+            set1(IV[1]),
+            set1(IV[2]),
+            set1(IV[3]),
+            xor(set1(IV[4]), count_low),
+            xor(set1(IV[5]), count_high),
+            xor(set1(IV[6]), lastblock),
+            xor(set1(IV[7]), lastnode),
         ];
 
         round(&mut v, &msg_vecs, 0);
@@ -257,8 +253,6 @@ macro_rules! compress2_transposed {
         round(&mut v, &msg_vecs, 7);
         round(&mut v, &msg_vecs, 8);
         round(&mut v, &msg_vecs, 9);
-        round(&mut v, &msg_vecs, 10);
-        round(&mut v, &msg_vecs, 11);
 
         h_vecs[0] = xor(xor(h_vecs[0], v[0]), v[8]);
         h_vecs[1] = xor(xor(h_vecs[1], v[1]), v[9]);
@@ -272,10 +266,27 @@ macro_rules! compress2_transposed {
 }
 
 #[inline(always)]
-unsafe fn transpose_vecs(a: __m128i, b: __m128i) -> [__m128i; DEGREE] {
-    let a_words: [Word; DEGREE] = mem::transmute(a);
-    let b_words: [Word; DEGREE] = mem::transmute(b);
-    [set2(a_words[0], b_words[0]), set2(a_words[1], b_words[1])]
+unsafe fn transpose_vecs(
+    vec_a: __m128i,
+    vec_b: __m128i,
+    vec_c: __m128i,
+    vec_d: __m128i,
+) -> [__m128i; 4] {
+    // Interleave 32-bit lates. The low unpack is lanes 00/11 and the high is
+    // 22/33. Note that this doesn't split the vector into two lanes, as the
+    // AVX2 counterparts do.
+    let ab_01 = _mm_unpacklo_epi32(vec_a, vec_b);
+    let ab_23 = _mm_unpackhi_epi32(vec_a, vec_b);
+    let cd_01 = _mm_unpacklo_epi32(vec_c, vec_d);
+    let cd_23 = _mm_unpackhi_epi32(vec_c, vec_d);
+
+    // Interleave 64-bit lanes.
+    let abcd_0 = _mm_unpacklo_epi64(ab_01, cd_01);
+    let abcd_1 = _mm_unpackhi_epi64(ab_01, cd_01);
+    let abcd_2 = _mm_unpacklo_epi64(ab_23, cd_23);
+    let abcd_3 = _mm_unpackhi_epi64(ab_23, cd_23);
+
+    [abcd_0, abcd_1, abcd_2, abcd_3]
 }
 
 #[inline(always)]
@@ -283,34 +294,44 @@ unsafe fn transpose_state_vecs(jobs: &[Job; DEGREE]) -> [__m128i; 8] {
     // Load all the state words into transposed vectors, where the first vector
     // has the first word of each state, etc. Transposing once at the beginning
     // and once at the end is more efficient that repeating it for each block.
-    let words0 = array_refs!(&jobs[0].words, DEGREE, DEGREE, DEGREE, DEGREE);
-    let words1 = array_refs!(&jobs[1].words, DEGREE, DEGREE, DEGREE, DEGREE);
-    let [h0, h1] = transpose_vecs(loadu(words0.0), loadu(words1.0));
-    let [h2, h3] = transpose_vecs(loadu(words0.1), loadu(words1.1));
-    let [h4, h5] = transpose_vecs(loadu(words0.2), loadu(words1.2));
-    let [h6, h7] = transpose_vecs(loadu(words0.3), loadu(words1.3));
+    let words0 = array_refs!(&jobs[0].words, DEGREE, DEGREE);
+    let words1 = array_refs!(&jobs[1].words, DEGREE, DEGREE);
+    let words2 = array_refs!(&jobs[2].words, DEGREE, DEGREE);
+    let words3 = array_refs!(&jobs[3].words, DEGREE, DEGREE);
+    let [h0, h1, h2, h3] = transpose_vecs(
+        loadu(words0.0),
+        loadu(words1.0),
+        loadu(words2.0),
+        loadu(words3.0),
+    );
+    let [h4, h5, h6, h7] = transpose_vecs(
+        loadu(words0.1),
+        loadu(words1.1),
+        loadu(words2.1),
+        loadu(words3.1),
+    );
     [h0, h1, h2, h3, h4, h5, h6, h7]
 }
 
 #[inline(always)]
 unsafe fn untranspose_state_vecs(h_vecs: &[__m128i; 8], jobs: &mut [Job; DEGREE]) {
     // Un-transpose the updated state vectors back into the caller's arrays.
-    let [job0, job1] = jobs;
-    let words0 = mut_array_refs!(&mut job0.words, DEGREE, DEGREE, DEGREE, DEGREE);
-    let words1 = mut_array_refs!(&mut job1.words, DEGREE, DEGREE, DEGREE, DEGREE);
+    let [job0, job1, job2, job3] = jobs;
+    let words0 = mut_array_refs!(&mut job0.words, DEGREE, DEGREE);
+    let words1 = mut_array_refs!(&mut job1.words, DEGREE, DEGREE);
+    let words2 = mut_array_refs!(&mut job2.words, DEGREE, DEGREE);
+    let words3 = mut_array_refs!(&mut job3.words, DEGREE, DEGREE);
 
-    let out = transpose_vecs(h_vecs[0], h_vecs[1]);
+    let out = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
     storeu(out[0], words0.0);
     storeu(out[1], words1.0);
-    let out = transpose_vecs(h_vecs[2], h_vecs[3]);
+    storeu(out[2], words2.0);
+    storeu(out[3], words3.0);
+    let out = transpose_vecs(h_vecs[4], h_vecs[5], h_vecs[6], h_vecs[7]);
     storeu(out[0], words0.1);
     storeu(out[1], words1.1);
-    let out = transpose_vecs(h_vecs[4], h_vecs[5]);
-    storeu(out[0], words0.2);
-    storeu(out[1], words1.2);
-    let out = transpose_vecs(h_vecs[6], h_vecs[7]);
-    storeu(out[0], words0.3);
-    storeu(out[1], words1.3);
+    storeu(out[2], words2.1);
+    storeu(out[3], words3.1);
 }
 
 #[inline(always)]
@@ -319,14 +340,32 @@ unsafe fn transpose_msg_vecs(blocks: [*const [u8; BLOCKBYTES]; DEGREE]) -> [__m1
     // loads to read from them.
     let block0 = blocks[0] as *const [Word; DEGREE];
     let block1 = blocks[1] as *const [Word; DEGREE];
-    let [m0, m1] = transpose_vecs(loadu(block0.add(0)), loadu(block1.add(0)));
-    let [m2, m3] = transpose_vecs(loadu(block0.add(1)), loadu(block1.add(1)));
-    let [m4, m5] = transpose_vecs(loadu(block0.add(2)), loadu(block1.add(2)));
-    let [m6, m7] = transpose_vecs(loadu(block0.add(3)), loadu(block1.add(3)));
-    let [m8, m9] = transpose_vecs(loadu(block0.add(4)), loadu(block1.add(4)));
-    let [m10, m11] = transpose_vecs(loadu(block0.add(5)), loadu(block1.add(5)));
-    let [m12, m13] = transpose_vecs(loadu(block0.add(6)), loadu(block1.add(6)));
-    let [m14, m15] = transpose_vecs(loadu(block0.add(7)), loadu(block1.add(7)));
+    let block2 = blocks[2] as *const [Word; DEGREE];
+    let block3 = blocks[3] as *const [Word; DEGREE];
+    let [m0, m1, m2, m3] = transpose_vecs(
+        loadu(block0.add(0)),
+        loadu(block1.add(0)),
+        loadu(block2.add(0)),
+        loadu(block3.add(0)),
+    );
+    let [m4, m5, m6, m7] = transpose_vecs(
+        loadu(block0.add(1)),
+        loadu(block1.add(1)),
+        loadu(block2.add(1)),
+        loadu(block3.add(1)),
+    );
+    let [m8, m9, m10, m11] = transpose_vecs(
+        loadu(block0.add(2)),
+        loadu(block1.add(2)),
+        loadu(block2.add(2)),
+        loadu(block3.add(2)),
+    );
+    let [m12, m13, m14, m15] = transpose_vecs(
+        loadu(block0.add(3)),
+        loadu(block1.add(3)),
+        loadu(block2.add(3)),
+        loadu(block3.add(3)),
+    );
     [
         m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15,
     ]
@@ -335,8 +374,18 @@ unsafe fn transpose_msg_vecs(blocks: [*const [u8; BLOCKBYTES]; DEGREE]) -> [__m1
 #[inline(always)]
 unsafe fn load_counts(jobs: &[Job; DEGREE]) -> (__m128i, __m128i) {
     (
-        set2(count_low(jobs[0].count), count_low(jobs[1].count)),
-        set2(count_high(jobs[0].count), count_high(jobs[1].count)),
+        set4(
+            count_low(jobs[0].count),
+            count_low(jobs[1].count),
+            count_low(jobs[2].count),
+            count_low(jobs[3].count),
+        ),
+        set4(
+            count_high(jobs[0].count),
+            count_high(jobs[1].count),
+            count_high(jobs[2].count),
+            count_high(jobs[3].count),
+        ),
     )
 }
 
@@ -362,17 +411,27 @@ unsafe fn add_to_counts(lo: &mut __m128i, hi: &mut __m128i, delta: __m128i) {
 
 #[inline(always)]
 unsafe fn flags_vec(flags: [bool; DEGREE]) -> __m128i {
-    set2(flag_word(flags[0]), flag_word(flags[1]))
+    set4(
+        flag_word(flags[0]),
+        flag_word(flags[1]),
+        flag_word(flags[2]),
+        flag_word(flags[3]),
+    )
 }
 
 #[target_feature(enable = "sse4.1")]
-pub unsafe fn compress2_loop(jobs: &mut [Job; DEGREE], finalize: Finalize, stride: Stride) {
+pub unsafe fn compress4_loop(jobs: &mut [Job; DEGREE], finalize: Finalize, stride: Stride) {
     // If we're not finalizing, there can't be a partial block at the end.
     for job in jobs.iter() {
         input_debug_asserts(job.input, finalize);
     }
 
-    let msg_ptrs = [jobs[0].input.as_ptr(), jobs[1].input.as_ptr()];
+    let msg_ptrs = [
+        jobs[0].input.as_ptr(),
+        jobs[1].input.as_ptr(),
+        jobs[2].input.as_ptr(),
+        jobs[3].input.as_ptr(),
+    ];
     let mut h_vecs = transpose_state_vecs(&jobs);
     let (mut counts_lo, mut counts_hi) = load_counts(&jobs);
 
@@ -385,17 +444,23 @@ pub unsafe fn compress2_loop(jobs: &mut [Job; DEGREE], finalize: Finalize, strid
     // cause problems in the optimizer.
     let mut buf0: [u8; BLOCKBYTES] = [0; BLOCKBYTES];
     let mut buf1: [u8; BLOCKBYTES] = [0; BLOCKBYTES];
+    let mut buf2: [u8; BLOCKBYTES] = [0; BLOCKBYTES];
+    let mut buf3: [u8; BLOCKBYTES] = [0; BLOCKBYTES];
     let (block0, len0, finalize0) = final_block(jobs[0].input, fin_offset, &mut buf0, stride);
     let (block1, len1, finalize1) = final_block(jobs[1].input, fin_offset, &mut buf1, stride);
-    let fin_blocks: [*const [u8; BLOCKBYTES]; DEGREE] = [block0, block1];
-    let fin_counts_delta = set2(len0 as Word, len1 as Word);
+    let (block2, len2, finalize2) = final_block(jobs[2].input, fin_offset, &mut buf2, stride);
+    let (block3, len3, finalize3) = final_block(jobs[3].input, fin_offset, &mut buf3, stride);
+    let fin_blocks: [*const [u8; BLOCKBYTES]; DEGREE] = [block0, block1, block2, block3];
+    let fin_counts_delta = set4(len0 as Word, len1 as Word, len2 as Word, len3 as Word);
     let fin_last_block;
     let fin_last_node;
     if finalize.yes() {
-        fin_last_block = flags_vec([finalize0, finalize1]);
+        fin_last_block = flags_vec([finalize0, finalize1, finalize2, finalize3]);
         fin_last_node = flags_vec([
             finalize0 && jobs[0].last_node.yes(),
             finalize1 && jobs[1].last_node.yes(),
+            finalize2 && jobs[2].last_node.yes(),
+            finalize3 && jobs[3].last_node.yes(),
         ]);
     } else {
         fin_last_block = set1(0);
@@ -418,6 +483,8 @@ pub unsafe fn compress2_loop(jobs: &mut [Job; DEGREE], finalize: Finalize, strid
             blocks = [
                 msg_ptrs[0].add(offset) as *const [u8; BLOCKBYTES],
                 msg_ptrs[1].add(offset) as *const [u8; BLOCKBYTES],
+                msg_ptrs[2].add(offset) as *const [u8; BLOCKBYTES],
+                msg_ptrs[3].add(offset) as *const [u8; BLOCKBYTES],
             ];
             counts_delta = set1(BLOCKBYTES as Word);
             last_block = set1(0);
@@ -426,7 +493,7 @@ pub unsafe fn compress2_loop(jobs: &mut [Job; DEGREE], finalize: Finalize, strid
 
         let m_vecs = transpose_msg_vecs(blocks);
         add_to_counts(&mut counts_lo, &mut counts_hi, counts_delta);
-        compress2_transposed!(
+        compress4_transposed!(
             &mut h_vecs,
             &m_vecs,
             counts_lo,
