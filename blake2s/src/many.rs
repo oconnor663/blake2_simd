@@ -137,29 +137,31 @@ pub(crate) fn compress_many<'a, 'b, I>(
     let mut jobs_iter = jobs.into_iter().fuse();
     let mut jobs_vec = JobsVec::new();
 
-    if imp.degree() >= 4 {
+    // TODO: Stop using degree here and just hardcode AVX2
+    if imp.degree() >= 8 {
         loop {
-            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 4);
-            if jobs_vec.len() < 4 {
+            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 8);
+            if jobs_vec.len() < 8 {
                 break;
             }
-            let jobs_array = array_mut_ref!(jobs_vec, 0, 4);
-            imp.compress4_loop(jobs_array, finalize, stride);
-            evict_finished(&mut jobs_vec, 4);
+            let jobs_array = array_mut_ref!(jobs_vec, 0, 8);
+            imp.compress8_loop(jobs_array, finalize, stride);
+            evict_finished(&mut jobs_vec, 8);
         }
     }
 
-    if imp.degree() >= 2 {
-        loop {
-            fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 2);
-            if jobs_vec.len() < 2 {
-                break;
-            }
-            let jobs_array = array_mut_ref!(jobs_vec, 0, 2);
-            imp.compress2_loop(jobs_array, finalize, stride);
-            evict_finished(&mut jobs_vec, 2);
-        }
-    }
+    // TODO
+    // if imp.degree() >= 4 {
+    //     loop {
+    //         fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 4);
+    //         if jobs_vec.len() < 4 {
+    //             break;
+    //         }
+    //         let jobs_array = array_mut_ref!(jobs_vec, 0, 4);
+    //         imp.compress4_loop(jobs_array, finalize, stride);
+    //         evict_finished(&mut jobs_vec, 4);
+    //     }
+    // }
 
     for job in jobs_vec.into_iter().chain(jobs_iter) {
         let Job {

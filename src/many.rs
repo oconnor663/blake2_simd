@@ -137,6 +137,7 @@ pub(crate) fn compress_many<'a, 'b, I>(
     let mut jobs_iter = jobs.into_iter().fuse();
     let mut jobs_vec = JobsVec::new();
 
+    // TODO: Stop using degree here and just hardcode AVX2
     if imp.degree() >= 4 {
         loop {
             fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 4);

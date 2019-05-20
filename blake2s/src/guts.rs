@@ -3,10 +3,10 @@ use arrayref::array_ref;
 use core::cmp;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub const MAX_DEGREE: usize = 4;
+pub const MAX_DEGREE: usize = 8;
 
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-pub const MAX_DEGREE: usize = 4;
+pub const MAX_DEGREE: usize = 1;
 
 // Variants other than Portable are unreachable in no_std, unless CPU features
 // are explicitly enabled for the build with e.g. RUSTFLAGS="-C target-feature=avx2".
@@ -84,14 +84,14 @@ impl Implementation {
     }
 
     pub fn degree(&self) -> usize {
-        // match self.0 {
-        //     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        //     Platform::AVX2 => 4,
-        //     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        //     Platform::SSE41 => 2,
-        //     Platform::Portable => 1,
-        // }
-        1
+        match self.0 {
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::AVX2 => avx2::DEGREE,
+            // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            // Platform::SSE41 => 2,
+            // Platform::Portable => 1,
+            _ => 1,
+        }
     }
 
     pub fn compress1_loop(
@@ -116,7 +116,7 @@ impl Implementation {
         }
     }
 
-    pub fn compress2_loop(&self, jobs: &mut [Job; 2], finalize: Finalize, stride: Stride) {
+    pub fn compress4_loop(&self, jobs: &mut [Job; 4], finalize: Finalize, stride: Stride) {
         match self.0 {
             // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             // Platform::AVX2 | Platform::SSE41 => unsafe {
@@ -126,10 +126,10 @@ impl Implementation {
         }
     }
 
-    pub fn compress4_loop(&self, jobs: &mut [Job; 4], finalize: Finalize, stride: Stride) {
+    pub fn compress8_loop(&self, jobs: &mut [Job; 8], finalize: Finalize, stride: Stride) {
         match self.0 {
-            // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            // Platform::AVX2 => unsafe { avx2::compress4_loop(jobs, finalize, stride) },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            Platform::AVX2 => unsafe { avx2::compress8_loop(jobs, finalize, stride) },
             _ => panic!("unsupported"),
         }
     }
@@ -448,73 +448,6 @@ mod test {
     // since really all we care about with no_std is that the library builds,
     // but for now it's here. Everything is keyed off of this N constant so
     // that it's easy to copy the code to exercise_compress4_loop.
-    fn exercise_compress2_loop(implementation: Implementation) {
-        const N: usize = 2;
-
-        let mut input_buffer = [0; 100 * BLOCKBYTES];
-        paint_test_input(&mut input_buffer);
-        let mut inputs = ArrayVec::<[_; N]>::new();
-        for i in 0..N {
-            inputs.push(&input_buffer[i..]);
-        }
-
-        exercise_cases(|stride, length, last_node, finalize, count| {
-            let mut reference_words = ArrayVec::<[_; N]>::new();
-            for i in 0..N {
-                let words = reference_compression(
-                    &inputs[i][..length],
-                    stride,
-                    last_node,
-                    finalize,
-                    count.wrapping_add((i * BLOCKBYTES) as Count),
-                    i,
-                );
-                reference_words.push(words);
-            }
-
-            let mut test_words = ArrayVec::<[_; N]>::new();
-            for i in 0..N {
-                test_words.push(initial_test_words(i));
-            }
-            let mut jobs = ArrayVec::<[_; N]>::new();
-            for (i, words) in test_words.iter_mut().enumerate() {
-                jobs.push(Job {
-                    input: &inputs[i][..length],
-                    words,
-                    count: count.wrapping_add((i * BLOCKBYTES) as Count),
-                    last_node,
-                });
-            }
-            let mut jobs = jobs.into_inner().expect("full");
-            implementation.compress2_loop(&mut jobs, finalize, stride);
-
-            for i in 0..N {
-                assert_eq!(reference_words[i], test_words[i], "words {} unequal", i);
-            }
-        });
-    }
-
-    // TODO
-    // #[test]
-    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    // fn test_compress2_loop_sse41() {
-    //     if let Some(imp) = Implementation::sse41_if_supported() {
-    //         exercise_compress2_loop(imp);
-    //     }
-    // }
-
-    // TODO
-    // #[test]
-    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    // fn test_compress2_loop_avx2() {
-    //     // Currently this just falls back to SSE4.1, but we test it anyway.
-    //     if let Some(imp) = Implementation::avx2_if_supported() {
-    //         exercise_compress2_loop(imp);
-    //     }
-    // }
-
-    // Copied from exercise_compress2_loop, with a different value of N and an
-    // interior call to compress4_loop.
     fn exercise_compress4_loop(implementation: Implementation) {
         const N: usize = 4;
 
@@ -564,11 +497,77 @@ mod test {
     // TODO
     // #[test]
     // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    // fn test_compress4_loop_sse41() {
+    //     if let Some(imp) = Implementation::sse41_if_supported() {
+    //         exercise_compress4_loop(imp);
+    //     }
+    // }
+
+    // TODO
+    // #[test]
+    // #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     // fn test_compress4_loop_avx2() {
+    //     // Currently this just falls back to SSE4.1, but we test it anyway.
     //     if let Some(imp) = Implementation::avx2_if_supported() {
     //         exercise_compress4_loop(imp);
     //     }
     // }
+
+    // Copied from exercise_compress2_loop, with a different value of N and an
+    // interior call to compress4_loop.
+    fn exercise_compress8_loop(implementation: Implementation) {
+        const N: usize = 8;
+
+        let mut input_buffer = [0; 100 * BLOCKBYTES];
+        paint_test_input(&mut input_buffer);
+        let mut inputs = ArrayVec::<[_; N]>::new();
+        for i in 0..N {
+            inputs.push(&input_buffer[i..]);
+        }
+
+        exercise_cases(|stride, length, last_node, finalize, count| {
+            let mut reference_words = ArrayVec::<[_; N]>::new();
+            for i in 0..N {
+                let words = reference_compression(
+                    &inputs[i][..length],
+                    stride,
+                    last_node,
+                    finalize,
+                    count.wrapping_add((i * BLOCKBYTES) as Count),
+                    i,
+                );
+                reference_words.push(words);
+            }
+
+            let mut test_words = ArrayVec::<[_; N]>::new();
+            for i in 0..N {
+                test_words.push(initial_test_words(i));
+            }
+            let mut jobs = ArrayVec::<[_; N]>::new();
+            for (i, words) in test_words.iter_mut().enumerate() {
+                jobs.push(Job {
+                    input: &inputs[i][..length],
+                    words,
+                    count: count.wrapping_add((i * BLOCKBYTES) as Count),
+                    last_node,
+                });
+            }
+            let mut jobs = jobs.into_inner().expect("full");
+            implementation.compress8_loop(&mut jobs, finalize, stride);
+
+            for i in 0..N {
+                assert_eq!(reference_words[i], test_words[i], "words {} unequal", i);
+            }
+        });
+    }
+
+    #[test]
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    fn test_compress8_loop_avx2() {
+        if let Some(imp) = Implementation::avx2_if_supported() {
+            exercise_compress8_loop(imp);
+        }
+    }
 
     #[test]
     fn sanity_check_count_size() {

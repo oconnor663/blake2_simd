@@ -12,7 +12,7 @@ use arrayref::{array_refs, mut_array_refs};
 use core::cmp;
 use core::mem;
 
-const DEGREE: usize = 2;
+pub const DEGREE: usize = 2;
 
 #[inline(always)]
 unsafe fn loadu(src: *const [Word; DEGREE]) -> __m128i {
@@ -279,17 +279,6 @@ unsafe fn transpose_vecs(a: __m128i, b: __m128i) -> [__m128i; DEGREE] {
 }
 
 #[inline(always)]
-unsafe fn add_to_counts(lo: &mut __m128i, hi: &mut __m128i, delta: __m128i) {
-    // If the low counts reach zero, that means they wrapped, unless the delta
-    // was also zero.
-    *lo = add(*lo, delta);
-    let lo_reached_zero = eq(*lo, set1(0));
-    let delta_was_zero = eq(delta, set1(0));
-    let hi_inc = and(set1(1), negate_and(delta_was_zero, lo_reached_zero));
-    *hi = add(*hi, hi_inc);
-}
-
-#[inline(always)]
 unsafe fn transpose_state_vecs(jobs: &[Job; DEGREE]) -> [__m128i; 8] {
     // Load all the state words into transposed vectors, where the first vector
     // has the first word of each state, etc. Transposing once at the beginning
@@ -358,6 +347,17 @@ unsafe fn store_counts(jobs: &mut [Job; DEGREE], low: __m128i, high: __m128i) {
     for i in 0..DEGREE {
         jobs[i].count = assemble_count(low_ints[i], high_ints[i]);
     }
+}
+
+#[inline(always)]
+unsafe fn add_to_counts(lo: &mut __m128i, hi: &mut __m128i, delta: __m128i) {
+    // If the low counts reach zero, that means they wrapped, unless the delta
+    // was also zero.
+    *lo = add(*lo, delta);
+    let lo_reached_zero = eq(*lo, set1(0));
+    let delta_was_zero = eq(delta, set1(0));
+    let hi_inc = and(set1(1), negate_and(delta_was_zero, lo_reached_zero));
+    *hi = add(*hi, hi_inc);
 }
 
 #[inline(always)]

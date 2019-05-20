@@ -151,8 +151,12 @@ fn bench_blake2b_update_many_4x_4096(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2s_update_many_4x_4096(b: &mut Bencher) {
+fn bench_blake2s_update_many_8x_4096(b: &mut Bencher) {
     let mut inputs = [
+        RandomInput::new(b, 4096),
+        RandomInput::new(b, 4096),
+        RandomInput::new(b, 4096),
+        RandomInput::new(b, 4096),
         RandomInput::new(b, 4096),
         RandomInput::new(b, 4096),
         RandomInput::new(b, 4096),
@@ -160,6 +164,10 @@ fn bench_blake2s_update_many_4x_4096(b: &mut Bencher) {
     ];
     b.iter(|| {
         let mut states = [
+            blake2s_simd::State::new(),
+            blake2s_simd::State::new(),
+            blake2s_simd::State::new(),
+            blake2s_simd::State::new(),
             blake2s_simd::State::new(),
             blake2s_simd::State::new(),
             blake2s_simd::State::new(),
@@ -172,6 +180,10 @@ fn bench_blake2s_update_many_4x_4096(b: &mut Bencher) {
             states[1].finalize(),
             states[2].finalize(),
             states[3].finalize(),
+            states[4].finalize(),
+            states[5].finalize(),
+            states[6].finalize(),
+            states[7].finalize(),
         ]
     });
 }
@@ -203,8 +215,12 @@ fn bench_blake2b_update_many_4x_1mb(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2s_update_many_4x_1mb(b: &mut Bencher) {
+fn bench_blake2s_update_many_8x_1mb(b: &mut Bencher) {
     let mut inputs = [
+        RandomInput::new(b, MB),
+        RandomInput::new(b, MB),
+        RandomInput::new(b, MB),
+        RandomInput::new(b, MB),
         RandomInput::new(b, MB),
         RandomInput::new(b, MB),
         RandomInput::new(b, MB),
@@ -212,6 +228,10 @@ fn bench_blake2s_update_many_4x_1mb(b: &mut Bencher) {
     ];
     b.iter(|| {
         let mut states = [
+            blake2s_simd::State::new(),
+            blake2s_simd::State::new(),
+            blake2s_simd::State::new(),
+            blake2s_simd::State::new(),
             blake2s_simd::State::new(),
             blake2s_simd::State::new(),
             blake2s_simd::State::new(),
@@ -224,6 +244,10 @@ fn bench_blake2s_update_many_4x_1mb(b: &mut Bencher) {
             states[1].finalize(),
             states[2].finalize(),
             states[3].finalize(),
+            states[4].finalize(),
+            states[5].finalize(),
+            states[6].finalize(),
+            states[7].finalize(),
         ]
     });
 }
@@ -253,11 +277,15 @@ fn bench_blake2b_hash_many_4x_4096(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2s_hash_many_4x_4096(b: &mut Bencher) {
+fn bench_blake2s_hash_many_8x_4096(b: &mut Bencher) {
     let mut input0 = RandomInput::new(b, 4096);
     let mut input1 = RandomInput::new(b, 4096);
     let mut input2 = RandomInput::new(b, 4096);
     let mut input3 = RandomInput::new(b, 4096);
+    let mut input4 = RandomInput::new(b, 4096);
+    let mut input5 = RandomInput::new(b, 4096);
+    let mut input6 = RandomInput::new(b, 4096);
+    let mut input7 = RandomInput::new(b, 4096);
     let params = blake2s_simd::Params::new();
     b.iter(|| {
         let mut jobs = [
@@ -265,6 +293,10 @@ fn bench_blake2s_hash_many_4x_4096(b: &mut Bencher) {
             blake2s_simd::many::HashManyJob::new(&params, input1.get()),
             blake2s_simd::many::HashManyJob::new(&params, input2.get()),
             blake2s_simd::many::HashManyJob::new(&params, input3.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input4.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input5.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input6.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input7.get()),
         ];
         blake2s_simd::many::hash_many(jobs.iter_mut());
         [
@@ -272,6 +304,10 @@ fn bench_blake2s_hash_many_4x_4096(b: &mut Bencher) {
             jobs[1].to_hash(),
             jobs[2].to_hash(),
             jobs[3].to_hash(),
+            jobs[4].to_hash(),
+            jobs[5].to_hash(),
+            jobs[6].to_hash(),
+            jobs[7].to_hash(),
         ]
     });
 }
@@ -301,11 +337,15 @@ fn bench_blake2b_hash_many_4x_1mb(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2s_hash_many_4x_1mb(b: &mut Bencher) {
+fn bench_blake2s_hash_many_8x_1mb(b: &mut Bencher) {
     let mut input0 = RandomInput::new(b, MB);
     let mut input1 = RandomInput::new(b, MB);
     let mut input2 = RandomInput::new(b, MB);
     let mut input3 = RandomInput::new(b, MB);
+    let mut input4 = RandomInput::new(b, MB);
+    let mut input5 = RandomInput::new(b, MB);
+    let mut input6 = RandomInput::new(b, MB);
+    let mut input7 = RandomInput::new(b, MB);
     let params = blake2s_simd::Params::new();
     b.iter(|| {
         let mut jobs = [
@@ -313,6 +353,10 @@ fn bench_blake2s_hash_many_4x_1mb(b: &mut Bencher) {
             blake2s_simd::many::HashManyJob::new(&params, input1.get()),
             blake2s_simd::many::HashManyJob::new(&params, input2.get()),
             blake2s_simd::many::HashManyJob::new(&params, input3.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input4.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input5.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input6.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input7.get()),
         ];
         blake2s_simd::many::hash_many(jobs.iter_mut());
         [
@@ -320,6 +364,10 @@ fn bench_blake2s_hash_many_4x_1mb(b: &mut Bencher) {
             jobs[1].to_hash(),
             jobs[2].to_hash(),
             jobs[3].to_hash(),
+            jobs[4].to_hash(),
+            jobs[5].to_hash(),
+            jobs[6].to_hash(),
+            jobs[7].to_hash(),
         ]
     });
 }
