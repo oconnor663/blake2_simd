@@ -7,7 +7,8 @@ import subprocess
 HERE = pathlib.Path(__file__).parent
 
 TARGETS = [
-    HERE,
+    HERE, # standard test vectors and fuzzing
+    HERE / "blake2b",
     HERE / "blake2s",
     HERE / "b2sum",
 ]

@@ -57,14 +57,10 @@
 //!
 //! # Performance
 //!
-//! To run small benchmarks yourself, first install OpenSSL and libsodium on
-//! your machine, then:
-//!
-//! ```sh
-//! cd benches/cargo_bench
-//! # Use --no-default-features if you're missing OpenSSL or libsodium.
-//! cargo +nightly bench
-//! ```
+//! To run small benchmarks yourself, run `cargo +nightly bench`. That suite
+//! includes some comparison benchmarks with OpenSSL and libsodium. If you
+//! don't have those installed on your machine, you can run
+//! `cargo +nightly bench --no-default-features --features std` instead.
 //!
 //! The `benches/bench_multiprocess` sub-crate runs various hash functions on
 //! long inputs in memory and tries to average over many sources of
