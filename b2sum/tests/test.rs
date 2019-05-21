@@ -106,8 +106,9 @@ fn test_last_node_flag() {
 
 // This is the exact same result as test_all_parameters in the library tests.
 #[test]
-fn test_all_parameters() {
+fn test_all_parameters_blake2b() {
     let flags = [
+        "--blake2b",
         "--length=144",
         "--key=626172",
         "--salt=62617a62617a62617a62617a62617a62",
@@ -127,6 +128,30 @@ fn test_all_parameters() {
     assert_eq!("ec0f59cb65f92e7fcca1280ba859a6925ded  -", output);
 }
 
+// This is the exact same result as test_all_parameters in the library tests.
+#[test]
+fn test_all_parameters_blake2s() {
+    let flags = [
+        "--blake2s",
+        "--length=144",
+        "--key=626172",
+        "--salt=62617a62617a6261",
+        "--personal=62696e672062696e",
+        "--fanout=2",
+        "--max-depth=3",
+        "--max-leaf-length=67438087",
+        "--node-offset=8834916224013",
+        "--node-depth=16",
+        "--inner-hash-length=136",
+        "--last-node",
+    ];
+    let output = cmd(b2sum_exe(), flags.iter())
+        .input("foo")
+        .read()
+        .expect("b2sum failed");
+    assert_eq!("62361e5392ab0eb7dd27e48a6809ee82dc57  -", output);
+}
+
 // This is the exact same result as test_all_parameters_blake2bp in the library tests.
 #[test]
 fn test_all_parameters_blake2bp() {
@@ -136,4 +161,15 @@ fn test_all_parameters_blake2bp() {
         .read()
         .expect("b2sum failed");
     assert_eq!("8c54e888a8a01c63da6585c058fe54ea81df  -", output);
+}
+
+// This is the exact same result as test_all_parameters_blake2sp in the library tests.
+#[test]
+fn test_all_parameters_blake2sp() {
+    let flags = ["--blake2sp", "--length=144", "--key=626172"];
+    let output = cmd(b2sum_exe(), flags.iter())
+        .input("foo")
+        .read()
+        .expect("b2sum failed");
+    assert_eq!("947d4c671e2794f5e1a57daeca97bb46ed66  -", output);
 }

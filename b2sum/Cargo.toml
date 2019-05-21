@@ -5,7 +5,7 @@
 name = "b2sum"
 version = "0.1.0"
 authors = ["Jack O'Connor"]
-description = "a clone of the coreutils b2sum utility based on blake2b_simd"
+description = "a clone of the coreutils b2sum utility based on blake2_simd"
 license = "MIT"
 repository = "https://github.com/oconnor663/blake2b_simd/tree/master/b2sum"
 edition = "2018"
@@ -13,6 +13,7 @@ edition = "2018"
 [dependencies]
 blake2b_simd = { path = "../blake2b" }
 blake2s_simd = { path = "../blake2s" }
+failure = "0.1.5"
 hex = "0.3.2"
 memmap = "0.7.0"
 structopt = "0.2.10"
