@@ -87,12 +87,14 @@ Coreutils hashes, on a 1 GB file of random data. Here are the results from
 my laptop:
 
 ```table
-╭───────────────────────────────┬────────────╮
-│ blake2b_simd b2sum --blake2bp │ 1.517 GB/s │
-│ blake2b_simd b2sum            │ 0.820 GB/s │
-│ coreutils sha1sum             │ 0.805 GB/s │
-│ coreutils b2sum               │ 0.668 GB/s │
-│ coreutils md5sum              │ 0.595 GB/s │
-│ coreutils sha512sum           │ 0.593 GB/s │
-╰───────────────────────────────┴────────────╯
+╭─────────────────────┬────────────╮
+│ b2sum --blake2sp    │ 1.727 GB/s │
+│ b2sum --blake2bp    │ 1.618 GB/s │
+│ b2sum --blake2b     │ 0.887 GB/s │
+│ coreutils sha1sum   │ 0.854 GB/s │
+│ coreutils b2sum     │ 0.713 GB/s │
+│ coreutils md5sum    │ 0.632 GB/s │
+│ coreutils sha512sum │ 0.620 GB/s │
+│ b2sum --blake2s     │ 0.603 GB/s │
+╰─────────────────────┴────────────╯
 ```

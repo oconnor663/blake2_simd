@@ -21,8 +21,10 @@ targets = [
     ["sha1sum"],
     ["sha512sum"],
     ["/usr/bin/b2sum"],
-    [b2sum_path],
+    [b2sum_path, "--blake2b"],
+    [b2sum_path, "--blake2s"],
     [b2sum_path, "--blake2bp"],
+    [b2sum_path, "--blake2sp"],
 ]
 
 
@@ -52,7 +54,7 @@ def random_temp_file(size):
 def main():
     input_file = random_temp_file(INPUT_SIZE)
     input_gigs = INPUT_SIZE / 1_000_000_000
-    build_command = ["cargo", "+nightly", "build", "--release"]
+    build_command = ["cargo", "build", "--release"]
     print(" ".join(build_command))
     subprocess.run(build_command, cwd=b2sum_root)
 
