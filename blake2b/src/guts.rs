@@ -303,6 +303,7 @@ mod test {
         }
     }
 
+    // TODO: Move all of these case tests into the implementation files.
     fn exercise_cases<F>(mut f: F)
     where
         F: FnMut(Stride, usize, LastNode, Finalize, Count),
