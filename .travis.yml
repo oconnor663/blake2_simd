@@ -8,7 +8,7 @@ rust:
   - beta
   - nightly
 script:
-  - cargo run --bin run_all_tests
+  - (cd run_all_tests && cargo run)
 # Also run the tests on a non-x86, big-endian system.
 matrix:
   include:

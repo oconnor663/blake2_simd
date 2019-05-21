@@ -2,25 +2,21 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
-fn here() -> &'static Path {
+fn project_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("parent failed")
 }
 
-fn run_test_command(project_dir: impl AsRef<Path>, flags: &[&str]) {
-    let mut relative_dir: &Path = project_dir
-        .as_ref()
-        .strip_prefix(here())
-        .unwrap_or(project_dir.as_ref());
-    if relative_dir.components().count() == 0 {
-        relative_dir = Path::new(".");
-    }
+fn run_test_command(project: &str, flags: &[&str]) {
+    let project_dir = Path::new(project_root()).join(project);
+    println!("=== TEST COMMAND ===");
     println!(
         "cd {} && cargo test {}",
-        relative_dir.to_string_lossy(),
+        project_dir.to_string_lossy(),
         flags.join(" ")
     );
     println!();
-
     let status = Command::new(env!("CARGO"))
         .arg("test")
         .args(flags)
@@ -38,19 +34,17 @@ fn main() {
     // it), so that they can share build artifacts.
     let target_dir = env::var_os("CARGO_TARGET_DIR")
         .map(Into::<PathBuf>::into)
-        .unwrap_or(here().join("target"));
+        .unwrap_or(project_root().join("target"));
     env::set_var("CARGO_TARGET_DIR", &target_dir);
 
     // Test all the sub-projects under both std and no_std.
     for &project in &["blake2b", "blake2s", ".", "b2sum"] {
         for &no_std in &[false, true] {
-            println!("=== TEST COMMAND ===");
             let mut flags = Vec::new();
             if no_std {
                 flags.push("--no-default-features");
             }
-            let project_dir = Path::new(here()).join(project);
-            run_test_command(&project_dir, &flags);
+            run_test_command(project, &flags);
         }
     }
 

@@ -14,10 +14,6 @@ documentation = "https://docs.rs/blake2b_simd"
 readme = "README.md"
 edition = "2018"
 
-[[bin]]
-name = "run_all_tests"
-path = "./run_all_tests.rs"
-
 [features]
 # Note that this root crates never builds itself with no_std. The "std" feature
 # only controls whether blake2b_simd and blake2s_simd build with no_std.
