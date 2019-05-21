@@ -8,7 +8,7 @@ rust:
   - beta
   - nightly
 script:
-  - ./test.py
+  - cargo run --bin run_all_tests
 # Also run the tests on a non-x86, big-endian system.
 matrix:
   include:
@@ -18,4 +18,5 @@ matrix:
       install:
         - cargo install cross
       script:
-        - cross test --target mips64-unknown-linux-gnuabi64 -vv --all-features
+        - cross test --target mips64-unknown-linux-gnuabi64 --all-features --manifest-path=blake2b/Cargo.toml
+        - cross test --target mips64-unknown-linux-gnuabi64 --all-features --manifest-path=blake2s/Cargo.toml
