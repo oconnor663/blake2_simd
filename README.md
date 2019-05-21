@@ -60,22 +60,25 @@ The `benches/bench_multiprocess` sub-crate runs various hash functions on
 long inputs in memory and tries to average over many sources of
 variability. Here are the results from my laptop for `cargo run --release`:
 
-- Intel Core i5-8250U, Arch Linux, kernel version 5.0.13
+- Intel Core i5-8250U, Arch Linux, kernel version 5.1.3
 - libsodium version 1.0.17
 - OpenSSL version 1.1.1.b
-- rustc 1.34.1
+- rustc 1.34.2
 
 ```table
 ╭─────────────────────────┬────────────╮
+│ blake2s_simd many::hash │ 2.454 GB/s │
+│ blake2s_simd BLAKE2sp   │ 2.421 GB/s │
+│ sneves BLAKE2sp         │ 2.316 GB/s │
 │ blake2b_simd many::hash │ 2.223 GB/s │
 │ blake2b_simd BLAKE2bp   │ 2.211 GB/s │
-│ sneves BLAKE2bp         │ 2.143 GB/s │
+│ sneves BLAKE2bp         │ 2.150 GB/s │
 │ blake2b_simd BLAKE2b    │ 1.008 GB/s │
 │ OpenSSL SHA-1           │ 0.971 GB/s │
 │ sneves BLAKE2b          │ 0.949 GB/s │
 │ libsodium BLAKE2b       │ 0.940 GB/s │
-│ blake2b_simd portable   │ 0.812 GB/s │
 │ OpenSSL SHA-512         │ 0.666 GB/s │
+│ blake2s_simd BLAKE2s    │ 0.647 GB/s │
 ╰─────────────────────────┴────────────╯
 ```
 

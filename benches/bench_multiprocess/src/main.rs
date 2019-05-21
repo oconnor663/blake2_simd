@@ -49,13 +49,15 @@ const OFFSET_PERIOD: usize = 512;
 const BENCH_LEN: usize = 1_000_000;
 
 static ALGOS: &[(&str, HashBench)] = &[
-    ("blake2b_simd portable", hash_portable),
-    ("blake2b_simd AVX2", hash_avx2),
-    ("blake2b_simd many correlated", hash_many_correlated),
-    ("blake2b_simd many uncorrelated", hash_many_uncorrelated),
+    ("blake2b_simd BLAKE2b", blake2b_hash),
+    ("blake2b_simd many", blake2b_hash_many),
     ("blake2b_simd BLAKE2bp", hash_blake2bp),
-    ("blake2b_avx2_sneves BLAKE2b", hash_sneves_blake2b),
-    ("blake2b_avx2_sneves BLAKE2bp", hash_sneves_blake2bp),
+    ("blake2s_simd BLAKE2s", blake2s_hash),
+    ("blake2s_simd many", blake2s_hash_many),
+    ("blake2s_simd BLAKE2sp", hash_blake2sp),
+    ("sneves BLAKE2b", hash_sneves_blake2b),
+    ("sneves BLAKE2bp", hash_sneves_blake2bp),
+    ("sneves BLAKE2sp", hash_sneves_blake2sp),
     ("libsodium BLAKE2b", libsodium),
     ("OpenSSL SHA-1", openssl_sha1),
     ("OpenSSL SHA-512", openssl_sha512),
@@ -75,42 +77,39 @@ fn bench(mut f: impl FnMut()) -> u128 {
     (after - before).as_nanos()
 }
 
-fn hash_portable() -> u128 {
-    let mut input = OffsetInput::new(BENCH_LEN);
-    bench(|| {
-        let mut state = blake2b_simd::State::new();
-        blake2b_simd::benchmarks::force_portable(&mut state);
-        state.update(input.get());
-        state.finalize();
-    })
-}
-
-fn hash_avx2() -> u128 {
+fn blake2b_hash() -> u128 {
     let mut input = OffsetInput::new(BENCH_LEN);
     bench(|| {
         blake2b_simd::blake2b(input.get());
     })
 }
 
-// This one does each run with N=degree inputs at the same offset. This leads
-// to an offset effect comparable to what we see with BLAKE2bp.
-fn hash_many_correlated() -> u128 {
-    let degree = blake2b_simd::many::degree();
-    let bench_len = BENCH_LEN / degree;
-    let mut inputs = Vec::new();
-    for _ in 0..degree {
-        inputs.push(OffsetInput::new(bench_len));
-    }
-    let params = blake2b_simd::Params::new();
+fn blake2s_hash() -> u128 {
+    let mut input = OffsetInput::new(BENCH_LEN);
     bench(|| {
-        let mut jobs = arrayvec::ArrayVec::<[_; blake2b_simd::many::MAX_DEGREE]>::new();
-        for input in &mut inputs {
-            let job = blake2b_simd::many::HashManyJob::new(&params, input.get());
-            jobs.push(job);
-        }
-        blake2b_simd::many::hash_many(&mut jobs);
+        blake2s_simd::blake2s(input.get());
     })
 }
+
+// This one does each run with N=degree inputs at the same offset. This leads
+// to an offset effect comparable to what we see with BLAKE2bp.
+// fn blake2b_hash_many_correlated() -> u128 {
+//     let degree = blake2b_simd::many::degree();
+//     let bench_len = BENCH_LEN / degree;
+//     let mut inputs = Vec::new();
+//     for _ in 0..degree {
+//         inputs.push(OffsetInput::new(bench_len));
+//     }
+//     let params = blake2b_simd::Params::new();
+//     bench(|| {
+//         let mut jobs = arrayvec::ArrayVec::<[_; blake2b_simd::many::MAX_DEGREE]>::new();
+//         for input in &mut inputs {
+//             let job = blake2b_simd::many::HashManyJob::new(&params, input.get());
+//             jobs.push(job);
+//         }
+//         blake2b_simd::many::hash_many(&mut jobs);
+//     })
+// }
 
 // This one does each run with N=degree inputs at uncorrelated offsets. This
 // turns out to reduce the offset effect and give better performance. This is
@@ -118,7 +117,7 @@ fn hash_many_correlated() -> u128 {
 // that's a self-serving decision, because it's a higher number. On the other
 // hand, the fact that numbers are different is pretty important, and I don't
 // want to bury it.
-fn hash_many_uncorrelated() -> u128 {
+fn blake2b_hash_many() -> u128 {
     let degree = blake2b_simd::many::degree();
     let bench_len = BENCH_LEN / degree;
     let mut inputs = Vec::new();
@@ -138,10 +137,37 @@ fn hash_many_uncorrelated() -> u128 {
     })
 }
 
+fn blake2s_hash_many() -> u128 {
+    let degree = blake2s_simd::many::degree();
+    let bench_len = BENCH_LEN / degree;
+    let mut inputs = Vec::new();
+    for _ in 0..degree {
+        let mut offset_input = OffsetInput::new(bench_len);
+        offset_input.offsets.shuffle();
+        inputs.push(OffsetInput::new(bench_len));
+    }
+    let params = blake2s_simd::Params::new();
+    bench(|| {
+        let mut jobs = arrayvec::ArrayVec::<[_; blake2s_simd::many::MAX_DEGREE]>::new();
+        for input in &mut inputs {
+            let job = blake2s_simd::many::HashManyJob::new(&params, input.get());
+            jobs.push(job);
+        }
+        blake2s_simd::many::hash_many(&mut jobs);
+    })
+}
+
 fn hash_blake2bp() -> u128 {
     let mut input = OffsetInput::new(BENCH_LEN);
     bench(|| {
         blake2b_simd::blake2bp::blake2bp(input.get());
+    })
+}
+
+fn hash_blake2sp() -> u128 {
+    let mut input = OffsetInput::new(BENCH_LEN);
+    bench(|| {
+        blake2s_simd::blake2sp::blake2sp(input.get());
     })
 }
 
@@ -156,6 +182,13 @@ fn hash_sneves_blake2bp() -> u128 {
     let mut input = OffsetInput::new(BENCH_LEN);
     bench(|| {
         blake2_avx2_sneves::blake2bp(input.get());
+    })
+}
+
+fn hash_sneves_blake2sp() -> u128 {
+    let mut input = OffsetInput::new(BENCH_LEN);
+    bench(|| {
+        blake2_avx2_sneves::blake2sp(input.get());
     })
 }
 
