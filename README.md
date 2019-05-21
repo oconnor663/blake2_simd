@@ -51,10 +51,10 @@ de9543b2ae1b2b87434a730727db17f5ac8b8c020b84a5cb8c5fbcc1423443ba  -
 
 ## Performance
 
-To run small benchmarks yourself, run `cargo +nightly bench`. That suite
-includes some comparison benchmarks with OpenSSL and libsodium. If you
-don't have those installed on your machine, you can run
-`cargo +nightly bench --no-default-features --features std` instead.
+To run small benchmarks yourself, run `cargo +nightly bench`. If you
+have OpenSSL, libsodium, and dev tools installed on your machine, you
+can add `--all-features` to include comparison benchmarks with other
+native libraries.
 
 The `benches/bench_multiprocess` sub-crate runs various hash functions on
 long inputs in memory and tries to average over many sources of
