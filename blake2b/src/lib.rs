@@ -19,7 +19,6 @@
 //! - Support for computing multiple BLAKE2b hashes in parallel, matching the efficiency of
 //!   BLAKE2bp. See the [`many`](many/index.html) module.
 //!
-//!
 //! # Example
 //!
 //! ```

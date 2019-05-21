@@ -1,7 +1,7 @@
-[![GitHub](https://img.shields.io/github/tag/oconnor663/blake2_simd.svg?label=GitHub)](https://github.com/oconnor663/blake2_simd) [![crates.io](https://img.shields.io/crates/v/blake2b_simd.svg)](https://crates.io/crates/blake2b_simd) [![Build Status](https://travis-ci.org/oconnor663/blake2_simd.svg?branch=master)](https://travis-ci.org/oconnor663/blake2_simd)
+# blake2b_simd [![GitHub](https://img.shields.io/github/tag/oconnor663/blake2_simd.svg?label=GitHub)](https://github.com/oconnor663/blake2_simd) [![crates.io](https://img.shields.io/crates/v/blake2b_simd.svg)](https://crates.io/crates/blake2b_simd) [![Build Status](https://travis-ci.org/oconnor663/blake2_simd.svg?branch=master)](https://travis-ci.org/oconnor663/blake2_simd)
 
 An implementation of the BLAKE2b and BLAKE2bp hash functions. See also
-[`blake2s_simd`](https://docs.rs/blake2s_simd).
+[`blake2s_simd`](../blake2s).
 
 This crate includes:
 
@@ -18,7 +18,6 @@ This crate includes:
   for implementing `std::io::Write`.
 - Support for computing multiple BLAKE2b hashes in parallel, matching the efficiency of
   BLAKE2bp. See the [`many`](many/index.html) module.
-
 
 # Example
 
