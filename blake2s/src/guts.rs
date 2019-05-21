@@ -88,7 +88,7 @@ impl Implementation {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => avx2::DEGREE,
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            Platform::SSE41 => 2,
+            Platform::SSE41 => sse41::DEGREE,
             Platform::Portable => 1,
         }
     }
