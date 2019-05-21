@@ -14,6 +14,10 @@ documentation = "https://docs.rs/blake2b_simd"
 readme = "README.md"
 edition = "2018"
 
+[[bin]]
+name = "run_all_tests"
+path = "./run_all_tests.rs"
+
 [features]
 default = ["blake2-avx2-sneves", "kangarootwelve", "libsodium-ffi", "openssl", "std"]
 std = ["blake2b_simd/std", "blake2s_simd/std"]
