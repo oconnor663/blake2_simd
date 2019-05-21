@@ -18,8 +18,6 @@ fn main() {
                 let mut args = vec!["test"];
                 if no_std {
                     args.push("--no-default-features");
-                } else {
-                    args.push("--all-features");
                 }
                 if release_mode {
                     args.push("--release");
