@@ -1,29 +1,21 @@
-# blake2b_simd [![Build Status](https://travis-ci.org/oconnor663/blake2b_simd.svg?branch=master)](https://travis-ci.org/oconnor663/blake2b_simd) [![docs.rs](https://docs.rs/blake2b_simd/badge.svg)](https://docs.rs/blake2b_simd)
+# blake2b_simd [![Build Status](https://travis-ci.org/oconnor663/blake2_simd.svg?branch=master)](https://travis-ci.org/oconnor663/blake2_simd) [![docs.rs](https://docs.rs/blake2b_simd/badge.svg)](https://docs.rs/blake2b_simd) [![crates.io](https://img.shields.io/crates/v/blake2b_simd.svg)](https://crates.io/crates/blake2b_simd)<br>blake2s_simd [![Build Status](https://travis-ci.org/oconnor663/blake2_simd.svg?branch=master)](https://travis-ci.org/oconnor663/blake2_simd) [![docs.rs](https://docs.rs/blake2s_simd/badge.svg)](https://docs.rs/blake2s_simd) [![crates.io](https://img.shields.io/crates/v/blake2s_simd.svg)](https://crates.io/crates/blake2s_simd)
 
-[Repo](https://github.com/oconnor663/blake2b_simd) —
-[Docs](https://docs.rs/blake2b_simd) —
-[Crate](https://crates.io/crates/blake2b_simd)
-
-An implementation of the BLAKE2b hash with:
+An implementation of the BLAKE2(b/s/bp/sp) family of hash functions with:
 
 - 100% stable Rust.
-- A SIMD implementation based on Samuel Neves' [`blake2-avx2`]. This implementation is very
-  fast. See the Performance section below.
-- A portable, safe implementation for other platforms.
-- Dynamic CPU feature detection. Binaries for x86 include SIMD implementations by default and
-  use the fastest implementation the processor supports.
-- All the features from the [the BLAKE2 spec], like adjustable length, keying, and associated
-  data for tree hashing.
-- A clone of the Coreutils `b2sum` command line utility, provided as a sub-crate. `b2sum`
-  includes command line flags for all the BLAKE2 associated data features.
+- SIMD implementations based on Samuel Neves' [`blake2-avx2`](https://github.com/sneves/blake2-avx2).
+  These are very fast. See the Performance section below.
+- Portable, safe implementations for other platforms.
+- Dynamic CPU feature detection. Binaries include multiple implementations by default and
+  choose the fastest one the processor supports at runtime.
+- All the features from the [the BLAKE2 spec](https://blake2.net/blake2.pdf), like adjustable
+  length, keying, and associated data for tree hashing.
+- A clone of the Coreutils `b2sum` command line utility, with command line flags for all the
+  BLAKE2 variants and associated data features.
 - `no_std` support. The `std` Cargo feature is on by default, for CPU feature detection and
   for implementing `std::io::Write`.
-- The SIMD-friendly [BLAKE2bp] variant. This implementation is single-threaded, but it's faster
-  than BLAKE2b, because it uses AVX2 more efficiently. It's available on the command line as
-  `b2sum --blake2bp`.
-- Support for computing multiple BLAKE2b hashes in parallel. See [`many::hash_many`] and
-  [`many::update_many`]. These interfaces match the efficiency of BLAKE2bp but produce BLAKE2b
-  hashes. They're a building block for the [Bao project].
+- Support for computing multiple BLAKE2b and BLAKE2s hashes in parallel, matching the
+  efficiency of BLAKE2bp and BLAKE2sp. See the `many` module in each crate.
 
 ## Example
 
@@ -101,12 +93,3 @@ my laptop:
 │ coreutils sha512sum           │ 0.593 GB/s │
 ╰───────────────────────────────┴────────────╯
 ```
-
-[libsodium]: https://github.com/jedisct1/libsodium
-[the BLAKE2 spec]: https://blake2.net/blake2.pdf
-[`blake2-avx2`]: https://github.com/sneves/blake2-avx2
-[included in libsodium]: https://github.com/jedisct1/libsodium/commit/0131a720826045e476e6dd6a8e7a1991f1d941aa
-[BLAKE2bp]: https://docs.rs/blake2b_simd/latest/blake2b_simd/blake2bp/index.html
-[`many::hash_many`]: https://docs.rs/blake2b_simd/latest/blake2b_simd/many/fn.hash_many.html
-[`many::update_many`]: https://docs.rs/blake2b_simd/latest/blake2b_simd/many/fn.update_many.html
-[Bao project]: https://github.com/oconnor663/bao
