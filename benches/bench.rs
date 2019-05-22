@@ -45,19 +45,19 @@ impl RandomInput {
 }
 
 #[bench]
-fn bench_blake2b_avx2_one_block(b: &mut Bencher) {
+fn bench_block_blake2b_avx2(b: &mut Bencher) {
     let mut input = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
     b.iter(|| blake2b_simd::blake2b(input.get()));
 }
 
 #[bench]
-fn bench_blake2b_avx2_one_mb(b: &mut Bencher) {
+fn bench_1mb_blake2b_avx2(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| blake2b_simd::blake2b(input.get()));
 }
 
 #[bench]
-fn bench_blake2b_portable_one_block(b: &mut Bencher) {
+fn bench_block_blake2b_portable(b: &mut Bencher) {
     let mut input = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
     b.iter(|| {
         let mut state = blake2b_simd::State::new();
@@ -70,7 +70,7 @@ fn bench_blake2b_portable_one_block(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2b_portable_one_mb(b: &mut Bencher) {
+fn bench_1mb_blake2b_portable(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| {
         let mut state = blake2b_simd::State::new();
@@ -81,19 +81,19 @@ fn bench_blake2b_portable_one_mb(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2s_sse41_one_block(b: &mut Bencher) {
+fn bench_block_blake2s_sse41(b: &mut Bencher) {
     let mut input = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
     b.iter(|| blake2s_simd::blake2s(input.get()));
 }
 
 #[bench]
-fn bench_blake2s_sse41_one_mb(b: &mut Bencher) {
+fn bench_1mb_blake2s_sse41(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| blake2s_simd::blake2s(input.get()));
 }
 
 #[bench]
-fn bench_blake2s_portable_one_block(b: &mut Bencher) {
+fn bench_block_blake2s_portable(b: &mut Bencher) {
     let mut input = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
     b.iter(|| {
         let mut state = blake2s_simd::State::new();
@@ -104,7 +104,7 @@ fn bench_blake2s_portable_one_block(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2s_portable_one_mb(b: &mut Bencher) {
+fn bench_1mb_blake2s_portable(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| {
         let mut state = blake2s_simd::State::new();
@@ -115,19 +115,19 @@ fn bench_blake2s_portable_one_mb(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2bp_one_mb(b: &mut Bencher) {
+fn bench_1mb_blake2bp(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| blake2b_simd::blake2bp::blake2bp(input.get()));
 }
 
 #[bench]
-fn bench_blake2sp_one_mb(b: &mut Bencher) {
+fn bench_1mb_blake2sp(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| blake2s_simd::blake2sp::blake2sp(input.get()));
 }
 
 #[bench]
-fn bench_blake2b_hash_many_2x_1mb(b: &mut Bencher) {
+fn bench_1mb_blake2b_many_2x(b: &mut Bencher) {
     let mut input0 = RandomInput::new(b, MB);
     let mut input1 = RandomInput::new(b, MB);
     let params = blake2b_simd::Params::new();
@@ -142,7 +142,7 @@ fn bench_blake2b_hash_many_2x_1mb(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2b_hash_many_4x_1mb(b: &mut Bencher) {
+fn bench_1mb_blake2b_many_4x(b: &mut Bencher) {
     let mut input0 = RandomInput::new(b, MB);
     let mut input1 = RandomInput::new(b, MB);
     let mut input2 = RandomInput::new(b, MB);
@@ -166,7 +166,7 @@ fn bench_blake2b_hash_many_4x_1mb(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2s_hash_many_4x_1mb(b: &mut Bencher) {
+fn bench_1mb_blake2s_many_4x(b: &mut Bencher) {
     let mut input0 = RandomInput::new(b, MB);
     let mut input1 = RandomInput::new(b, MB);
     let mut input2 = RandomInput::new(b, MB);
@@ -190,7 +190,7 @@ fn bench_blake2s_hash_many_4x_1mb(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2s_hash_many_8x_1mb(b: &mut Bencher) {
+fn bench_1mb_blake2s_many_8x(b: &mut Bencher) {
     let mut input0 = RandomInput::new(b, MB);
     let mut input1 = RandomInput::new(b, MB);
     let mut input2 = RandomInput::new(b, MB);
@@ -226,7 +226,7 @@ fn bench_blake2s_hash_many_8x_1mb(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2b_hash_many_2x_one_block(b: &mut Bencher) {
+fn bench_block_blake2b_many_2x(b: &mut Bencher) {
     let mut input0 = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
     let mut input1 = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
     let params = blake2b_simd::Params::new();
@@ -241,7 +241,7 @@ fn bench_blake2b_hash_many_2x_one_block(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2b_hash_many_4x_one_block(b: &mut Bencher) {
+fn bench_block_blake2b_many_4x(b: &mut Bencher) {
     let mut input0 = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
     let mut input1 = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
     let mut input2 = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
@@ -265,7 +265,7 @@ fn bench_blake2b_hash_many_4x_one_block(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2s_hash_many_4x_one_block(b: &mut Bencher) {
+fn bench_block_blake2s_many_4x(b: &mut Bencher) {
     let mut input0 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
     let mut input1 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
     let mut input2 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
@@ -289,7 +289,7 @@ fn bench_blake2s_hash_many_4x_one_block(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_blake2s_hash_many_8x_one_block(b: &mut Bencher) {
+fn bench_block_blake2s_many_8x(b: &mut Bencher) {
     let mut input0 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
     let mut input1 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
     let mut input2 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
@@ -332,21 +332,21 @@ fn bench_blake2s_hash_many_8x_one_block(b: &mut Bencher) {
 // unfair in other ways. I haven't asked the author yet.
 #[cfg(feature = "blake2-avx2-sneves")]
 #[bench]
-fn bench_sneves_blake2b_avx2(b: &mut Bencher) {
+fn bench_1mb_sneves_blake2b(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| blake2_avx2_sneves::blake2b(input.get()));
 }
 
 #[cfg(feature = "blake2-avx2-sneves")]
 #[bench]
-fn bench_sneves_blake2bp_avx2(b: &mut Bencher) {
+fn bench_1mb_sneves_blake2bp(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| blake2_avx2_sneves::blake2bp(input.get()));
 }
 
 #[cfg(feature = "blake2-avx2-sneves")]
 #[bench]
-fn bench_sneves_blake2sp_avx2(b: &mut Bencher) {
+fn bench_1mb_sneves_blake2sp(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| blake2_avx2_sneves::blake2sp(input.get()));
 }
@@ -359,14 +359,14 @@ fn bench_sneves_blake2sp_avx2(b: &mut Bencher) {
 // flag RUSTFLAGS="-C target-cpu=native", blake2b_simd pulls ahead.
 #[cfg(feature = "kangarootwelve")]
 #[bench]
-fn bench_kangarootwelve(b: &mut Bencher) {
+fn bench_1mb_kangarootwelve(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| kangarootwelve::kangarootwelve(input.get()));
 }
 
 #[cfg(feature = "libsodium-ffi")]
 #[bench]
-fn bench_libsodium_one_mb(b: &mut Bencher) {
+fn bench_1mb_libsodium(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     let mut out = [0; 64];
     unsafe {
@@ -388,21 +388,21 @@ fn bench_libsodium_one_mb(b: &mut Bencher) {
 
 #[cfg(feature = "openssl")]
 #[bench]
-fn bench_openssl_md5_one_mb(b: &mut Bencher) {
+fn bench_1mb_openssl_md5(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::md5(), input.get()));
 }
 
 #[cfg(feature = "openssl")]
 #[bench]
-fn bench_openssl_sha1_one_mb(b: &mut Bencher) {
+fn bench_1mb_openssl_sha1(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha1(), input.get()));
 }
 
 #[cfg(feature = "openssl")]
 #[bench]
-fn bench_openssl_sha512_one_mb(b: &mut Bencher) {
+fn bench_1mb_openssl_sha512(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), input.get()));
 }
