@@ -59,25 +59,17 @@ fn bench_1mb_blake2b_avx2(b: &mut Bencher) {
 #[bench]
 fn bench_block_blake2b_portable(b: &mut Bencher) {
     let mut input = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
-    b.iter(|| {
-        let mut state = blake2b_simd::State::new();
-        // TODO: Put an implementation parameter on the params object, so we
-        // don't have to pay the copying overhead of update.
-        blake2b_simd::benchmarks::force_portable(&mut state);
-        state.update(input.get());
-        state.finalize()
-    });
+    let mut params = blake2b_simd::Params::new();
+    blake2b_simd::benchmarks::force_portable(&mut params);
+    b.iter(|| params.hash(input.get()));
 }
 
 #[bench]
 fn bench_1mb_blake2b_portable(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
-    b.iter(|| {
-        let mut state = blake2b_simd::State::new();
-        blake2b_simd::benchmarks::force_portable(&mut state);
-        state.update(input.get());
-        state.finalize()
-    });
+    let mut params = blake2b_simd::Params::new();
+    blake2b_simd::benchmarks::force_portable(&mut params);
+    b.iter(|| params.hash(input.get()));
 }
 
 #[bench]
@@ -95,23 +87,17 @@ fn bench_1mb_blake2s_sse41(b: &mut Bencher) {
 #[bench]
 fn bench_block_blake2s_portable(b: &mut Bencher) {
     let mut input = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
-    b.iter(|| {
-        let mut state = blake2s_simd::State::new();
-        blake2s_simd::benchmarks::force_portable(&mut state);
-        state.update(input.get());
-        state.finalize()
-    });
+    let mut params = blake2s_simd::Params::new();
+    blake2s_simd::benchmarks::force_portable(&mut params);
+    b.iter(|| params.hash(input.get()));
 }
 
 #[bench]
 fn bench_1mb_blake2s_portable(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
-    b.iter(|| {
-        let mut state = blake2s_simd::State::new();
-        blake2s_simd::benchmarks::force_portable(&mut state);
-        state.update(input.get());
-        state.finalize()
-    });
+    let mut params = blake2s_simd::Params::new();
+    blake2s_simd::benchmarks::force_portable(&mut params);
+    b.iter(|| params.hash(input.get()));
 }
 
 #[bench]

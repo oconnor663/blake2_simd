@@ -145,12 +145,28 @@ pub struct Params {
     node_depth: u8,
     inner_hash_length: u8,
     last_node: guts::LastNode,
+    implementation: guts::Implementation,
 }
 
 impl Params {
     /// Equivalent to `Params::default()`.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            hash_length: OUTBYTES as u8,
+            key_length: 0,
+            key_block: [0; BLOCKBYTES],
+            salt: [0; SALTBYTES],
+            personal: [0; PERSONALBYTES],
+            // NOTE: fanout and max_depth don't default to zero!
+            fanout: 1,
+            max_depth: 1,
+            max_leaf_length: 0,
+            node_offset: 0,
+            node_depth: 0,
+            inner_hash_length: 0,
+            last_node: guts::LastNode::No,
+            implementation: guts::Implementation::detect(),
+        }
     }
 
     fn to_words(&self) -> [Word; 8] {
@@ -182,9 +198,8 @@ impl Params {
         if self.key_length > 0 {
             return self.to_state().update(input).finalize();
         }
-        let imp = guts::Implementation::detect();
         let mut words = self.to_words();
-        imp.compress1_loop(
+        self.implementation.compress1_loop(
             input,
             &mut words,
             0,
@@ -313,21 +328,7 @@ impl Params {
 
 impl Default for Params {
     fn default() -> Self {
-        Self {
-            hash_length: OUTBYTES as u8,
-            key_length: 0,
-            key_block: [0; BLOCKBYTES],
-            salt: [0; SALTBYTES],
-            personal: [0; PERSONALBYTES],
-            // NOTE: fanout and max_depth don't default to zero!
-            fanout: 1,
-            max_depth: 1,
-            max_leaf_length: 0,
-            node_offset: 0,
-            node_depth: 0,
-            inner_hash_length: 0,
-            last_node: guts::LastNode::No,
-        }
+        Self::new()
     }
 }
 
@@ -397,7 +398,7 @@ impl State {
             buflen: 0,
             last_node: params.last_node,
             hash_length: params.hash_length,
-            implementation: guts::Implementation::detect(),
+            implementation: params.implementation,
             is_keyed: params.key_length > 0,
         };
         if state.is_keyed {
@@ -641,11 +642,11 @@ fn paint_test_input(buf: &mut [u8]) {
 pub mod benchmarks {
     use super::*;
 
-    pub fn force_portable(state: &mut crate::State) {
-        state.implementation = guts::Implementation::portable();
+    pub fn force_portable(params: &mut Params) {
+        params.implementation = guts::Implementation::portable();
     }
 
-    pub fn force_portable_blake2sp(state: &mut blake2sp::State) {
-        crate::blake2sp::force_portable(state);
+    pub fn force_portable_blake2sp(params: &mut blake2sp::Params) {
+        blake2sp::force_portable(params);
     }
 }

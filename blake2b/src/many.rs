@@ -205,8 +205,19 @@ where
     I: IntoIterator<Item = (&'a mut State, &'b T)>,
     T: 'b + AsRef<[u8]> + ?Sized,
 {
-    let imp = Implementation::detect();
-    let jobs = pairs.into_iter().flat_map(|(state, input_t)| {
+    // Get the guts::Implementation from the first state, if any.
+    let mut peekable_pairs = pairs.into_iter().peekable();
+    let implementation = if let Some((state, _)) = peekable_pairs.peek() {
+        state.implementation
+    } else {
+        // No work items, just short circuit.
+        return;
+    };
+
+    // Adapt the pairs iterator into a Jobs iterator, but skip over the Jobs
+    // where there's not actually any work to do (e.g. because there's not much
+    // input and it's all just going in the State buffer).
+    let jobs = peekable_pairs.flat_map(|(state, input_t)| {
         let mut input = input_t.as_ref();
         // For each pair, if the State has some input in its buffer, try to
         // finish that buffer. If there wasn't enough input to do that --
@@ -237,7 +248,9 @@ where
             })
         }
     });
-    compress_many(jobs, imp, Finalize::No, Stride::Serial);
+
+    // Run all the Jobs in the iterator.
+    compress_many(jobs, implementation, Finalize::No, Stride::Serial);
 }
 
 /// A job for the [`hash_many`] function. After calling [`hash_many`] on a
@@ -253,6 +266,7 @@ pub struct HashManyJob<'a> {
     hash_length: u8,
     input: &'a [u8],
     was_run: bool,
+    implementation: guts::Implementation,
 }
 
 impl<'a> HashManyJob<'a> {
@@ -268,7 +282,7 @@ impl<'a> HashManyJob<'a> {
             if input.is_empty() {
                 input = &params.key_block;
             } else {
-                Implementation::detect().compress1_loop(
+                params.implementation.compress1_loop(
                     &params.key_block,
                     &mut words,
                     count,
@@ -286,6 +300,7 @@ impl<'a> HashManyJob<'a> {
             hash_length: params.hash_length,
             input,
             was_run: false,
+            implementation: params.implementation,
         }
     }
 
@@ -344,8 +359,16 @@ where
     'b: 'a,
     I: IntoIterator<Item = &'a mut HashManyJob<'b>>,
 {
-    let imp = Implementation::detect();
-    let jobs = hash_many_jobs.into_iter().map(|j| {
+    // Get the guts::Implementation from the first job, if any.
+    let mut peekable_jobs = hash_many_jobs.into_iter().peekable();
+    let implementation = if let Some(job) = peekable_jobs.peek() {
+        job.implementation
+    } else {
+        // No work items, just short circuit.
+        return;
+    };
+
+    let jobs = peekable_jobs.into_iter().map(|j| {
         assert!(!j.was_run, "job has already been run");
         j.was_run = true;
         Job {
@@ -355,7 +378,7 @@ where
             last_node: j.last_node,
         }
     });
-    compress_many(jobs, imp, Finalize::Yes, Stride::Serial);
+    compress_many(jobs, implementation, Finalize::Yes, Stride::Serial);
 }
 
 #[cfg(test)]

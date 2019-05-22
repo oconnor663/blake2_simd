@@ -71,12 +71,18 @@ pub struct Params {
     hash_length: u8,
     key_length: u8,
     key: [u8; KEYBYTES],
+    implementation: Implementation,
 }
 
 impl Params {
     /// Equivalent to `Params::default()`.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            hash_length: OUTBYTES as u8,
+            key_length: 0,
+            key: [0; KEYBYTES],
+            implementation: Implementation::detect(),
+        }
     }
 
     fn to_words(&self) -> ([[Word; 8]; DEGREE], [Word; 8]) {
@@ -117,7 +123,6 @@ impl Params {
         if self.key_length > 0 {
             return self.to_state().update(input).finalize();
         }
-        let imp = Implementation::detect();
         let (mut leaf_words, mut root_words) = self.to_words();
         // Hash each leaf in parallel.
         let jobs = leaf_words.iter_mut().enumerate().map(|(i, words)| {
@@ -133,9 +138,14 @@ impl Params {
                 },
             }
         });
-        many::compress_many(jobs, imp, Finalize::Yes, Stride::Parallel);
+        many::compress_many(jobs, self.implementation, Finalize::Yes, Stride::Parallel);
         // Hash each leaf into the root.
-        finalize_root_words(&leaf_words, &mut root_words, self.hash_length, imp)
+        finalize_root_words(
+            &leaf_words,
+            &mut root_words,
+            self.hash_length,
+            self.implementation,
+        )
     }
 
     /// Construct a BLAKE2bp `State` object based on these parameters.
@@ -169,11 +179,7 @@ impl Params {
 
 impl Default for Params {
     fn default() -> Self {
-        Self {
-            hash_length: OUTBYTES as u8,
-            key_length: 0,
-            key: [0; KEYBYTES],
-        }
+        Self::new()
     }
 }
 
@@ -228,7 +234,6 @@ impl State {
     }
 
     fn with_params(params: &Params) -> Self {
-        let implementation = Implementation::detect();
         let (leaf_words, root_words) = params.to_words();
 
         // If a key is set, initalize the buffer to contain the key bytes. Note
@@ -257,7 +262,7 @@ impl State {
             buf_len: buf_len as u16,
             count: 0, // count gets updated in self.compress()
             hash_length: params.hash_length,
-            implementation,
+            implementation: params.implementation,
             is_keyed: params.key_length > 0,
         }
     }
@@ -468,8 +473,8 @@ fn finalize_root_words(
     }
 }
 
-pub(crate) fn force_portable(state: &mut State) {
-    state.implementation = Implementation::portable();
+pub(crate) fn force_portable(params: &mut Params) {
+    params.implementation = Implementation::portable();
 }
 
 #[cfg(test)]
@@ -531,21 +536,19 @@ pub(crate) mod test {
                     // dbg!(portable);
 
                     // First hash the input all at once, as a sanity check.
+                    let mut params = Params::new();
+                    if portable {
+                        force_portable(&mut params);
+                    }
                     let input = &buf[..num_blocks * BLOCKBYTES + extra];
                     let expected = blake2bp_reference(&input);
-                    let mut state = State::new();
-                    if portable {
-                        force_portable(&mut state);
-                    }
+                    let mut state = params.to_state();
                     let found = state.update(input).finalize();
                     assert_eq!(expected, found);
 
                     // Then, do it again, but buffer 1 byte of input first. That causes the buffering
                     // branch to trigger.
-                    let mut state = State::new();
-                    if portable {
-                        force_portable(&mut state);
-                    }
+                    let mut state = params.to_state();
                     let maybe_one = cmp::min(1, input.len());
                     state.update(&input[..maybe_one]);
                     assert_eq!(maybe_one as Count, state.count());
