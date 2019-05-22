@@ -225,6 +225,105 @@ fn bench_blake2s_hash_many_8x_1mb(b: &mut Bencher) {
     });
 }
 
+#[bench]
+fn bench_blake2b_hash_many_2x_one_block(b: &mut Bencher) {
+    let mut input0 = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
+    let mut input1 = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
+    let params = blake2b_simd::Params::new();
+    b.iter(|| {
+        let mut jobs = [
+            blake2b_simd::many::HashManyJob::new(&params, input0.get()),
+            blake2b_simd::many::HashManyJob::new(&params, input1.get()),
+        ];
+        blake2b_simd::many::hash_many(jobs.iter_mut());
+        [jobs[0].to_hash(), jobs[1].to_hash()]
+    });
+}
+
+#[bench]
+fn bench_blake2b_hash_many_4x_one_block(b: &mut Bencher) {
+    let mut input0 = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
+    let mut input1 = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
+    let mut input2 = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
+    let mut input3 = RandomInput::new(b, blake2b_simd::BLOCKBYTES);
+    let params = blake2b_simd::Params::new();
+    b.iter(|| {
+        let mut jobs = [
+            blake2b_simd::many::HashManyJob::new(&params, input0.get()),
+            blake2b_simd::many::HashManyJob::new(&params, input1.get()),
+            blake2b_simd::many::HashManyJob::new(&params, input2.get()),
+            blake2b_simd::many::HashManyJob::new(&params, input3.get()),
+        ];
+        blake2b_simd::many::hash_many(jobs.iter_mut());
+        [
+            jobs[0].to_hash(),
+            jobs[1].to_hash(),
+            jobs[2].to_hash(),
+            jobs[3].to_hash(),
+        ]
+    });
+}
+
+#[bench]
+fn bench_blake2s_hash_many_4x_one_block(b: &mut Bencher) {
+    let mut input0 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    let mut input1 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    let mut input2 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    let mut input3 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    let params = blake2s_simd::Params::new();
+    b.iter(|| {
+        let mut jobs = [
+            blake2s_simd::many::HashManyJob::new(&params, input0.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input1.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input2.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input3.get()),
+        ];
+        blake2s_simd::many::hash_many(jobs.iter_mut());
+        [
+            jobs[0].to_hash(),
+            jobs[1].to_hash(),
+            jobs[2].to_hash(),
+            jobs[3].to_hash(),
+        ]
+    });
+}
+
+#[bench]
+fn bench_blake2s_hash_many_8x_one_block(b: &mut Bencher) {
+    let mut input0 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    let mut input1 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    let mut input2 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    let mut input3 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    let mut input4 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    let mut input5 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    let mut input6 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    let mut input7 = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
+    let params = blake2s_simd::Params::new();
+    b.iter(|| {
+        let mut jobs = [
+            blake2s_simd::many::HashManyJob::new(&params, input0.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input1.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input2.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input3.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input4.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input5.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input6.get()),
+            blake2s_simd::many::HashManyJob::new(&params, input7.get()),
+        ];
+        blake2s_simd::many::hash_many(jobs.iter_mut());
+        [
+            jobs[0].to_hash(),
+            jobs[1].to_hash(),
+            jobs[2].to_hash(),
+            jobs[3].to_hash(),
+            jobs[4].to_hash(),
+            jobs[5].to_hash(),
+            jobs[6].to_hash(),
+            jobs[7].to_hash(),
+        ]
+    });
+}
+
 // Note for comparison: The blake2-avx2-sneves C code is currently compiled
 // with -mavx2 but *not* with -march=native. Upstream uses -march=native, but
 // -mavx2 is closer to how blake2b_simd is compiled, and it makes the benchmark
