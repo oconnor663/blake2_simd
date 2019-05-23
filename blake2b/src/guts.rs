@@ -125,7 +125,6 @@ impl Implementation {
         }
     }
 
-    // TODO: Just merge this into many?
     pub fn compress4_loop(&self, jobs: &mut [Job; 4], finalize: Finalize, stride: Stride) {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
