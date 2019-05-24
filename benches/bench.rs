@@ -51,6 +51,11 @@ fn bench_block_blake2b_avx2(b: &mut Bencher) {
 }
 
 #[bench]
+fn bench_byte_blake2b_avx2(b: &mut Bencher) {
+    b.iter(|| blake2b_simd::blake2b(b"x"));
+}
+
+#[bench]
 fn bench_1mb_blake2b_avx2(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| blake2b_simd::blake2b(input.get()));
@@ -76,6 +81,11 @@ fn bench_1mb_blake2b_portable(b: &mut Bencher) {
 fn bench_block_blake2s_sse41(b: &mut Bencher) {
     let mut input = RandomInput::new(b, blake2s_simd::BLOCKBYTES);
     b.iter(|| blake2s_simd::blake2s(input.get()));
+}
+
+#[bench]
+fn bench_byte_blake2s_sse41(b: &mut Bencher) {
+    b.iter(|| blake2s_simd::blake2s(b"x"));
 }
 
 #[bench]
@@ -350,6 +360,12 @@ fn bench_1mb_kangarootwelve(b: &mut Bencher) {
     b.iter(|| kangarootwelve::kangarootwelve(input.get()));
 }
 
+#[cfg(feature = "kangarootwelve")]
+#[bench]
+fn bench_byte_kangarootwelve(b: &mut Bencher) {
+    b.iter(|| kangarootwelve::kangarootwelve(b"x"));
+}
+
 #[cfg(feature = "libsodium-ffi")]
 #[bench]
 fn bench_1mb_libsodium(b: &mut Bencher) {
@@ -372,11 +388,38 @@ fn bench_1mb_libsodium(b: &mut Bencher) {
     });
 }
 
+#[cfg(feature = "libsodium-ffi")]
+#[bench]
+fn bench_byte_libsodium(b: &mut Bencher) {
+    let mut out = [0; 64];
+    unsafe {
+        let init_ret = libsodium_ffi::sodium_init();
+        assert!(init_ret != -1);
+    }
+    b.iter(|| unsafe {
+        let input_slice = b"x";
+        libsodium_ffi::crypto_generichash(
+            out.as_mut_ptr(),
+            out.len(),
+            input_slice.as_ptr(),
+            input_slice.len() as u64,
+            std::ptr::null(),
+            0,
+        );
+    });
+}
+
 #[cfg(feature = "openssl")]
 #[bench]
 fn bench_1mb_openssl_md5(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::md5(), input.get()));
+}
+
+#[cfg(feature = "openssl")]
+#[bench]
+fn bench_byte_openssl_md5(b: &mut Bencher) {
+    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::md5(), b"x"));
 }
 
 #[cfg(feature = "openssl")]
@@ -388,7 +431,19 @@ fn bench_1mb_openssl_sha1(b: &mut Bencher) {
 
 #[cfg(feature = "openssl")]
 #[bench]
+fn bench_byte_openssl_sha1(b: &mut Bencher) {
+    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha1(), b"x"));
+}
+
+#[cfg(feature = "openssl")]
+#[bench]
 fn bench_1mb_openssl_sha512(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), input.get()));
+}
+
+#[cfg(feature = "openssl")]
+#[bench]
+fn bench_byte_openssl_sha512(b: &mut Bencher) {
+    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), b"x"));
 }
