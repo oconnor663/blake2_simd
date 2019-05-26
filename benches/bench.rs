@@ -447,3 +447,29 @@ fn bench_1mb_openssl_sha512(b: &mut Bencher) {
 fn bench_byte_openssl_sha512(b: &mut Bencher) {
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), b"x"));
 }
+
+#[cfg(feature = "ring")]
+#[bench]
+fn bench_1mb_ring_sha1(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, MB);
+    b.iter(|| ring::digest::digest(&ring::digest::SHA1, input.get()));
+}
+
+#[cfg(feature = "ring")]
+#[bench]
+fn bench_byte_ring_sha1(b: &mut Bencher) {
+    b.iter(|| ring::digest::digest(&ring::digest::SHA1, b"x"));
+}
+
+#[cfg(feature = "ring")]
+#[bench]
+fn bench_1mb_ring_sha512(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, MB);
+    b.iter(|| ring::digest::digest(&ring::digest::SHA512, input.get()));
+}
+
+#[cfg(feature = "ring")]
+#[bench]
+fn bench_byte_ring_sha512(b: &mut Bencher) {
+    b.iter(|| ring::digest::digest(&ring::digest::SHA512, b"x"));
+}
