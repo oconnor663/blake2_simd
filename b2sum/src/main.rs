@@ -151,8 +151,10 @@ fn mmap_file(file: &File) -> io::Result<memmap::Mmap> {
 }
 
 fn read_write_all<R: Read>(reader: &mut R, state: &mut State) -> io::Result<()> {
-    // Why not just use std::io::copy? Because it uses an 8192 byte buffer, and using a larger
-    // buffer is measurably faster.
+    // Why not just use std::io::copy? Because it uses an 8192 byte buffer, and
+    // using a larger buffer is measurably faster.
+    // https://github.com/rust-lang/rust/commit/8128817119e479b0610685e3fc7a6ff21cde5abc
+    // describes how Rust picked its default buffer size.
     //
     // How did we pick 32768 (2^15) specifically? It's just what coreutils uses. When I benchmark
     // lots of different sizes, a 4 MiB heap buffer actually seems to be the best size, possibly 8%
