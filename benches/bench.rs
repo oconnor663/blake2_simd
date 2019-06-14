@@ -321,11 +321,11 @@ fn bench_block_blake2s_many_8x(b: &mut Bencher) {
 }
 
 // Note for comparison: The blake2-avx2-sneves C code is currently compiled
-// with -mavx2 but *not* with -march=native. Upstream uses -march=native, but
-// -mavx2 is closer to how blake2b_simd is compiled, and it makes the benchmark
-// more apples-to-apples. However, since the C code was tuned with
-// -march=native in mind, it's possible this switcharoo makes the comparison
-// unfair in other ways. I haven't asked the author yet.
+// with `clang -mavx2`. That is, not with -march=native. Upstream uses
+// -march=native, but -mavx2 is closer to how blake2b_simd is compiled, and it
+// makes the benchmark more apples-to-apples. When I compare compilers, GCC
+// seems to produce better code than clang under -mavx2, but Clang seems to
+// produce better code under -march=native. Not sure why.
 #[cfg(feature = "blake2-avx2-sneves")]
 #[bench]
 fn bench_1mb_sneves_blake2b(b: &mut Bencher) {

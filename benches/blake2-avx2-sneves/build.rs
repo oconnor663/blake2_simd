@@ -1,4 +1,8 @@
 fn main() {
+    // GCC vs Clang and -mavx2 vs -march=native both have big effects on
+    // performance. We hardcode `clang -mavx2` here for an apples-to-apples
+    // comparison with rustc and #[target_feature(enable = "avx2")].
+    std::env::set_var("CC", "clang");
     cc::Build::new()
         .file("./blake2-avx2/blake2b.c")
         .file("./blake2-avx2/blake2bp.c")
