@@ -60,25 +60,48 @@ The `benches/bench_multiprocess` sub-crate runs various hash functions on
 long inputs in memory and tries to average over many sources of
 variability. Here are the results from my laptop for `cargo run --release`:
 
-- Intel Core i5-8250U, Arch Linux, kernel version 5.1.3
-- libsodium version 1.0.17
-- OpenSSL version 1.1.1.b
-- rustc 1.34.2
+- Intel Core i5-8250U, Arch Linux, kernel version 5.1.9
+- libsodium version 1.0.18
+- OpenSSL version 1.1.1.c
+- rustc 1.35.0
+- Clang 8.0.0
 
 ```table
 ╭─────────────────────────┬────────────╮
-│ blake2s_simd many::hash │ 2.454 GB/s │
-│ blake2s_simd BLAKE2sp   │ 2.421 GB/s │
-│ sneves BLAKE2sp         │ 2.316 GB/s │
-│ blake2b_simd many::hash │ 2.223 GB/s │
-│ blake2b_simd BLAKE2bp   │ 2.211 GB/s │
-│ sneves BLAKE2bp         │ 2.150 GB/s │
-│ blake2b_simd BLAKE2b    │ 1.008 GB/s │
-│ OpenSSL SHA-1           │ 0.971 GB/s │
-│ sneves BLAKE2b          │ 0.949 GB/s │
-│ libsodium BLAKE2b       │ 0.940 GB/s │
-│ OpenSSL SHA-512         │ 0.666 GB/s │
-│ blake2s_simd BLAKE2s    │ 0.647 GB/s │
+│ blake2s_simd many::hash │ 2.458 GB/s │
+│ blake2s_simd BLAKE2sp   │ 2.446 GB/s │
+│ sneves BLAKE2sp         │ 2.311 GB/s │
+│ blake2b_simd many::hash │ 2.229 GB/s │
+│ blake2b_simd BLAKE2bp   │ 2.221 GB/s │
+│ sneves BLAKE2bp         │ 2.032 GB/s │
+│ libsodium BLAKE2b       │ 1.111 GB/s │
+│ blake2b_simd BLAKE2b    │ 1.055 GB/s │
+│ sneves BLAKE2b          │ 1.054 GB/s │
+│ OpenSSL SHA-1           │ 0.972 GB/s │
+│ OpenSSL SHA-512         │ 0.667 GB/s │
+│ blake2s_simd BLAKE2s    │ 0.648 GB/s │
+╰─────────────────────────┴────────────╯
+```
+
+Note that `libsodium BLAKE2b` beats `blake2b_simd BLAKE2b` and `sneves
+BLAKE2b` by about 5%. This turns out to be a GCC vs LLVM effect. The
+Arch Linux libsodium package is built with GCC, which seems to do better
+than Clang or rustc under `-mavx2`/`target_feature(enable="avx2")`. If I
+build libsodium locally under Clang, it's 14% slower. Clang and rustc
+seem to do better than GCC under `-march=native`/`target-cpu=native`.
+Here are those figures:
+
+```table
+╭─────────────────────────┬────────────╮
+│ blake2s_simd many::hash │ 2.586 GB/s │
+│ blake2s_simd BLAKE2sp   │ 2.570 GB/s │
+│ sneves BLAKE2sp         │ 2.372 GB/s │
+│ blake2b_simd many::hash │ 2.368 GB/s │
+│ blake2b_simd BLAKE2bp   │ 2.353 GB/s │
+│ sneves BLAKE2bp         │ 2.234 GB/s │
+│ sneves BLAKE2b          │ 1.211 GB/s │
+│ blake2b_simd BLAKE2b    │ 1.206 GB/s │
+│ blake2s_simd BLAKE2s    │ 0.688 GB/s │
 ╰─────────────────────────┴────────────╯
 ```
 
@@ -88,12 +111,12 @@ my laptop:
 
 ```table
 ╭─────────────────────┬────────────╮
-│ b2sum --blake2sp    │ 1.727 GB/s │
-│ b2sum --blake2bp    │ 1.618 GB/s │
-│ b2sum --blake2b     │ 0.887 GB/s │
-│ coreutils sha1sum   │ 0.854 GB/s │
-│ coreutils b2sum     │ 0.713 GB/s │
-│ coreutils md5sum    │ 0.632 GB/s │
+│ b2sum --blake2sp    │ 1.729 GB/s │
+│ b2sum --blake2bp    │ 1.622 GB/s │
+│ b2sum --blake2b     │ 0.917 GB/s │
+│ coreutils sha1sum   │ 0.856 GB/s │
+│ coreutils b2sum     │ 0.714 GB/s │
+│ coreutils md5sum    │ 0.622 GB/s │
 │ coreutils sha512sum │ 0.620 GB/s │
 │ b2sum --blake2s     │ 0.603 GB/s │
 ╰─────────────────────┴────────────╯

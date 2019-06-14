@@ -70,11 +70,11 @@ pub const MAX_DEGREE: usize = guts::MAX_DEGREE;
 ///
 /// For example, an x86 processor that supports AVX2 can compute eight BLAKE2s
 /// hashes in parallel, so `degree` returns 8 on that machine. If you call
-/// [`hash_many`] with only seven inputs, though, that's not enough input for
-/// the AVX2 implementation, and your average throughput will be lower. Likewise
-/// if you call it with nine inputs of equal length, the first eight will be
-/// hashed in parallel with AVX2, but the last one will have to be hashed by
-/// itself, and again your average throughput will be lower.
+/// [`hash_many`] with only seven inputs, that's not enough to use the AVX2
+/// implementation, and your average throughput will be lower. Likewise if you
+/// call it with nine inputs of equal length, the first eight will be hashed in
+/// parallel with AVX2, but the last one will have to be hashed by itself, and
+/// again your average throughput will be lower.
 ///
 /// As noted in the module level docs, performance is more complicated if your
 /// inputs are of different lengths. When parallelizing long and short inputs
