@@ -5,7 +5,7 @@
 
 [package]
 name = "blake2_simd_root"
-version = "0.5.0"
+version = "0.0.0"
 authors = ["Jack O'Connor"]
 description = "a pure Rust BLAKE2b implementation with dynamic SIMD"
 license = "MIT"

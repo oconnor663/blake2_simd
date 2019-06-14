@@ -3,7 +3,7 @@
 
 [package]
 name = "b2sum"
-version = "0.1.0"
+version = "0.5.2"
 authors = ["Jack O'Connor"]
 description = "a clone of the coreutils b2sum utility based on blake2_simd"
 license = "MIT"
