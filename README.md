@@ -87,9 +87,10 @@ Note that `libsodium BLAKE2b` beats `blake2b_simd BLAKE2b` and `sneves
 BLAKE2b` by about 5%. This turns out to be a GCC vs LLVM effect. The
 Arch Linux libsodium package is built with GCC, which seems to do better
 than Clang or rustc under `-mavx2`/`target_feature(enable="avx2")`. If I
-build libsodium locally under Clang, it's 14% slower. Clang and rustc
-seem to do better than GCC under `-march=native`/`target-cpu=native`.
-Here are those figures:
+build `sneves BLAKE2b` under GCC, it catches up with libsodium, and if I
+build libsodium under Clang, it's 14% slower. However, GCC doesn't seem
+to benefit from `-march=native`/`target-cpu=native`, while Clang and
+rustc do better:
 
 ```table
 ╭─────────────────────────┬────────────╮
