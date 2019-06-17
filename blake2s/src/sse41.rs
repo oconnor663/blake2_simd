@@ -127,6 +127,8 @@ macro_rules! _MM_SHUFFLE {
     };
 }
 
+// TODO: We need to port the BLAKE2s version of this optimization:
+//       https://github.com/sneves/blake2-avx2/pull/4
 #[inline(always)]
 unsafe fn diagonalize(row2: &mut __m128i, row3: &mut __m128i, row4: &mut __m128i) {
     *row4 = _mm_shuffle_epi32(*row4, _MM_SHUFFLE!(2, 1, 0, 3));
