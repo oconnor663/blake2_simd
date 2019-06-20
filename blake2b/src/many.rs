@@ -50,8 +50,10 @@ use crate::Params;
 use crate::State;
 use crate::Word;
 use crate::BLOCKBYTES;
-use arrayref::array_mut_ref;
+use crate::OUTBYTES;
+use arrayref::{array_mut_ref, mut_array_refs};
 use arrayvec::ArrayVec;
+use core::mem::size_of;
 
 /// The largest possible value of [`degree`](fn.degree.html) on the target
 /// platform.
@@ -313,6 +315,20 @@ impl<'a> HashManyJob<'a> {
             bytes: state_words_to_bytes(&self.words),
             len: self.hash_length,
         }
+    }
+
+    pub fn write_output(&self, out: &mut [u8; OUTBYTES]) {
+        assert!(self.was_run, "job hasn't been run yet");
+        const W: usize = size_of::<Word>();
+        let refs = mut_array_refs!(out, W, W, W, W, W, W, W, W);
+        *refs.0 = self.words[0].to_le_bytes();
+        *refs.1 = self.words[1].to_le_bytes();
+        *refs.2 = self.words[2].to_le_bytes();
+        *refs.3 = self.words[3].to_le_bytes();
+        *refs.4 = self.words[4].to_le_bytes();
+        *refs.5 = self.words[5].to_le_bytes();
+        *refs.6 = self.words[6].to_le_bytes();
+        *refs.7 = self.words[7].to_le_bytes();
     }
 }
 
