@@ -3,16 +3,16 @@ use std::io::prelude::*;
 use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
-pub fn b2sum_exe() -> PathBuf {
+pub fn blake2_exe() -> PathBuf {
     assert_cmd::cargo::cargo_bin("blake2")
 }
 
 #[test]
 fn test_stdin() {
-    let output = cmd!(b2sum_exe(), "-l16")
+    let output = cmd!(blake2_exe(), "-l16")
         .input("abcdef")
         .read()
-        .expect("b2sum failed");
+        .expect("blake2 failed");
     assert_eq!("2465e7ee63a17b4b307c7792c432aef6  -", output);
 }
 
@@ -21,9 +21,9 @@ fn test_input_file() {
     let mut file = NamedTempFile::new().unwrap();
     file.write_all("abcdef".as_bytes()).unwrap();
     file.flush().unwrap();
-    let output = cmd!(b2sum_exe(), "-l16", file.path())
+    let output = cmd!(blake2_exe(), "-l16", file.path())
         .read()
-        .expect("b2sum failed");
+        .expect("blake2 failed");
     let expected_output = format!(
         "2465e7ee63a17b4b307c7792c432aef6  {}",
         file.path().to_string_lossy()
@@ -36,9 +36,9 @@ fn test_input_file_mmap() {
     let mut file = NamedTempFile::new().unwrap();
     file.write_all("abcdef".as_bytes()).unwrap();
     file.flush().unwrap();
-    let output = cmd!(b2sum_exe(), "-l16", "--mmap", file.path())
+    let output = cmd!(blake2_exe(), "-l16", "--mmap", file.path())
         .read()
-        .expect("b2sum failed");
+        .expect("blake2 failed");
     let expected_output = format!(
         "2465e7ee63a17b4b307c7792c432aef6  {}",
         file.path().to_string_lossy()
@@ -87,9 +87,9 @@ fn test_blake2bp() {
         file.write_all(input).unwrap();
         file.flush().unwrap();
 
-        let output = cmd!(b2sum_exe(), "--blake2bp", file.path())
+        let output = cmd!(blake2_exe(), "--blake2bp", file.path())
             .read()
-            .expect("b2sum failed");
+            .expect("blake2 failed");
         let expected_output = format!("{}  {}", expected, file.path().to_string_lossy());
         assert_eq!(expected_output, output);
     }
@@ -97,10 +97,10 @@ fn test_blake2bp() {
 
 #[test]
 fn test_last_node_flag() {
-    let output = cmd!(b2sum_exe(), "-l16", "--last-node")
+    let output = cmd!(blake2_exe(), "-l16", "--last-node")
         .input("abcdef")
         .read()
-        .expect("b2sum failed");
+        .expect("blake2 failed");
     assert_eq!("d788eeea837a3d10b1f8c097059f815a  -", output);
 }
 
@@ -121,10 +121,10 @@ fn test_all_parameters_blake2b() {
         "--inner-hash-length=17",
         "--last-node",
     ];
-    let output = cmd(b2sum_exe(), flags.iter())
+    let output = cmd(blake2_exe(), flags.iter())
         .input("foo")
         .read()
-        .expect("b2sum failed");
+        .expect("blake2 failed");
     assert_eq!("ec0f59cb65f92e7fcca1280ba859a6925ded  -", output);
 }
 
@@ -145,10 +145,10 @@ fn test_all_parameters_blake2s() {
         "--inner-hash-length=17",
         "--last-node",
     ];
-    let output = cmd(b2sum_exe(), flags.iter())
+    let output = cmd(blake2_exe(), flags.iter())
         .input("foo")
         .read()
-        .expect("b2sum failed");
+        .expect("blake2 failed");
     assert_eq!("62361e5392ab0eb7dd27e48a6809ee82dc57  -", output);
 }
 
@@ -156,10 +156,10 @@ fn test_all_parameters_blake2s() {
 #[test]
 fn test_all_parameters_blake2bp() {
     let flags = ["--blake2bp", "--length=18", "--key=626172"];
-    let output = cmd(b2sum_exe(), flags.iter())
+    let output = cmd(blake2_exe(), flags.iter())
         .input("foo")
         .read()
-        .expect("b2sum failed");
+        .expect("blake2 failed");
     assert_eq!("8c54e888a8a01c63da6585c058fe54ea81df  -", output);
 }
 
@@ -167,9 +167,9 @@ fn test_all_parameters_blake2bp() {
 #[test]
 fn test_all_parameters_blake2sp() {
     let flags = ["--blake2sp", "--length=18", "--key=626172"];
-    let output = cmd(b2sum_exe(), flags.iter())
+    let output = cmd(blake2_exe(), flags.iter())
         .input("foo")
         .read()
-        .expect("b2sum failed");
+        .expect("blake2 failed");
     assert_eq!("947d4c671e2794f5e1a57daeca97bb46ed66  -", output);
 }
