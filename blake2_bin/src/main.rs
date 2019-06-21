@@ -3,16 +3,15 @@ use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::isize;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::exit;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 #[structopt(author = "")]
 struct Opt {
-    #[structopt(parse(from_os_str), default_value = "-")]
     /// Any number of filepaths, or - for standard input.
-    input: Vec<PathBuf>,
+    input: Option<PathBuf>,
 
     #[structopt(long = "mmap")]
     /// Read input with memory mapping.
@@ -35,47 +34,47 @@ struct Opt {
     blake2sp: bool,
 
     #[structopt(short = "l", long = "length")]
-    /// The length of the output in bytes.
+    /// Set the length of the output in bytes.
     length: Option<usize>,
 
     #[structopt(long = "key")]
-    /// Set the BLAKE2 key parameter with a hex string.
+    /// Set the key parameter with a hex string.
     key: Option<String>,
 
     #[structopt(long = "salt")]
-    /// Set the BLAKE2 salt parameter with a hex string.
+    /// Set the salt parameter with a hex string.
     salt: Option<String>,
 
     #[structopt(long = "personal")]
-    /// Set the BLAKE2 personalization parameter with a hex string.
+    /// Set the personalization parameter with a hex string.
     personal: Option<String>,
 
     #[structopt(long = "fanout")]
-    /// Set the BLAKE2 fanout parameter.
+    /// Set the fanout parameter.
     fanout: Option<u8>,
 
     #[structopt(long = "max-depth")]
-    /// Set the BLAKE2 max depth parameter.
+    /// Set the max depth parameter.
     max_depth: Option<u8>,
 
     #[structopt(long = "max-leaf-length")]
-    /// Set the BLAKE2 max leaf length parameter.
+    /// Set the max leaf length parameter.
     max_leaf_length: Option<u32>,
 
     #[structopt(long = "node-offset")]
-    /// Set the BLAKE2 node offset parameter.
+    /// Set the node offset parameter.
     node_offset: Option<u64>,
 
     #[structopt(long = "node-depth")]
-    /// Set the BLAKE2 node depth parameter.
+    /// Set the node depth parameter.
     node_depth: Option<u8>,
 
     #[structopt(long = "inner-hash-length")]
-    /// Set the BLAKE2 inner hash length parameter.
+    /// Set the inner hash length parameter.
     inner_hash_length: Option<usize>,
 
     #[structopt(long = "last-node")]
-    /// Set the BLAKE2 last node flag.
+    /// Set the last node flag.
     last_node: bool,
 }
 
@@ -92,46 +91,6 @@ enum State {
     Blake2bp(blake2b_simd::blake2bp::State),
     Blake2s(blake2s_simd::State),
     Blake2sp(blake2s_simd::blake2sp::State),
-}
-
-fn hash_one(path: &Path, opt: &Opt, state: &State) -> Result<String, Error> {
-    let mut state = state.clone();
-    if path == Path::new("-") {
-        if opt.mmap {
-            bail!("can't mmap standard input");
-        } else {
-            let stdin = io::stdin();
-            let mut stdin = stdin.lock();
-            read_write_all(&mut stdin, &mut state)?;
-        }
-    } else {
-        let mut file = File::open(path)?;
-        if opt.mmap {
-            let map = mmap_file(&file)?;
-            match &mut state {
-                State::Blake2b(s) => {
-                    s.update(&map);
-                }
-                State::Blake2s(s) => {
-                    s.update(&map);
-                }
-                State::Blake2bp(s) => {
-                    s.update(&map);
-                }
-                State::Blake2sp(s) => {
-                    s.update(&map);
-                }
-            }
-        } else {
-            read_write_all(&mut file, &mut state)?;
-        }
-    }
-    Ok(match state {
-        State::Blake2b(s) => s.finalize().to_hex().to_string(),
-        State::Blake2s(s) => s.finalize().to_hex().to_string(),
-        State::Blake2bp(s) => s.finalize().to_hex().to_string(),
-        State::Blake2sp(s) => s.finalize().to_hex().to_string(),
-    })
 }
 
 fn mmap_file(file: &File) -> io::Result<memmap::Mmap> {
@@ -350,6 +309,46 @@ fn make_state(opt: &Opt) -> Result<State, Error> {
     Ok(state)
 }
 
+fn run(opt: &Opt, state: &State) -> Result<String, Error> {
+    let mut state = state.clone();
+    if let Some(path) = &opt.input {
+        let mut file = File::open(path)?;
+        if opt.mmap {
+            let map = mmap_file(&file)?;
+            match &mut state {
+                State::Blake2b(s) => {
+                    s.update(&map);
+                }
+                State::Blake2s(s) => {
+                    s.update(&map);
+                }
+                State::Blake2bp(s) => {
+                    s.update(&map);
+                }
+                State::Blake2sp(s) => {
+                    s.update(&map);
+                }
+            }
+        } else {
+            read_write_all(&mut file, &mut state)?;
+        }
+    } else {
+        if opt.mmap {
+            bail!("can't mmap standard input");
+        } else {
+            let stdin = io::stdin();
+            let mut stdin = stdin.lock();
+            read_write_all(&mut stdin, &mut state)?;
+        }
+    }
+    Ok(match state {
+        State::Blake2b(s) => s.finalize().to_hex().to_string(),
+        State::Blake2s(s) => s.finalize().to_hex().to_string(),
+        State::Blake2bp(s) => s.finalize().to_hex().to_string(),
+        State::Blake2sp(s) => s.finalize().to_hex().to_string(),
+    })
+}
+
 fn main() {
     let opt = Opt::from_args();
 
@@ -361,18 +360,11 @@ fn main() {
         }
     };
 
-    let mut did_error = false;
-    for path in &opt.input {
-        let path_str = path.to_string_lossy();
-        match hash_one(path, &opt, &state) {
-            Ok(hash) => println!("{}  {}", hash, path_str),
-            Err(e) => {
-                did_error = true;
-                eprintln!("blake2: {}: {}", path_str, e);
-            }
+    match run(&opt, &state) {
+        Ok(hash) => println!("{}", hash),
+        Err(e) => {
+            eprintln!("blake2: {}", e);
+            exit(1);
         }
-    }
-    if did_error {
-        exit(1);
     }
 }

@@ -13,7 +13,7 @@ fn test_stdin() {
         .input("abcdef")
         .read()
         .expect("blake2 failed");
-    assert_eq!("2465e7ee63a17b4b307c7792c432aef6  -", output);
+    assert_eq!("2465e7ee63a17b4b307c7792c432aef6", output);
 }
 
 #[test]
@@ -24,11 +24,7 @@ fn test_input_file() {
     let output = cmd!(blake2_exe(), "-l16", file.path())
         .read()
         .expect("blake2 failed");
-    let expected_output = format!(
-        "2465e7ee63a17b4b307c7792c432aef6  {}",
-        file.path().to_string_lossy()
-    );
-    assert_eq!(expected_output, output);
+    assert_eq!("2465e7ee63a17b4b307c7792c432aef6", output);
 }
 
 #[test]
@@ -39,11 +35,7 @@ fn test_input_file_mmap() {
     let output = cmd!(blake2_exe(), "-l16", "--mmap", file.path())
         .read()
         .expect("blake2 failed");
-    let expected_output = format!(
-        "2465e7ee63a17b4b307c7792c432aef6  {}",
-        file.path().to_string_lossy()
-    );
-    assert_eq!(expected_output, output);
+    assert_eq!("2465e7ee63a17b4b307c7792c432aef6", output);
 }
 
 #[test]
@@ -90,8 +82,7 @@ fn test_blake2bp() {
         let output = cmd!(blake2_exe(), "--blake2bp", file.path())
             .read()
             .expect("blake2 failed");
-        let expected_output = format!("{}  {}", expected, file.path().to_string_lossy());
-        assert_eq!(expected_output, output);
+        assert_eq!(expected, output);
     }
 }
 
@@ -101,7 +92,7 @@ fn test_last_node_flag() {
         .input("abcdef")
         .read()
         .expect("blake2 failed");
-    assert_eq!("d788eeea837a3d10b1f8c097059f815a  -", output);
+    assert_eq!("d788eeea837a3d10b1f8c097059f815a", output);
 }
 
 // This is the exact same result as test_all_parameters in the library tests.
@@ -125,7 +116,7 @@ fn test_all_parameters_blake2b() {
         .input("foo")
         .read()
         .expect("blake2 failed");
-    assert_eq!("ec0f59cb65f92e7fcca1280ba859a6925ded  -", output);
+    assert_eq!("ec0f59cb65f92e7fcca1280ba859a6925ded", output);
 }
 
 // This is the exact same result as test_all_parameters in the library tests.
@@ -149,7 +140,7 @@ fn test_all_parameters_blake2s() {
         .input("foo")
         .read()
         .expect("blake2 failed");
-    assert_eq!("62361e5392ab0eb7dd27e48a6809ee82dc57  -", output);
+    assert_eq!("62361e5392ab0eb7dd27e48a6809ee82dc57", output);
 }
 
 // This is the exact same result as test_all_parameters_blake2bp in the library tests.
@@ -160,7 +151,7 @@ fn test_all_parameters_blake2bp() {
         .input("foo")
         .read()
         .expect("blake2 failed");
-    assert_eq!("8c54e888a8a01c63da6585c058fe54ea81df  -", output);
+    assert_eq!("8c54e888a8a01c63da6585c058fe54ea81df", output);
 }
 
 // This is the exact same result as test_all_parameters_blake2sp in the library tests.
@@ -171,5 +162,5 @@ fn test_all_parameters_blake2sp() {
         .input("foo")
         .read()
         .expect("blake2 failed");
-    assert_eq!("947d4c671e2794f5e1a57daeca97bb46ed66  -", output);
+    assert_eq!("947d4c671e2794f5e1a57daeca97bb46ed66", output);
 }
