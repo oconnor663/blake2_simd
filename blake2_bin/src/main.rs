@@ -17,23 +17,19 @@ struct Opt {
     /// Read input with memory mapping.
     mmap: bool,
 
-    #[structopt(long = "blake2b")]
+    #[structopt(short = "b")]
     /// Use the BLAKE2b hash function (default).
-    blake2b: bool,
+    big: bool,
 
-    #[structopt(long = "blake2s")]
+    #[structopt(short = "s")]
     /// Use the BLAKE2s hash function.
-    blake2s: bool,
+    small: bool,
 
-    #[structopt(long = "blake2bp")]
-    /// Use the BLAKE2bp hash function.
-    blake2bp: bool,
+    #[structopt(short = "p")]
+    /// Use the parallel variant, BLAKE2bp or BLAKE2sp.
+    parallel: bool,
 
-    #[structopt(long = "blake2sp")]
-    /// Use the BLAKE2sp hash function.
-    blake2sp: bool,
-
-    #[structopt(short = "l", long = "length")]
+    #[structopt(long = "length")]
     /// Set the length of the output in bytes.
     length: Option<usize>,
 
@@ -150,21 +146,21 @@ fn read_write_all<R: Read>(reader: &mut R, state: &mut State) -> io::Result<()> 
 }
 
 fn make_state(opt: &Opt) -> Result<State, Error> {
-    let type_count: u32 = [opt.blake2b, opt.blake2s, opt.blake2bp, opt.blake2sp]
-        .iter()
-        .map(|b| *b as u32)
-        .sum();
-    if type_count > 1 {
-        bail!("more than one hash function specified");
+    if opt.big && opt.small {
+        bail!("-b and -s can't be used together");
     }
-    let mut params = if opt.blake2s {
-        Params::Blake2s(blake2s_simd::Params::new())
-    } else if opt.blake2bp {
-        Params::Blake2bp(blake2b_simd::blake2bp::Params::new())
-    } else if opt.blake2sp {
-        Params::Blake2sp(blake2s_simd::blake2sp::Params::new())
+    let mut params = if opt.small {
+        if opt.parallel {
+            Params::Blake2sp(blake2s_simd::blake2sp::Params::new())
+        } else {
+            Params::Blake2s(blake2s_simd::Params::new())
+        }
     } else {
-        Params::Blake2b(blake2b_simd::Params::new())
+        if opt.parallel {
+            Params::Blake2bp(blake2b_simd::blake2bp::Params::new())
+        } else {
+            Params::Blake2b(blake2b_simd::Params::new())
+        }
     };
     if let Some(length) = opt.length {
         match &mut params {

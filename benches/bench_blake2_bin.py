@@ -21,10 +21,10 @@ targets = [
     ["sha1sum"],
     ["sha512sum"],
     ["/usr/bin/b2sum"],
-    [bin_path, "--blake2b"],
-    [bin_path, "--blake2s"],
-    [bin_path, "--blake2bp"],
-    [bin_path, "--blake2sp"],
+    [bin_path, "-b"],
+    [bin_path, "-s"],
+    [bin_path, "-bp"],
+    [bin_path, "-sp"],
 ]
 
 

@@ -9,7 +9,7 @@ pub fn blake2_exe() -> PathBuf {
 
 #[test]
 fn test_stdin() {
-    let output = cmd!(blake2_exe(), "-l16")
+    let output = cmd!(blake2_exe(), "--length=16")
         .input("abcdef")
         .read()
         .expect("blake2 failed");
@@ -21,7 +21,7 @@ fn test_input_file() {
     let mut file = NamedTempFile::new().unwrap();
     file.write_all("abcdef".as_bytes()).unwrap();
     file.flush().unwrap();
-    let output = cmd!(blake2_exe(), "-l16", file.path())
+    let output = cmd!(blake2_exe(), "--length=16", file.path())
         .read()
         .expect("blake2 failed");
     assert_eq!("2465e7ee63a17b4b307c7792c432aef6", output);
@@ -32,7 +32,7 @@ fn test_input_file_mmap() {
     let mut file = NamedTempFile::new().unwrap();
     file.write_all("abcdef".as_bytes()).unwrap();
     file.flush().unwrap();
-    let output = cmd!(blake2_exe(), "-l16", "--mmap", file.path())
+    let output = cmd!(blake2_exe(), "--length=16", "--mmap", file.path())
         .read()
         .expect("blake2 failed");
     assert_eq!("2465e7ee63a17b4b307c7792c432aef6", output);
@@ -79,7 +79,7 @@ fn test_blake2bp() {
         file.write_all(input).unwrap();
         file.flush().unwrap();
 
-        let output = cmd!(blake2_exe(), "--blake2bp", file.path())
+        let output = cmd!(blake2_exe(), "-bp", file.path())
             .read()
             .expect("blake2 failed");
         assert_eq!(expected, output);
@@ -88,7 +88,7 @@ fn test_blake2bp() {
 
 #[test]
 fn test_last_node_flag() {
-    let output = cmd!(blake2_exe(), "-l16", "--last-node")
+    let output = cmd!(blake2_exe(), "--length=16", "--last-node")
         .input("abcdef")
         .read()
         .expect("blake2 failed");
@@ -99,7 +99,7 @@ fn test_last_node_flag() {
 #[test]
 fn test_all_parameters_blake2b() {
     let flags = [
-        "--blake2b",
+        "-b",
         "--length=18",
         "--key=626172",
         "--salt=62617a62617a62617a62617a62617a62",
@@ -123,7 +123,7 @@ fn test_all_parameters_blake2b() {
 #[test]
 fn test_all_parameters_blake2s() {
     let flags = [
-        "--blake2s",
+        "-s",
         "--length=18",
         "--key=626172",
         "--salt=62617a62617a6261",
@@ -146,7 +146,7 @@ fn test_all_parameters_blake2s() {
 // This is the exact same result as test_all_parameters_blake2bp in the library tests.
 #[test]
 fn test_all_parameters_blake2bp() {
-    let flags = ["--blake2bp", "--length=18", "--key=626172"];
+    let flags = ["-bp", "--length=18", "--key=626172"];
     let output = cmd(blake2_exe(), flags.iter())
         .input("foo")
         .read()
@@ -157,7 +157,7 @@ fn test_all_parameters_blake2bp() {
 // This is the exact same result as test_all_parameters_blake2sp in the library tests.
 #[test]
 fn test_all_parameters_blake2sp() {
-    let flags = ["--blake2sp", "--length=18", "--key=626172"];
+    let flags = ["-sp", "--length=18", "--key=626172"];
     let output = cmd(blake2_exe(), flags.iter())
         .input("foo")
         .read()
