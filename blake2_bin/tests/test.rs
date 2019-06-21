@@ -9,7 +9,7 @@ pub fn b2sum_exe() -> PathBuf {
 
 #[test]
 fn test_stdin() {
-    let output = cmd!(b2sum_exe(), "-l128")
+    let output = cmd!(b2sum_exe(), "-l16")
         .input("abcdef")
         .read()
         .expect("b2sum failed");
@@ -21,7 +21,7 @@ fn test_input_file() {
     let mut file = NamedTempFile::new().unwrap();
     file.write_all("abcdef".as_bytes()).unwrap();
     file.flush().unwrap();
-    let output = cmd!(b2sum_exe(), "-l128", file.path())
+    let output = cmd!(b2sum_exe(), "-l16", file.path())
         .read()
         .expect("b2sum failed");
     let expected_output = format!(
@@ -36,7 +36,7 @@ fn test_input_file_mmap() {
     let mut file = NamedTempFile::new().unwrap();
     file.write_all("abcdef".as_bytes()).unwrap();
     file.flush().unwrap();
-    let output = cmd!(b2sum_exe(), "-l128", "--mmap", file.path())
+    let output = cmd!(b2sum_exe(), "-l16", "--mmap", file.path())
         .read()
         .expect("b2sum failed");
     let expected_output = format!(
@@ -97,7 +97,7 @@ fn test_blake2bp() {
 
 #[test]
 fn test_last_node_flag() {
-    let output = cmd!(b2sum_exe(), "-l128", "--last-node")
+    let output = cmd!(b2sum_exe(), "-l16", "--last-node")
         .input("abcdef")
         .read()
         .expect("b2sum failed");
@@ -109,7 +109,7 @@ fn test_last_node_flag() {
 fn test_all_parameters_blake2b() {
     let flags = [
         "--blake2b",
-        "--length=144",
+        "--length=18",
         "--key=626172",
         "--salt=62617a62617a62617a62617a62617a62",
         "--personal=62696e672062696e672062696e672062",
@@ -118,7 +118,7 @@ fn test_all_parameters_blake2b() {
         "--max-leaf-length=67438087",
         "--node-offset=579005069656919567",
         "--node-depth=16",
-        "--inner-hash-length=136",
+        "--inner-hash-length=17",
         "--last-node",
     ];
     let output = cmd(b2sum_exe(), flags.iter())
@@ -133,7 +133,7 @@ fn test_all_parameters_blake2b() {
 fn test_all_parameters_blake2s() {
     let flags = [
         "--blake2s",
-        "--length=144",
+        "--length=18",
         "--key=626172",
         "--salt=62617a62617a6261",
         "--personal=62696e672062696e",
@@ -142,7 +142,7 @@ fn test_all_parameters_blake2s() {
         "--max-leaf-length=67438087",
         "--node-offset=8834916224013",
         "--node-depth=16",
-        "--inner-hash-length=136",
+        "--inner-hash-length=17",
         "--last-node",
     ];
     let output = cmd(b2sum_exe(), flags.iter())
@@ -155,7 +155,7 @@ fn test_all_parameters_blake2s() {
 // This is the exact same result as test_all_parameters_blake2bp in the library tests.
 #[test]
 fn test_all_parameters_blake2bp() {
-    let flags = ["--blake2bp", "--length=144", "--key=626172"];
+    let flags = ["--blake2bp", "--length=18", "--key=626172"];
     let output = cmd(b2sum_exe(), flags.iter())
         .input("foo")
         .read()
@@ -166,7 +166,7 @@ fn test_all_parameters_blake2bp() {
 // This is the exact same result as test_all_parameters_blake2sp in the library tests.
 #[test]
 fn test_all_parameters_blake2sp() {
-    let flags = ["--blake2sp", "--length=144", "--key=626172"];
+    let flags = ["--blake2sp", "--length=18", "--key=626172"];
     let output = cmd(b2sum_exe(), flags.iter())
         .input("foo")
         .read()

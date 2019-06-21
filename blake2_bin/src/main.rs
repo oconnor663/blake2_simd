@@ -35,8 +35,8 @@ struct Opt {
     blake2sp: bool,
 
     #[structopt(short = "l", long = "length")]
-    /// The size of the output in bits. Must be a multiple of 8. Max 512.
-    length_bits: Option<usize>,
+    /// The length of the output in bytes.
+    length: Option<usize>,
 
     #[structopt(long = "key")]
     /// Set the BLAKE2 key parameter with a hex string.
@@ -71,8 +71,8 @@ struct Opt {
     node_depth: Option<u8>,
 
     #[structopt(long = "inner-hash-length")]
-    /// Set the BLAKE2 inner hash length parameter, in bits like --length.
-    inner_hash_length_bits: Option<usize>,
+    /// Set the BLAKE2 inner hash length parameter.
+    inner_hash_length: Option<usize>,
 
     #[structopt(long = "last-node")]
     /// Set the BLAKE2 last node flag.
@@ -190,14 +190,6 @@ fn read_write_all<R: Read>(reader: &mut R, state: &mut State) -> io::Result<()> 
     }
 }
 
-fn bits_to_bytes(bits: usize) -> Result<usize, Error> {
-    if bits == 0 || bits > 512 || bits % 8 != 0 {
-        bail!("invalid number of bits: {}", bits);
-    } else {
-        Ok(bits / 8)
-    }
-}
-
 fn make_state(opt: &Opt) -> Result<State, Error> {
     let type_count: u32 = [opt.blake2b, opt.blake2s, opt.blake2bp, opt.blake2sp]
         .iter()
@@ -215,20 +207,19 @@ fn make_state(opt: &Opt) -> Result<State, Error> {
     } else {
         Params::Blake2b(blake2b_simd::Params::new())
     };
-    if let Some(length_bits) = opt.length_bits {
-        let length_bytes = bits_to_bytes(length_bits)?;
+    if let Some(length) = opt.length {
         match &mut params {
             Params::Blake2b(p) => {
-                p.hash_length(length_bytes);
+                p.hash_length(length);
             }
             Params::Blake2s(p) => {
-                p.hash_length(length_bytes);
+                p.hash_length(length);
             }
             Params::Blake2bp(p) => {
-                p.hash_length(length_bytes);
+                p.hash_length(length);
             }
             Params::Blake2sp(p) => {
-                p.hash_length(length_bytes);
+                p.hash_length(length);
             }
         }
     }
@@ -328,14 +319,13 @@ fn make_state(opt: &Opt) -> Result<State, Error> {
             _ => bail!("--node-depth not supported"),
         }
     }
-    if let Some(inner_hash_length_bits) = opt.inner_hash_length_bits {
-        let inner_hash_length_bytes = bits_to_bytes(inner_hash_length_bits)?;
+    if let Some(inner_hash_length) = opt.inner_hash_length {
         match &mut params {
             Params::Blake2b(p) => {
-                p.inner_hash_length(inner_hash_length_bytes);
+                p.inner_hash_length(inner_hash_length);
             }
             Params::Blake2s(p) => {
-                p.inner_hash_length(inner_hash_length_bytes);
+                p.inner_hash_length(inner_hash_length);
             }
             _ => bail!("--inner-hash-length not supported"),
         }
