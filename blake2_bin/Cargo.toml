@@ -1,6 +1,6 @@
 [package]
 name = "blake2_bin"
-version = "0.5.2"
+version = "0.5.3"
 authors = ["Jack O'Connor"]
 description = "a command line implementation of BLAKE2b/s/bp/sp and all their parameters"
 license = "MIT"
@@ -12,8 +12,8 @@ name = "blake2"
 path = "src/main.rs"
 
 [dependencies]
-blake2b_simd = { path = "../blake2b", version = "0.5.2" }
-blake2s_simd = { path = "../blake2s", version = "0.5.2" }
+blake2b_simd = { path = "../blake2b", version = "0.5" }
+blake2s_simd = { path = "../blake2s", version = "0.5" }
 failure = "0.1.5"
 hex = "0.3.2"
 memmap = "0.7.0"
