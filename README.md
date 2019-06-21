@@ -10,8 +10,8 @@ An implementation of the BLAKE2(b/s/bp/sp) family of hash functions with:
   choose the fastest one the processor supports at runtime.
 - All the features from the [the BLAKE2 spec](https://blake2.net/blake2.pdf), like adjustable
   length, keying, and associated data for tree hashing.
-- A clone of the Coreutils `b2sum` command line utility, with command line flags for all the
-  BLAKE2 variants and associated data features.
+- The `blake2` command line utility, published as the `blake2_bin` crate, with command line flags
+  for all the BLAKE2 variants and associated data features.
 - `no_std` support. The `std` Cargo feature is on by default, for CPU feature detection and
   for implementing `std::io::Write`.
 - Support for computing multiple BLAKE2b and BLAKE2s hashes in parallel, matching the
@@ -39,14 +39,12 @@ let hash = Params::new()
 assert_eq!("ee8ff4e9be887297cf79348dc35dab56", &hash.to_hex());
 ```
 
-An example using the included `b2sum` command line utility:
+An example using the included `blake2` command line utility:
 
 ```bash
-$ cd b2sum
-$ cargo build --release
-    Finished release [optimized] target(s) in 0.04s
-$ echo hi | ./target/release/b2sum --length 256
-de9543b2ae1b2b87434a730727db17f5ac8b8c020b84a5cb8c5fbcc1423443ba  -
+$ cargo install blake2_bin
+$ echo hi | blake2 -sp
+49228db2a2fa8d25e8b3b2aca5a70234c71490516eaca9cba007b27d59c532b8
 ```
 
 ## Performance
@@ -106,20 +104,20 @@ rustc do better:
 ╰─────────────────────────┴────────────╯
 ```
 
-The `benches/bench_b2sum.py` script benchmarks `b2sum` against several
-Coreutils hashes, on a 1 GB file of random data. Here are the results from
-my laptop:
+The `benches/bench_blake2_bin.py` script benchmarks the `blake2` command
+line utility against several Coreutils hashes, on a 1 GB file of random
+data. Here are the results from my laptop:
 
 ```table
 ╭─────────────────────┬────────────╮
-│ b2sum --blake2sp    │ 1.729 GB/s │
-│ b2sum --blake2bp    │ 1.622 GB/s │
-│ b2sum --blake2b     │ 0.917 GB/s │
+│ blake2 -sp          │ 1.729 GB/s │
+│ blake2 -bp          │ 1.622 GB/s │
+│ blake2 -b           │ 0.917 GB/s │
 │ coreutils sha1sum   │ 0.856 GB/s │
 │ coreutils b2sum     │ 0.714 GB/s │
 │ coreutils md5sum    │ 0.622 GB/s │
 │ coreutils sha512sum │ 0.620 GB/s │
-│ b2sum --blake2s     │ 0.603 GB/s │
+│ blake2 -s           │ 0.603 GB/s │
 ╰─────────────────────┴────────────╯
 ```
 
