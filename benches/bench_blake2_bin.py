@@ -13,18 +13,18 @@ import time
 INPUT_SIZE = 1_000_000_000
 NUM_RUNS = 10
 
-b2sum_root = Path(__file__).parent / "../b2sum"
-b2sum_path = str(b2sum_root / "target/release/b2sum")
+bin_root = Path(__file__).parent / "../blake2_bin"
+bin_path = str(bin_root / "target/release/blake2")
 
 targets = [
     ["md5sum"],
     ["sha1sum"],
     ["sha512sum"],
     ["/usr/bin/b2sum"],
-    [b2sum_path, "--blake2b"],
-    [b2sum_path, "--blake2s"],
-    [b2sum_path, "--blake2bp"],
-    [b2sum_path, "--blake2sp"],
+    [bin_path, "--blake2b"],
+    [bin_path, "--blake2s"],
+    [bin_path, "--blake2bp"],
+    [bin_path, "--blake2sp"],
 ]
 
 
@@ -56,7 +56,7 @@ def main():
     input_gigs = INPUT_SIZE / 1_000_000_000
     build_command = ["cargo", "build", "--release"]
     print(" ".join(build_command))
-    subprocess.run(build_command, cwd=b2sum_root)
+    subprocess.run(build_command, cwd=bin_root)
 
     averages = {}
     bests = {}

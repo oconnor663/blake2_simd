@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
 pub fn b2sum_exe() -> PathBuf {
-    assert_cmd::cargo::cargo_bin("b2sum")
+    assert_cmd::cargo::cargo_bin("blake2")
 }
 
 #[test]

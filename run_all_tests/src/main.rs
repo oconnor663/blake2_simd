@@ -38,7 +38,7 @@ fn main() {
     env::set_var("CARGO_TARGET_DIR", &target_dir);
 
     // Test all the sub-projects under both std and no_std.
-    for &project in &["blake2b", "blake2s", ".", "b2sum"] {
+    for &project in &["blake2b", "blake2s", ".", "blake2_bin"] {
         for &no_std in &[false, true] {
             let mut flags = Vec::new();
             if no_std {

@@ -144,8 +144,8 @@ fn mmap_file(file: &File) -> io::Result<memmap::Mmap> {
             "mmap length would overflow isize",
         ));
     }
-    // Note that this will currently fail if the file is empty. b2sum treats the --mmap flag as
-    // mandatory, so we don't try to recover. See https://github.com/danburkert/memmap-rs/issues/72
+    // Note that this will currently fail if the file is empty. We treat the --mmap flag as
+    // mandatory and don't try to recover. See https://github.com/danburkert/memmap-rs/issues/72
     // for a discussion about whether this case should succeed in the future.
     unsafe { memmap::MmapOptions::new().len(len as usize).map(file) }
 }
@@ -378,7 +378,7 @@ fn main() {
             Ok(hash) => println!("{}  {}", hash, path_str),
             Err(e) => {
                 did_error = true;
-                eprintln!("b2sum: {}: {}", path_str, e);
+                eprintln!("blake2: {}: {}", path_str, e);
             }
         }
     }
