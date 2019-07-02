@@ -10,8 +10,9 @@ An implementation of the BLAKE2(b/s/bp/sp) family of hash functions with:
   choose the fastest one the processor supports at runtime.
 - All the features from the [the BLAKE2 spec](https://blake2.net/blake2.pdf), like adjustable
   length, keying, and associated data for tree hashing.
-- The `blake2` command line utility, published as the `blake2_bin` crate, with command line flags
-  for all the BLAKE2 variants and associated data features.
+- The `blake2` command line utility, published as the
+  [`blake2_bin`](https://crates.io/crates/blake2_bin) crate, with command line flags for all
+  the BLAKE2 variants and associated data features.
 - `no_std` support. The `std` Cargo feature is on by default, for CPU feature detection and
   for implementing `std::io::Write`.
 - Support for computing multiple BLAKE2b and BLAKE2s hashes in parallel, matching the
