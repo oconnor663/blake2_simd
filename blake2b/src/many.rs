@@ -116,12 +116,15 @@ fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize) {
         // Note that is_empty() is only valid because we know all these jobs
         // have been run at least once. Otherwise we could confuse the empty
         // input for a finished job, which would be incorrect.
-        if vec[i].input.is_empty() {
-            // Note that calling remove() repeatedly has some overhead, because
+        //
+        // Avoid a panic branch here in release mode.
+        debug_assert!(vec.len() > i);
+        if vec.len() > i && vec[i].input.is_empty() {
+            // Note that calling pop_at() repeatedly has some overhead, because
             // later elements need to be shifted up. However, the JobsVec is
             // small, and this approach guarantees that jobs are encountered in
             // order.
-            vec.remove(i);
+            vec.pop_at(i);
         }
     }
 }
