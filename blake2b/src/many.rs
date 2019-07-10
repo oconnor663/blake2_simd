@@ -264,6 +264,7 @@ pub struct HashManyJob<'a> {
     last_node: LastNode,
     hash_length: u8,
     input: &'a [u8],
+    #[cfg(debug_assertions)]
     was_run: bool,
     implementation: guts::Implementation,
 }
@@ -298,17 +299,21 @@ impl<'a> HashManyJob<'a> {
             last_node: params.last_node,
             hash_length: params.hash_length,
             input,
+            #[cfg(debug_assertions)]
             was_run: false,
             implementation: params.implementation,
         }
     }
 
     /// Get the hash from a finished job. If you call this before calling
-    /// [`hash_many`], it will panic.
+    /// [`hash_many`], it will panic in debug mode.
     ///
     /// [`hash_many`]: fn.hash_many.html
     pub fn to_hash(&self) -> Hash {
-        assert!(self.was_run, "job hasn't been run yet");
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(self.was_run, "job hasn't been run yet");
+        }
         Hash {
             bytes: state_words_to_bytes(&self.words),
             len: self.hash_length,
@@ -322,7 +327,7 @@ impl<'a> HashManyJob<'a> {
 /// objects, because it doesn't need to do any buffering.
 ///
 /// Running `hash_many` on the same `HashManyJob` object more than once will
-/// panic.
+/// panic in debug mode.
 ///
 /// # Example
 ///
@@ -368,8 +373,11 @@ where
     };
 
     let jobs = peekable_jobs.into_iter().map(|j| {
-        assert!(!j.was_run, "job has already been run");
-        j.was_run = true;
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(!j.was_run, "job has already been run");
+            j.was_run = true;
+        }
         Job {
             input: j.input,
             words: &mut j.words,
