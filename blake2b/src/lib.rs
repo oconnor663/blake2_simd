@@ -161,6 +161,7 @@ pub struct Params {
 
 impl Params {
     /// Equivalent to `Params::default()`.
+    #[inline]
     pub fn new() -> Self {
         Self {
             hash_length: OUTBYTES as u8,
@@ -180,6 +181,7 @@ impl Params {
         }
     }
 
+    #[inline(always)]
     fn to_words(&self) -> [Word; 8] {
         let (salt_left, salt_right) = array_refs!(&self.salt, SALTBYTES / 2, SALTBYTES / 2);
         let (personal_left, personal_right) =

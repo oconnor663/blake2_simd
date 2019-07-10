@@ -94,6 +94,7 @@ pub fn degree() -> usize {
 
 type JobsVec<'a, 'b> = ArrayVec<[Job<'a, 'b>; guts::MAX_DEGREE]>;
 
+#[inline(always)]
 fn fill_jobs_vec<'a, 'b>(
     jobs_iter: &mut impl Iterator<Item = Job<'a, 'b>>,
     vec: &mut JobsVec<'a, 'b>,
@@ -108,6 +109,7 @@ fn fill_jobs_vec<'a, 'b>(
     }
 }
 
+#[inline(always)]
 fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize) {
     // Iterate backwards so that removal doesn't cause an out-of-bounds panic.
     for i in (0..num_jobs).rev() {
@@ -272,6 +274,7 @@ pub struct HashManyJob<'a> {
 impl<'a> HashManyJob<'a> {
     /// Construct a new `HashManyJob` from a set of hashing parameters and an
     /// input.
+    #[inline]
     pub fn new(params: &'a Params, mut input: &'a [u8]) -> Self {
         let mut words = params.to_words();
         let mut count = 0;
@@ -309,6 +312,7 @@ impl<'a> HashManyJob<'a> {
     /// [`hash_many`], it will panic in debug mode.
     ///
     /// [`hash_many`]: fn.hash_many.html
+    #[inline]
     pub fn to_hash(&self) -> Hash {
         #[cfg(debug_assertions)]
         {

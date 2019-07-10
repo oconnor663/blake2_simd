@@ -83,6 +83,7 @@ impl Implementation {
         None
     }
 
+    #[inline(always)]
     pub fn degree(&self) -> usize {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
