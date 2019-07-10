@@ -569,6 +569,15 @@ impl Hash {
         &self.bytes[..self.len as usize]
     }
 
+    /// Convert the hash to a byte array. Note that if you're using BLAKE2 as a
+    /// MAC, you need constant time equality, which arrays don't provide. This
+    /// panics in debug mode if the length of the hash isn't `OUTBYTES`.
+    #[inline]
+    pub fn as_array(&self) -> &[u8; OUTBYTES] {
+        debug_assert_eq!(self.len as usize, OUTBYTES);
+        &self.bytes
+    }
+
     /// Convert the hash to a lowercase hexadecimal
     /// [`ArrayString`](https://docs.rs/arrayvec/0.4/arrayvec/struct.ArrayString.html).
     pub fn to_hex(&self) -> HexString {
