@@ -224,6 +224,7 @@ impl Params {
     /// Set the length of the final hash in bytes, from 1 to `OUTBYTES` (32). Apart from
     /// controlling the length of the final `Hash`, this is also associated data, and changing it
     /// will result in a totally different hash.
+    #[inline]
     pub fn hash_length(&mut self, length: usize) -> &mut Self {
         assert!(
             1 <= length && length <= OUTBYTES,
@@ -236,6 +237,7 @@ impl Params {
 
     /// Use a secret key, so that BLAKE2 acts as a MAC. The maximum key length is `KEYBYTES` (32).
     /// An empty key is equivalent to having no key at all.
+    #[inline]
     pub fn key(&mut self, key: &[u8]) -> &mut Self {
         assert!(key.len() <= KEYBYTES, "Bad key length: {}", key.len());
         self.key_length = key.len() as u8;
@@ -246,6 +248,7 @@ impl Params {
 
     /// At most `SALTBYTES` (8). Shorter salts are padded with null bytes. An empty salt is
     /// equivalent to having no salt at all.
+    #[inline]
     pub fn salt(&mut self, salt: &[u8]) -> &mut Self {
         assert!(salt.len() <= SALTBYTES, "Bad salt length: {}", salt.len());
         self.salt = [0; SALTBYTES];
@@ -255,6 +258,7 @@ impl Params {
 
     /// At most `PERSONALBYTES` (8). Shorter personalizations are padded with null bytes. An empty
     /// personalization is equivalent to having no personalization at all.
+    #[inline]
     pub fn personal(&mut self, personalization: &[u8]) -> &mut Self {
         assert!(
             personalization.len() <= PERSONALBYTES,
@@ -267,12 +271,14 @@ impl Params {
     }
 
     /// From 0 (meaning unlimited) to 255. The default is 1 (meaning sequential).
+    #[inline]
     pub fn fanout(&mut self, fanout: u8) -> &mut Self {
         self.fanout = fanout;
         self
     }
 
     /// From 1 (the default, meaning sequential) to 255 (meaning unlimited).
+    #[inline]
     pub fn max_depth(&mut self, depth: u8) -> &mut Self {
         assert!(depth != 0, "Bad max depth: {}", depth);
         self.max_depth = depth;
@@ -280,12 +286,14 @@ impl Params {
     }
 
     /// From 0 (the default, meaning unlimited or sequential) to `2^32 - 1`.
+    #[inline]
     pub fn max_leaf_length(&mut self, length: u32) -> &mut Self {
         self.max_leaf_length = length;
         self
     }
 
     /// From 0 (the default, meaning first, leftmost, leaf, or sequential) to `2^48 - 1`.
+    #[inline]
     pub fn node_offset(&mut self, offset: u64) -> &mut Self {
         assert!(offset < (1 << 48), "Bad node offset: {}", offset);
         self.node_offset = offset;
@@ -293,12 +301,14 @@ impl Params {
     }
 
     /// From 0 (the default, meaning leaf or sequential) to 255.
+    #[inline]
     pub fn node_depth(&mut self, depth: u8) -> &mut Self {
         self.node_depth = depth;
         self
     }
 
     /// From 0 (the default, meaning sequential) to `OUTBYTES` (32).
+    #[inline]
     pub fn inner_hash_length(&mut self, length: usize) -> &mut Self {
         assert!(length <= OUTBYTES, "Bad inner hash length: {}", length);
         self.inner_hash_length = length as u8;
@@ -310,6 +320,7 @@ impl Params {
     /// [`State::set_last_node`].
     ///
     /// [`State::set_last_node`]: struct.State.html#method.set_last_node
+    #[inline]
     pub fn last_node(&mut self, last_node: bool) -> &mut Self {
         self.last_node = if last_node {
             guts::LastNode::Yes
