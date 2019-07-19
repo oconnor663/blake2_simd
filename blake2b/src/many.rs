@@ -52,6 +52,7 @@ use crate::Word;
 use crate::BLOCKBYTES;
 use arrayref::array_mut_ref;
 use arrayvec::ArrayVec;
+use core::fmt;
 
 /// The largest possible value of [`degree`](fn.degree.html) on the target
 /// platform.
@@ -263,7 +264,7 @@ where
 ///
 /// [`hash_many`]: fn.hash_many.html
 /// [`to_hash`]: struct.HashManyJob.html#method.to_hash
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct HashManyJob<'a> {
     words: [Word; 8],
     count: Count,
@@ -326,6 +327,20 @@ impl<'a> HashManyJob<'a> {
             bytes: state_words_to_bytes(&self.words),
             len: self.hash_length,
         }
+    }
+}
+
+impl<'a> fmt::Debug for HashManyJob<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // NB: Don't print the words. Leaking them would allow length extension.
+        write!(
+            f,
+            "HashManyJob {{ count: {}, hash_length: {}, last_node: {}, input_len: {} }}",
+            self.count,
+            self.hash_length,
+            self.last_node.yes(),
+            self.input.len(),
+        )
     }
 }
 
