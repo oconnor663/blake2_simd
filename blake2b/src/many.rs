@@ -263,6 +263,7 @@ where
 ///
 /// [`hash_many`]: fn.hash_many.html
 /// [`to_hash`]: struct.HashManyJob.html#method.to_hash
+#[derive(Clone, Debug)]
 pub struct HashManyJob<'a> {
     words: [Word; 8],
     count: Count,
