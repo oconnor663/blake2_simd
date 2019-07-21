@@ -33,6 +33,6 @@ openssl = { version = "0.10.23", optional = true }
 page_size = "0.4.1"
 serde = { version = "1.0.91", features = ["derive"] }
 serde_json = "1.0.39"
-rand = "0.6.5"
-rand_chacha = "0.1.1"
-ring = { version = "0.14.6", optional = true }
+rand = "0.7.0"
+rand_chacha = "0.2.0"
+ring = { version = "0.16.0", optional = true }
