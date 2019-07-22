@@ -185,7 +185,7 @@ pub unsafe fn compress_block(
     let buf = _mm_blend_epi16(t0, t1, 0xC3);
     g1(row1, row2, row3, row4, buf);
     let t0 = _mm_blend_epi16(t0, t1, 0x3C);
-    let buf  = _mm_shuffle_epi32(t0, _MM_SHUFFLE!(2, 3, 0, 1));
+    let buf = _mm_shuffle_epi32(t0, _MM_SHUFFLE!(2, 3, 0, 1));
     g2(row1, row2, row3, row4, buf);
     undiagonalize(row1, row3, row4);
 
@@ -254,7 +254,7 @@ pub unsafe fn compress_block(
     let buf = _mm_shuffle_epi32(t1, _MM_SHUFFLE!(0, 1, 2, 3));
     g1(row1, row2, row3, row4, buf);
     let t0 = _mm_alignr_epi8(m0, m1, 4);
-    let buf = _mm_blend_epi16(t0, m2, 0x33); 
+    let buf = _mm_blend_epi16(t0, m2, 0x33);
     g2(row1, row2, row3, row4, buf);
     undiagonalize(row1, row3, row4);
 
@@ -299,7 +299,7 @@ pub unsafe fn compress_block(
     let t0 = _mm_unpacklo_epi64(m2, m1);
     let t1 = _mm_shuffle_epi32(m3, _MM_SHUFFLE!(2, 0, 1, 0));
     let t2 = _mm_srli_si128(t0, 4);
-    let buf  = _mm_blend_epi16(t1, t2,0x33);  
+    let buf = _mm_blend_epi16(t1, t2, 0x33);
     g2(row1, row2, row3, row4, buf);
     undiagonalize(row1, row3, row4);
 
@@ -361,7 +361,7 @@ pub unsafe fn compress_block(
     let t0 = _mm_unpacklo_epi64(m0, m3);
     let t1 = _mm_srli_si128(m2, 8);
     let t2 = _mm_blend_epi16(t0, t1, 0x03);
-    let buf  = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(1, 3, 2, 0)); 
+    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(1, 3, 2, 0));
     g1(row1, row2, row3, row4, buf);
     let t0 = _mm_blend_epi16(m1, m0, 0x30);
     let buf = _mm_shuffle_epi32(t0, _MM_SHUFFLE!(0, 3, 2, 1));
