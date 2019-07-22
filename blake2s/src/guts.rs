@@ -43,6 +43,11 @@ impl Implementation {
         Self::portable()
     }
 
+    #[inline]
+    pub fn params(&self) -> Params {
+        Params::new_with_impl(*self)
+    }
+
     pub fn portable() -> Self {
         Implementation(Platform::Portable)
     }

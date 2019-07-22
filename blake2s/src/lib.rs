@@ -54,7 +54,7 @@ mod portable;
 mod sse41;
 
 pub mod blake2sp;
-mod guts;
+pub mod guts;
 pub mod many;
 
 #[cfg(test)]
@@ -152,6 +152,11 @@ impl Params {
     /// Equivalent to `Params::default()`.
     #[inline]
     pub fn new() -> Self {
+        Self::new_with_impl(guts::Implementation::detect())
+    }
+
+    #[inline(always)]
+    fn new_with_impl(implementation: guts::Implementation) -> Self {
         Self {
             hash_length: OUTBYTES as u8,
             key_length: 0,
@@ -166,7 +171,7 @@ impl Params {
             node_depth: 0,
             inner_hash_length: 0,
             last_node: guts::LastNode::No,
-            implementation: guts::Implementation::detect(),
+            implementation,
         }
     }
 
