@@ -127,20 +127,18 @@ macro_rules! _MM_SHUFFLE {
     };
 }
 
-// TODO: We need to port the BLAKE2s version of this optimization:
-//       https://github.com/sneves/blake2-avx2/pull/4
 #[inline(always)]
-unsafe fn diagonalize(row2: &mut __m128i, row3: &mut __m128i, row4: &mut __m128i) {
-    *row4 = _mm_shuffle_epi32(*row4, _MM_SHUFFLE!(2, 1, 0, 3));
-    *row3 = _mm_shuffle_epi32(*row3, _MM_SHUFFLE!(1, 0, 3, 2));
-    *row2 = _mm_shuffle_epi32(*row2, _MM_SHUFFLE!(0, 3, 2, 1));
+unsafe fn diagonalize(row1: &mut __m128i, row3: &mut __m128i, row4: &mut __m128i) {
+    *row1 = _mm_shuffle_epi32(*row1, _MM_SHUFFLE!(2, 1, 0, 3));
+    *row4 = _mm_shuffle_epi32(*row4, _MM_SHUFFLE!(1, 0, 3, 2));
+    *row3 = _mm_shuffle_epi32(*row3, _MM_SHUFFLE!(0, 3, 2, 1));
 }
 
 #[inline(always)]
-unsafe fn undiagonalize(row2: &mut __m128i, row3: &mut __m128i, row4: &mut __m128i) {
-    *row4 = _mm_shuffle_epi32(*row4, _MM_SHUFFLE!(0, 3, 2, 1));
-    *row3 = _mm_shuffle_epi32(*row3, _MM_SHUFFLE!(1, 0, 3, 2));
-    *row2 = _mm_shuffle_epi32(*row2, _MM_SHUFFLE!(2, 1, 0, 3));
+unsafe fn undiagonalize(row1: &mut __m128i, row3: &mut __m128i, row4: &mut __m128i) {
+    *row1 = _mm_shuffle_epi32(*row1, _MM_SHUFFLE!(0, 3, 2, 1));
+    *row4 = _mm_shuffle_epi32(*row4, _MM_SHUFFLE!(1, 0, 3, 2));
+    *row3 = _mm_shuffle_epi32(*row3, _MM_SHUFFLE!(2, 1, 0, 3));
 }
 
 #[inline(always)]
@@ -181,20 +179,15 @@ pub unsafe fn compress_block(
         _MM_SHUFFLE!(3, 1, 3, 1),
     ));
     g2(row1, row2, row3, row4, buf);
-    diagonalize(row2, row3, row4);
-    let buf = _mm_castps_si128(_mm_shuffle_ps(
-        _mm_castsi128_ps(m2),
-        _mm_castsi128_ps(m3),
-        _MM_SHUFFLE!(2, 0, 2, 0),
-    ));
+    diagonalize(row1, row3, row4);
+    let t0 = _mm_shuffle_epi32(m2, _MM_SHUFFLE!(3, 2, 0, 1));
+    let t1 = _mm_shuffle_epi32(m3, _MM_SHUFFLE!(0, 1, 3, 2));
+    let buf = _mm_blend_epi16(t0, t1, 0xC3);
     g1(row1, row2, row3, row4, buf);
-    let buf = _mm_castps_si128(_mm_shuffle_ps(
-        _mm_castsi128_ps(m2),
-        _mm_castsi128_ps(m3),
-        _MM_SHUFFLE!(3, 1, 3, 1),
-    ));
+    let t0 = _mm_blend_epi16(t0, t1, 0x3C);
+    let buf  = _mm_shuffle_epi32(t0, _MM_SHUFFLE!(2, 3, 0, 1));
     g2(row1, row2, row3, row4, buf);
-    undiagonalize(row2, row3, row4);
+    undiagonalize(row1, row3, row4);
 
     // round 2
     let t0 = _mm_blend_epi16(m1, m2, 0x0C);
@@ -207,18 +200,18 @@ pub unsafe fn compress_block(
     let t2 = _mm_blend_epi16(t0, t1, 0xF0);
     let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(2, 3, 0, 1));
     g2(row1, row2, row3, row4, buf);
-    diagonalize(row2, row3, row4);
+    diagonalize(row1, row3, row4);
     let t0 = _mm_slli_si128(m1, 4);
     let t1 = _mm_blend_epi16(m2, t0, 0x30);
     let t2 = _mm_blend_epi16(m0, t1, 0xF0);
-    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(2, 3, 0, 1));
+    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(3, 0, 1, 2));
     g1(row1, row2, row3, row4, buf);
     let t0 = _mm_unpackhi_epi32(m0, m1);
     let t1 = _mm_slli_si128(m3, 4);
     let t2 = _mm_blend_epi16(t0, t1, 0x0C);
-    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(2, 3, 0, 1));
+    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(3, 0, 1, 2));
     g2(row1, row2, row3, row4, buf);
-    undiagonalize(row2, row3, row4);
+    undiagonalize(row1, row3, row4);
 
     // round 3
     let t0 = _mm_unpackhi_epi32(m2, m3);
@@ -231,18 +224,18 @@ pub unsafe fn compress_block(
     let t2 = _mm_slli_si128(m3, 8);
     let buf = _mm_blend_epi16(t1, t2, 0xC0);
     g2(row1, row2, row3, row4, buf);
-    diagonalize(row2, row3, row4);
+    diagonalize(row1, row3, row4);
     let t0 = _mm_blend_epi16(m0, m2, 0x3C);
     let t1 = _mm_srli_si128(m1, 12);
     let t2 = _mm_blend_epi16(t0, t1, 0x03);
-    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(1, 0, 3, 2));
+    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(0, 3, 2, 1));
     g1(row1, row2, row3, row4, buf);
     let t0 = _mm_slli_si128(m3, 4);
     let t1 = _mm_blend_epi16(m0, m1, 0x33);
     let t2 = _mm_blend_epi16(t1, t0, 0xC0);
-    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(0, 1, 2, 3));
+    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(1, 2, 3, 0));
     g2(row1, row2, row3, row4, buf);
-    undiagonalize(row2, row3, row4);
+    undiagonalize(row1, row3, row4);
 
     // round 4
     let t0 = _mm_unpackhi_epi32(m0, m1);
@@ -255,16 +248,15 @@ pub unsafe fn compress_block(
     let t2 = _mm_blend_epi16(t1, t0, 0xC0);
     let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(2, 0, 1, 3));
     g2(row1, row2, row3, row4, buf);
-    diagonalize(row2, row3, row4);
+    diagonalize(row1, row3, row4);
     let t0 = _mm_blend_epi16(m0, m1, 0x0F);
     let t1 = _mm_blend_epi16(t0, m3, 0xC0);
-    let buf = _mm_shuffle_epi32(t1, _MM_SHUFFLE!(3, 0, 1, 2));
+    let buf = _mm_shuffle_epi32(t1, _MM_SHUFFLE!(0, 1, 2, 3));
     g1(row1, row2, row3, row4, buf);
-    let t0 = _mm_unpacklo_epi32(m0, m2);
-    let t1 = _mm_unpackhi_epi32(m1, m2);
-    let buf = _mm_unpacklo_epi64(t1, t0);
+    let t0 = _mm_alignr_epi8(m0, m1, 4);
+    let buf = _mm_blend_epi16(t0, m2, 0x33); 
     g2(row1, row2, row3, row4, buf);
-    undiagonalize(row2, row3, row4);
+    undiagonalize(row1, row3, row4);
 
     // round 5
     let t0 = _mm_unpacklo_epi64(m1, m2);
@@ -276,17 +268,18 @@ pub unsafe fn compress_block(
     let t1 = _mm_unpacklo_epi64(m0, m1);
     let buf = _mm_blend_epi16(t0, t1, 0x33);
     g2(row1, row2, row3, row4, buf);
-    diagonalize(row2, row3, row4);
+    diagonalize(row1, row3, row4);
     let t0 = _mm_unpackhi_epi64(m3, m1);
     let t1 = _mm_unpackhi_epi64(m2, m0);
-    let buf = _mm_blend_epi16(t1, t0, 0x33);
+    let t2 = _mm_blend_epi16(t1, t0, 0x33);
+    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(2, 1, 0, 3));
     g1(row1, row2, row3, row4, buf);
     let t0 = _mm_blend_epi16(m0, m2, 0x03);
     let t1 = _mm_slli_si128(t0, 8);
     let t2 = _mm_blend_epi16(t1, m3, 0x0F);
-    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(1, 2, 0, 3));
+    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(2, 0, 3, 1));
     g2(row1, row2, row3, row4, buf);
-    undiagonalize(row2, row3, row4);
+    undiagonalize(row1, row3, row4);
 
     // round 6
     let t0 = _mm_unpackhi_epi32(m0, m1);
@@ -297,17 +290,18 @@ pub unsafe fn compress_block(
     let t1 = _mm_blend_epi16(m0, m3, 0x03);
     let buf = _mm_blend_epi16(t1, t0, 0x3C);
     g2(row1, row2, row3, row4, buf);
-    diagonalize(row2, row3, row4);
+    diagonalize(row1, row3, row4);
     let t0 = _mm_blend_epi16(m1, m0, 0x0C);
     let t1 = _mm_srli_si128(m3, 4);
     let t2 = _mm_blend_epi16(t0, t1, 0x30);
-    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(1, 2, 3, 0));
+    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(2, 3, 0, 1));
     g1(row1, row2, row3, row4, buf);
-    let t0 = _mm_unpacklo_epi64(m1, m2);
-    let t1 = _mm_shuffle_epi32(m3, _MM_SHUFFLE!(0, 2, 0, 1));
-    let buf = _mm_blend_epi16(t0, t1, 0x33);
+    let t0 = _mm_unpacklo_epi64(m2, m1);
+    let t1 = _mm_shuffle_epi32(m3, _MM_SHUFFLE!(2, 0, 1, 0));
+    let t2 = _mm_srli_si128(t0, 4);
+    let buf  = _mm_blend_epi16(t1, t2,0x33);  
     g2(row1, row2, row3, row4, buf);
-    undiagonalize(row2, row3, row4);
+    undiagonalize(row1, row3, row4);
 
     // round 7
     let t0 = _mm_slli_si128(m1, 12);
@@ -319,16 +313,16 @@ pub unsafe fn compress_block(
     let t2 = _mm_blend_epi16(t0, t1, 0x03);
     let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(2, 1, 3, 0));
     g2(row1, row2, row3, row4, buf);
-    diagonalize(row2, row3, row4);
+    diagonalize(row1, row3, row4);
     let t0 = _mm_unpacklo_epi64(m0, m2);
     let t1 = _mm_srli_si128(m1, 4);
-    let buf = _mm_shuffle_epi32(_mm_blend_epi16(t0, t1, 0x0C), _MM_SHUFFLE!(2, 3, 1, 0));
+    let buf = _mm_shuffle_epi32(_mm_blend_epi16(t0, t1, 0x0C), _MM_SHUFFLE!(3, 1, 0, 2));
     g1(row1, row2, row3, row4, buf);
     let t0 = _mm_unpackhi_epi32(m1, m2);
     let t1 = _mm_unpackhi_epi64(m0, t0);
-    let buf = _mm_shuffle_epi32(t1, _MM_SHUFFLE!(3, 0, 1, 2));
+    let buf = _mm_shuffle_epi32(t1, _MM_SHUFFLE!(0, 1, 2, 3));
     g2(row1, row2, row3, row4, buf);
-    undiagonalize(row2, row3, row4);
+    undiagonalize(row1, row3, row4);
 
     // round 8
     let t0 = _mm_unpackhi_epi32(m0, m1);
@@ -340,17 +334,18 @@ pub unsafe fn compress_block(
     let t2 = _mm_blend_epi16(t0, t1, 0x03);
     let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(1, 0, 2, 3));
     g2(row1, row2, row3, row4, buf);
-    diagonalize(row2, row3, row4);
+    diagonalize(row1, row3, row4);
     let t0 = _mm_unpackhi_epi64(m0, m3);
     let t1 = _mm_unpacklo_epi64(m1, m2);
     let t2 = _mm_blend_epi16(t0, t1, 0x3C);
-    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(0, 2, 3, 1));
+    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(2, 3, 1, 0));
     g1(row1, row2, row3, row4, buf);
     let t0 = _mm_unpacklo_epi32(m0, m1);
     let t1 = _mm_unpackhi_epi32(m1, m2);
-    let buf = _mm_unpacklo_epi64(t0, t1);
+    let t2 = _mm_unpacklo_epi64(t0, t1);
+    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(2, 1, 0, 3));
     g2(row1, row2, row3, row4, buf);
-    undiagonalize(row2, row3, row4);
+    undiagonalize(row1, row3, row4);
 
     // round 9
     let t0 = _mm_unpackhi_epi32(m1, m3);
@@ -362,15 +357,16 @@ pub unsafe fn compress_block(
     let t1 = _mm_blend_epi16(m2, t0, 0xF0);
     let buf = _mm_shuffle_epi32(t1, _MM_SHUFFLE!(0, 2, 1, 3));
     g2(row1, row2, row3, row4, buf);
-    diagonalize(row2, row3, row4);
-    let t0 = _mm_blend_epi16(m2, m0, 0x0C);
-    let t1 = _mm_slli_si128(t0, 4);
-    let buf = _mm_blend_epi16(t1, m3, 0x0F);
+    diagonalize(row1, row3, row4);
+    let t0 = _mm_unpacklo_epi64(m0, m3);
+    let t1 = _mm_srli_si128(m2, 8);
+    let t2 = _mm_blend_epi16(t0, t1, 0x03);
+    let buf  = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(1, 3, 2, 0)); 
     g1(row1, row2, row3, row4, buf);
     let t0 = _mm_blend_epi16(m1, m0, 0x30);
-    let buf = _mm_shuffle_epi32(t0, _MM_SHUFFLE!(1, 0, 3, 2));
+    let buf = _mm_shuffle_epi32(t0, _MM_SHUFFLE!(0, 3, 2, 1));
     g2(row1, row2, row3, row4, buf);
-    undiagonalize(row2, row3, row4);
+    undiagonalize(row1, row3, row4);
 
     // round 10
     let t0 = _mm_blend_epi16(m0, m2, 0x03);
@@ -382,18 +378,18 @@ pub unsafe fn compress_block(
     let t1 = _mm_blend_epi16(m1, t0, 0xC0);
     let buf = _mm_shuffle_epi32(t1, _MM_SHUFFLE!(1, 2, 0, 3));
     g2(row1, row2, row3, row4, buf);
-    diagonalize(row2, row3, row4);
+    diagonalize(row1, row3, row4);
     let t0 = _mm_unpackhi_epi32(m0, m3);
     let t1 = _mm_unpacklo_epi32(m2, m3);
     let t2 = _mm_unpackhi_epi64(t0, t1);
-    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(3, 0, 2, 1));
+    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(0, 2, 1, 3));
     g1(row1, row2, row3, row4, buf);
     let t0 = _mm_blend_epi16(m3, m2, 0xC0);
     let t1 = _mm_unpacklo_epi32(m0, m3);
     let t2 = _mm_blend_epi16(t0, t1, 0x0F);
-    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(0, 1, 2, 3));
+    let buf = _mm_shuffle_epi32(t2, _MM_SHUFFLE!(1, 2, 3, 0));
     g2(row1, row2, row3, row4, buf);
-    undiagonalize(row2, row3, row4);
+    undiagonalize(row1, row3, row4);
 
     storeu(xor(loadu(words_low), xor(*row1, *row3)), words_low);
     storeu(xor(loadu(words_high), xor(*row2, *row4)), words_high);
