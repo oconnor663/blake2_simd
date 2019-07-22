@@ -77,8 +77,8 @@ variability. Here are the results from my laptop for `cargo run --release`:
 │ blake2b_simd BLAKE2b    │ 1.055 GB/s │
 │ sneves BLAKE2b          │ 1.054 GB/s │
 │ OpenSSL SHA-1           │ 0.972 GB/s │
+│ blake2s_simd BLAKE2s    │ 0.686 GB/s │
 │ OpenSSL SHA-512         │ 0.667 GB/s │
-│ blake2s_simd BLAKE2s    │ 0.648 GB/s │
 ╰─────────────────────────┴────────────╯
 ```
 
@@ -101,7 +101,7 @@ rustc do better:
 │ sneves BLAKE2bp         │ 2.234 GB/s │
 │ sneves BLAKE2b          │ 1.211 GB/s │
 │ blake2b_simd BLAKE2b    │ 1.206 GB/s │
-│ blake2s_simd BLAKE2s    │ 0.688 GB/s │
+│ blake2s_simd BLAKE2s    │ 0.730 GB/s │
 ╰─────────────────────────┴────────────╯
 ```
 
@@ -116,9 +116,9 @@ data. Here are the results from my laptop:
 │ blake2 -b           │ 0.917 GB/s │
 │ coreutils sha1sum   │ 0.856 GB/s │
 │ coreutils b2sum     │ 0.714 GB/s │
+│ blake2 -s           │ 0.633 GB/s │
 │ coreutils md5sum    │ 0.622 GB/s │
 │ coreutils sha512sum │ 0.620 GB/s │
-│ blake2 -s           │ 0.603 GB/s │
 ╰─────────────────────┴────────────╯
 ```
 
