@@ -3,15 +3,15 @@ use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::isize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::exit;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 #[structopt(author = "")]
 struct Opt {
-    /// Any number of filepaths, or - for standard input.
-    input: Option<PathBuf>,
+    /// Any number of filepaths, or empty for standard input.
+    inputs: Vec<PathBuf>,
 
     #[structopt(long = "mmap")]
     /// Read input with memory mapping.
@@ -81,12 +81,51 @@ enum Params {
     Blake2sp(blake2s_simd::blake2sp::Params),
 }
 
+impl Params {
+    fn to_state(&self) -> State {
+        match self {
+            Params::Blake2b(p) => State::Blake2b(p.to_state()),
+            Params::Blake2s(p) => State::Blake2s(p.to_state()),
+            Params::Blake2bp(p) => State::Blake2bp(p.to_state()),
+            Params::Blake2sp(p) => State::Blake2sp(p.to_state()),
+        }
+    }
+}
+
 #[derive(Clone)]
 enum State {
     Blake2b(blake2b_simd::State),
     Blake2bp(blake2b_simd::blake2bp::State),
     Blake2s(blake2s_simd::State),
     Blake2sp(blake2s_simd::blake2sp::State),
+}
+
+impl State {
+    fn update(&mut self, input: &[u8]) {
+        match self {
+            State::Blake2b(s) => {
+                s.update(input);
+            }
+            State::Blake2s(s) => {
+                s.update(input);
+            }
+            State::Blake2bp(s) => {
+                s.update(input);
+            }
+            State::Blake2sp(s) => {
+                s.update(input);
+            }
+        }
+    }
+
+    fn finalize(&mut self) -> String {
+        match self {
+            State::Blake2b(s) => s.finalize().to_hex().to_string(),
+            State::Blake2s(s) => s.finalize().to_hex().to_string(),
+            State::Blake2bp(s) => s.finalize().to_hex().to_string(),
+            State::Blake2sp(s) => s.finalize().to_hex().to_string(),
+        }
+    }
 }
 
 fn mmap_file(file: &File) -> io::Result<memmap::Mmap> {
@@ -105,37 +144,26 @@ fn mmap_file(file: &File) -> io::Result<memmap::Mmap> {
     unsafe { memmap::MmapOptions::new().len(len as usize).map(file) }
 }
 
-fn read_write_all<R: Read>(reader: &mut R, state: &mut State) -> io::Result<()> {
+fn read_write_all<R: Read>(mut reader: R, state: &mut State) -> io::Result<()> {
     // Why not just use std::io::copy? Because it uses an 8192 byte buffer, and
     // using a larger buffer is measurably faster.
     // https://github.com/rust-lang/rust/commit/8128817119e479b0610685e3fc7a6ff21cde5abc
     // describes how Rust picked its default buffer size.
     //
-    // How did we pick 32768 (2^15) specifically? It's just what coreutils uses. When I benchmark
-    // lots of different sizes, a 4 MiB heap buffer actually seems to be the best size, possibly 8%
-    // faster than this. Though repeatedly hashing a gigabyte of random data might not reflect real
-    // world usage, who knows. At the end of the day, when we really care about speed, we're going
-    // to use --mmap and skip buffering entirely. The main goal of this program is to compare the
-    // underlying hash implementations (which is to say OpenSSL, which coreutils links against),
-    // and to get an honest comparison we might as well use the same buffer size.
+    // How did we pick 32768 (2^15) specifically? It's just what coreutils
+    // uses. When I benchmark lots of different sizes, a 4 MiB heap buffer
+    // actually seems to be the best size, possibly 8% faster than this. Though
+    // repeatedly hashing a gigabyte of random data might not reflect real
+    // world usage, who knows. At the end of the day, when we really care about
+    // speed, we're going to use --mmap and skip buffering entirely. The main
+    // goal of this program is to compare the underlying hash implementations
+    // (which is to say OpenSSL, which coreutils links against), and to get an
+    // honest comparison we might as well use the same buffer size.
     let mut buf = [0; 32768];
     loop {
         match reader.read(&mut buf) {
             Ok(0) => return Ok(()),
-            Ok(n) => match state {
-                State::Blake2b(s) => {
-                    s.update(&buf[..n]);
-                }
-                State::Blake2s(s) => {
-                    s.update(&buf[..n]);
-                }
-                State::Blake2bp(s) => {
-                    s.update(&buf[..n]);
-                }
-                State::Blake2sp(s) => {
-                    s.update(&buf[..n]);
-                }
-            },
+            Ok(n) => state.update(&buf[..n]),
             Err(e) => {
                 if e.kind() != io::ErrorKind::Interrupted {
                     return Err(e);
@@ -145,7 +173,7 @@ fn read_write_all<R: Read>(reader: &mut R, state: &mut State) -> io::Result<()> 
     }
 }
 
-fn make_state(opt: &Opt) -> Result<State, Error> {
+fn make_params(opt: &Opt) -> Result<Params, Error> {
     if opt.big && opt.small {
         bail!("-b and -s can't be used together");
     }
@@ -296,71 +324,68 @@ fn make_state(opt: &Opt) -> Result<State, Error> {
             _ => bail!("--last-node not supported"),
         }
     }
-    let state = match &params {
-        Params::Blake2b(p) => State::Blake2b(p.to_state()),
-        Params::Blake2s(p) => State::Blake2s(p.to_state()),
-        Params::Blake2bp(p) => State::Blake2bp(p.to_state()),
-        Params::Blake2sp(p) => State::Blake2sp(p.to_state()),
-    };
-    Ok(state)
+    Ok(params)
 }
 
-fn run(opt: &Opt, state: &State) -> Result<String, Error> {
-    let mut state = state.clone();
-    if let Some(path) = &opt.input {
-        let mut file = File::open(path)?;
-        if opt.mmap {
-            let map = mmap_file(&file)?;
-            match &mut state {
-                State::Blake2b(s) => {
-                    s.update(&map);
-                }
-                State::Blake2s(s) => {
-                    s.update(&map);
-                }
-                State::Blake2bp(s) => {
-                    s.update(&map);
-                }
-                State::Blake2sp(s) => {
-                    s.update(&map);
-                }
-            }
-        } else {
-            read_write_all(&mut file, &mut state)?;
-        }
+fn hash_file(opt: &Opt, params: &Params, path: &Path) -> Result<String, Error> {
+    let mut state = params.to_state();
+    let mut file = File::open(path)?;
+    if opt.mmap {
+        let map = mmap_file(&file)?;
+        state.update(&map);
     } else {
-        if opt.mmap {
-            bail!("can't mmap standard input");
-        } else {
-            let stdin = io::stdin();
-            let mut stdin = stdin.lock();
-            read_write_all(&mut stdin, &mut state)?;
-        }
+        read_write_all(&mut file, &mut state)?;
     }
-    Ok(match state {
-        State::Blake2b(s) => s.finalize().to_hex().to_string(),
-        State::Blake2s(s) => s.finalize().to_hex().to_string(),
-        State::Blake2bp(s) => s.finalize().to_hex().to_string(),
-        State::Blake2sp(s) => s.finalize().to_hex().to_string(),
-    })
+    Ok(state.finalize())
+}
+
+fn hash_stdin(opt: &Opt, params: &Params) -> Result<String, Error> {
+    if opt.mmap {
+        bail!("--mmap not supported for stdin");
+    }
+    let mut state = params.to_state();
+    read_write_all(std::io::stdin().lock(), &mut state)?;
+    Ok(state.finalize())
 }
 
 fn main() {
     let opt = Opt::from_args();
 
-    let state = match make_state(&opt) {
+    let params = match make_params(&opt) {
         Ok(params) => params,
-        Err(e) => {
-            eprintln!("{}", e);
-            exit(1);
-        }
-    };
-
-    match run(&opt, &state) {
-        Ok(hash) => println!("{}", hash),
         Err(e) => {
             eprintln!("blake2: {}", e);
             exit(1);
         }
+    };
+
+    let mut failed = false;
+    if opt.inputs.is_empty() {
+        match hash_stdin(&opt, &params) {
+            Ok(hash) => println!("{}", hash),
+            Err(e) => {
+                eprintln!("blake2: stdin: {}", e);
+                failed = true;
+            }
+        }
+    } else {
+        for input in &opt.inputs {
+            match hash_file(&opt, &params, input) {
+                Ok(hash) => {
+                    if opt.inputs.len() > 1 {
+                        println!("{}  {}", hash, input.to_string_lossy());
+                    } else {
+                        println!("{}", hash);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("blake2: {}: {}", input.to_string_lossy(), e);
+                    failed = true;
+                }
+            }
+        }
+    }
+    if failed {
+        exit(1);
     }
 }
