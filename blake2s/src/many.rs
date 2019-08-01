@@ -271,8 +271,7 @@ pub struct HashManyJob<'a> {
     last_node: LastNode,
     hash_length: u8,
     input: &'a [u8],
-    #[cfg(debug_assertions)]
-    was_run: bool,
+    finished: bool,
     implementation: guts::Implementation,
 }
 
@@ -280,26 +279,28 @@ impl<'a> HashManyJob<'a> {
     /// Construct a new `HashManyJob` from a set of hashing parameters and an
     /// input.
     #[inline]
-    pub fn new(params: &'a Params, mut input: &'a [u8]) -> Self {
+    pub fn new(params: &Params, input: &'a [u8]) -> Self {
         let mut words = params.to_words();
         let mut count = 0;
-        // If we have a key and other input, just hash the key block into the
-        // words here during construction. However, if there's no further
-        // input, use the key block as the input instead.
+        let mut finished = false;
+        // If we have key bytes, compress them into the state words. If there's
+        // no additional input, this compression needs to finalize and set
+        // finished=true.
         if params.key_length > 0 {
+            let mut finalization = Finalize::No;
             if input.is_empty() {
-                input = &params.key_block;
-            } else {
-                params.implementation.compress1_loop(
-                    &params.key_block,
-                    &mut words,
-                    count,
-                    params.last_node,
-                    Finalize::No,
-                    Stride::Serial,
-                );
-                count = BLOCKBYTES as Count;
+                finalization = Finalize::Yes;
+                finished = true;
             }
+            params.implementation.compress1_loop(
+                &params.key_block,
+                &mut words,
+                0,
+                params.last_node,
+                finalization,
+                Stride::Serial,
+            );
+            count = BLOCKBYTES as Count;
         }
         Self {
             words,
@@ -307,8 +308,7 @@ impl<'a> HashManyJob<'a> {
             last_node: params.last_node,
             hash_length: params.hash_length,
             input,
-            #[cfg(debug_assertions)]
-            was_run: false,
+            finished,
             implementation: params.implementation,
         }
     }
@@ -319,10 +319,7 @@ impl<'a> HashManyJob<'a> {
     /// [`hash_many`]: fn.hash_many.html
     #[inline]
     pub fn to_hash(&self) -> Hash {
-        #[cfg(debug_assertions)]
-        {
-            debug_assert!(self.was_run, "job hasn't been run yet");
-        }
+        debug_assert!(self.finished, "job hasn't been run yet");
         Hash {
             bytes: state_words_to_bytes(&self.words),
             len: self.hash_length,
@@ -349,8 +346,8 @@ impl<'a> fmt::Debug for HashManyJob<'a> {
 /// This is slightly more efficient than using `update_many` with `State`
 /// objects, because it doesn't need to do any buffering.
 ///
-/// Running `hash_many` on the same `HashManyJob` object more than once will
-/// panic in debug mode.
+/// Running `hash_many` on the same `HashManyJob` object more than once has no
+/// effect.
 ///
 /// # Example
 ///
@@ -395,12 +392,17 @@ where
         return;
     };
 
-    let jobs = peekable_jobs.into_iter().map(|j| {
-        #[cfg(debug_assertions)]
-        {
-            debug_assert!(!j.was_run, "job has already been run");
-            j.was_run = true;
-        }
+    // In the jobs iterator, skip HashManyJobs that have already been run. This
+    // is less because we actually expect callers to call hash_many twice
+    // (though they're allowed to if they want), and more because
+    // HashManyJob::new might need to finalize if there are key bytes but no
+    // input. Tying the job lifetime to the Params reference is an alternative,
+    // but I've found it too constraining in practice. We could also put key
+    // bytes in every HashManyJob, but that would add unnecessary storage and
+    // zeroing for all callers.
+    let unfinished_jobs = peekable_jobs.into_iter().filter(|j| !j.finished);
+    let jobs = unfinished_jobs.map(|j| {
+        j.finished = true;
         Job {
             input: j.input,
             words: &mut j.words,
