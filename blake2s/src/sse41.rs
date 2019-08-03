@@ -127,6 +127,9 @@ macro_rules! _MM_SHUFFLE {
     };
 }
 
+// Note the optimization here of leaving row2 as the unrotated row, rather than
+// row1. All the message loads below are adjusted to compensate for this. See
+// discussion at https://github.com/sneves/blake2-avx2/pull/4
 #[inline(always)]
 unsafe fn diagonalize(row1: &mut __m128i, row3: &mut __m128i, row4: &mut __m128i) {
     *row1 = _mm_shuffle_epi32(*row1, _MM_SHUFFLE!(2, 1, 0, 3));

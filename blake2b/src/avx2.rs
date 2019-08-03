@@ -124,6 +124,9 @@ unsafe fn g2(a: &mut __m256i, b: &mut __m256i, c: &mut __m256i, d: &mut __m256i,
     *b = rot63(*b);
 }
 
+// Note the optimization here of leaving b as the unrotated row, rather than a.
+// All the message loads below are adjusted to compensate for this. See
+// discussion at https://github.com/sneves/blake2-avx2/pull/4
 #[inline(always)]
 unsafe fn diagonalize(a: &mut __m256i, _b: &mut __m256i, c: &mut __m256i, d: &mut __m256i) {
     *a = _mm256_permute4x64_epi64(*a, _MM_SHUFFLE!(2, 1, 0, 3));
