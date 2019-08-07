@@ -120,7 +120,9 @@ impl Params {
             .node_offset(0)
             .node_depth(1)
             // Note that setting the last_node flag here has no effect, because
-            // it isn't included in the state words.
+            // it isn't included in the state words. Also note that because
+            // we're only preserving its state words, the root node won't hash
+            // any key bytes.
             .to_words();
         (leaf_words, root_words)
     }
