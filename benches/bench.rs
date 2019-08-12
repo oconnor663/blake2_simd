@@ -438,6 +438,19 @@ fn bench_byte_openssl_sha1(b: &mut Bencher) {
 
 #[cfg(feature = "openssl")]
 #[bench]
+fn bench_1mb_openssl_sha256(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, MB);
+    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha256(), input.get()));
+}
+
+#[cfg(feature = "openssl")]
+#[bench]
+fn bench_byte_openssl_sha256(b: &mut Bencher) {
+    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha256(), b"x"));
+}
+
+#[cfg(feature = "openssl")]
+#[bench]
 fn bench_1mb_openssl_sha512(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), input.get()));
@@ -460,6 +473,19 @@ fn bench_1mb_ring_sha1(b: &mut Bencher) {
 #[bench]
 fn bench_byte_ring_sha1(b: &mut Bencher) {
     b.iter(|| ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, b"x"));
+}
+
+#[cfg(feature = "ring")]
+#[bench]
+fn bench_1mb_ring_sha256(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, MB);
+    b.iter(|| ring::digest::digest(&ring::digest::SHA256, input.get()));
+}
+
+#[cfg(feature = "ring")]
+#[bench]
+fn bench_byte_ring_sha256(b: &mut Bencher) {
+    b.iter(|| ring::digest::digest(&ring::digest::SHA256, b"x"));
 }
 
 #[cfg(feature = "ring")]
