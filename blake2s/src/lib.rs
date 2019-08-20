@@ -195,6 +195,7 @@ impl Params {
     }
 
     /// Hash an input all at once with these parameters.
+    #[inline]
     pub fn hash(&self, input: &[u8]) -> Hash {
         // If there's a key, just fall back to using the State.
         if self.key_length > 0 {
