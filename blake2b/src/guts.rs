@@ -83,7 +83,6 @@ impl Implementation {
         None
     }
 
-    #[inline(always)]
     pub fn degree(&self) -> usize {
         match self.0 {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -194,7 +193,6 @@ pub enum Stride {
 }
 
 impl Stride {
-    #[inline(always)]
     pub fn padded_blockbytes(&self) -> usize {
         match self {
             Stride::Serial => BLOCKBYTES,
@@ -203,22 +201,18 @@ impl Stride {
     }
 }
 
-#[inline(always)]
 pub(crate) fn count_low(count: Count) -> Word {
     count as Word
 }
 
-#[inline(always)]
 pub(crate) fn count_high(count: Count) -> Word {
     (count >> 8 * size_of::<Word>()) as Word
 }
 
-#[inline(always)]
 pub(crate) fn assemble_count(low: Word, high: Word) -> Count {
     low as Count + ((high as Count) << 8 * size_of::<Word>())
 }
 
-#[inline(always)]
 pub(crate) fn flag_word(flag: bool) -> Word {
     if flag {
         !0
@@ -234,7 +228,6 @@ pub(crate) fn flag_word(flag: bool) -> Word {
 // input can be finalized (i.e. whether there aren't any more bytes after this
 // block). Note that this is written so that the optimizer can elide bounds
 // checks, see: https://godbolt.org/z/0hH2bC
-#[inline(always)]
 pub fn final_block<'a>(
     input: &'a [u8],
     offset: usize,
@@ -255,7 +248,6 @@ pub fn final_block<'a>(
     }
 }
 
-#[inline(always)]
 pub fn input_debug_asserts(input: &[u8], finalize: Finalize) {
     // If we're not finalizing, the input must not be empty, and it must be an
     // even multiple of the block size.
