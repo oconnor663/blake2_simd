@@ -278,10 +278,9 @@ impl Params {
         self
     }
 
-    /// From 1 (the default, meaning sequential) to 255 (meaning unlimited).
+    /// From 0, through 1 (the default, meaning sequential) to 255 (meaning unlimited).
     #[inline]
     pub fn max_depth(&mut self, depth: u8) -> &mut Self {
-        assert!(depth != 0, "Bad max depth: {}", depth);
         self.max_depth = depth;
         self
     }
