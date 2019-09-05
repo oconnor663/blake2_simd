@@ -168,8 +168,7 @@ fn test_long_personal_panics() {
 }
 
 #[test]
-#[should_panic]
-fn test_zero_max_depth_panics() {
+fn test_zero_max_depth_supported() {
     Params::new().max_depth(0);
 }
 
