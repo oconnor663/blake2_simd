@@ -278,7 +278,7 @@ impl Params {
         self
     }
 
-    /// From 0, through 1 (the default, meaning sequential) to 255 (meaning unlimited).
+    /// From 0 (meaning BLAKE2X B2 hashes), through 1 (the default, meaning sequential) to 255 (meaning unlimited).
     #[inline]
     pub fn max_depth(&mut self, depth: u8) -> &mut Self {
         self.max_depth = depth;
