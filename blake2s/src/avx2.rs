@@ -258,9 +258,6 @@ macro_rules! compress8_transposed {
         round(&mut v, &msg_vecs, 4);
         round(&mut v, &msg_vecs, 5);
         round(&mut v, &msg_vecs, 6);
-        round(&mut v, &msg_vecs, 7);
-        round(&mut v, &msg_vecs, 8);
-        round(&mut v, &msg_vecs, 9);
 
         h_vecs[0] = xor(xor(h_vecs[0], v[0]), v[8]);
         h_vecs[1] = xor(xor(h_vecs[1], v[1]), v[9]);

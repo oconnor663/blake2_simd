@@ -99,10 +99,6 @@ fn compress_block(
     round(5, &m, &mut v);
     round(6, &m, &mut v);
     round(7, &m, &mut v);
-    round(8, &m, &mut v);
-    round(9, &m, &mut v);
-    round(10, &m, &mut v);
-    round(11, &m, &mut v);
 
     words[0] ^= v[0] ^ v[8];
     words[1] ^= v[1] ^ v[9];
