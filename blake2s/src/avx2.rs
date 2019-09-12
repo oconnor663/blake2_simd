@@ -95,13 +95,6 @@ unsafe fn rot7(x: __m256i) -> __m256i {
     _mm256_or_si256(_mm256_srli_epi32(x, 7), _mm256_slli_epi32(x, 25))
 }
 
-// Performance note: Factoring out a G function here doesn't hurt performance,
-// unlike in the case of BLAKE2s where it hurts substantially. In fact, on my
-// machine, it helps a tiny bit. But the difference it tiny, so I'm going to
-// stick to the approach used by https://github.com/sneves/blake2-avx2
-// until/unless I can be sure the (tiny) improvement is consistent across
-// different Intel microarchitectures. Smaller code size is nice, but a
-// divergence between the BLAKE2b and BLAKE2s implementations is less nice.
 #[inline(always)]
 unsafe fn round(v: &mut [__m256i; 16], m: &[__m256i; 16], r: usize) {
     v[0] = add(v[0], m[SIGMA[r][0] as usize]);
@@ -326,13 +319,14 @@ unsafe fn transpose_vecs(
     let efgh_37 = _mm256_unpackhi_epi64(ef_2367, gh_2367);
 
     // Interleave 128-bit lanes.
-    let (abcdefg_0, abcdefg_4) = interleave128(abcd_04, efgh_04);
-    let (abcdefg_1, abcdefg_5) = interleave128(abcd_15, efgh_15);
-    let (abcdefg_2, abcdefg_6) = interleave128(abcd_26, efgh_26);
-    let (abcdefg_3, abcdefg_7) = interleave128(abcd_37, efgh_37);
+    let (abcdefgh_0, abcdefgh_4) = interleave128(abcd_04, efgh_04);
+    let (abcdefgh_1, abcdefgh_5) = interleave128(abcd_15, efgh_15);
+    let (abcdefgh_2, abcdefgh_6) = interleave128(abcd_26, efgh_26);
+    let (abcdefgh_3, abcdefgh_7) = interleave128(abcd_37, efgh_37);
 
     [
-        abcdefg_0, abcdefg_1, abcdefg_2, abcdefg_3, abcdefg_4, abcdefg_5, abcdefg_6, abcdefg_7,
+        abcdefgh_0, abcdefgh_1, abcdefgh_2, abcdefgh_3, abcdefgh_4, abcdefgh_5, abcdefgh_6,
+        abcdefgh_7,
     ]
 }
 
