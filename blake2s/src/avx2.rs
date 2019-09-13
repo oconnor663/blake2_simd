@@ -259,14 +259,14 @@ macro_rules! compress8_transposed {
         round(&mut v, &msg_vecs, 5);
         round(&mut v, &msg_vecs, 6);
 
-        h_vecs[0] = xor(xor(h_vecs[0], v[0]), v[8]);
-        h_vecs[1] = xor(xor(h_vecs[1], v[1]), v[9]);
-        h_vecs[2] = xor(xor(h_vecs[2], v[2]), v[10]);
-        h_vecs[3] = xor(xor(h_vecs[3], v[3]), v[11]);
-        h_vecs[4] = xor(xor(h_vecs[4], v[4]), v[12]);
-        h_vecs[5] = xor(xor(h_vecs[5], v[5]), v[13]);
-        h_vecs[6] = xor(xor(h_vecs[6], v[6]), v[14]);
-        h_vecs[7] = xor(xor(h_vecs[7], v[7]), v[15]);
+        h_vecs[0] = xor(v[0], v[8]);
+        h_vecs[1] = xor(v[1], v[9]);
+        h_vecs[2] = xor(v[2], v[10]);
+        h_vecs[3] = xor(v[3], v[11]);
+        h_vecs[4] = xor(v[4], v[12]);
+        h_vecs[5] = xor(v[5], v[13]);
+        h_vecs[6] = xor(v[6], v[14]);
+        h_vecs[7] = xor(v[7], v[15]);
     };
 }
 

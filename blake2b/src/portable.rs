@@ -100,14 +100,14 @@ fn compress_block(
     round(6, &m, &mut v);
     round(7, &m, &mut v);
 
-    words[0] ^= v[0] ^ v[8];
-    words[1] ^= v[1] ^ v[9];
-    words[2] ^= v[2] ^ v[10];
-    words[3] ^= v[3] ^ v[11];
-    words[4] ^= v[4] ^ v[12];
-    words[5] ^= v[5] ^ v[13];
-    words[6] ^= v[6] ^ v[14];
-    words[7] ^= v[7] ^ v[15];
+    words[0] = v[0] ^ v[8];
+    words[1] = v[1] ^ v[9];
+    words[2] = v[2] ^ v[10];
+    words[3] = v[3] ^ v[11];
+    words[4] = v[4] ^ v[12];
+    words[5] = v[5] ^ v[13];
+    words[6] = v[6] ^ v[14];
+    words[7] = v[7] ^ v[15];
 }
 
 pub fn compress1_loop(

@@ -167,8 +167,6 @@ unsafe fn compress_block(
     let m6 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.6));
     let m7 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.7));
 
-    let iv0 = a;
-    let iv1 = b;
     let mut t0;
     let mut t1;
     let mut b0;
@@ -333,13 +331,8 @@ unsafe fn compress_block(
     g2(&mut a, &mut b, &mut c, &mut d, &mut b0);
     undiagonalize(&mut a, &mut b, &mut c, &mut d);
 
-    a = xor(a, c);
-    b = xor(b, d);
-    a = xor(a, iv0);
-    b = xor(b, iv1);
-
-    storeu(a, words_low);
-    storeu(b, words_high);
+    storeu(xor(a, c), words_low);
+    storeu(xor(b, d), words_high);
 }
 
 #[target_feature(enable = "avx2")]
@@ -568,14 +561,14 @@ macro_rules! compress4_transposed {
         round(&mut v, &msg_vecs, 6);
         round(&mut v, &msg_vecs, 7);
 
-        h_vecs[0] = xor(xor(h_vecs[0], v[0]), v[8]);
-        h_vecs[1] = xor(xor(h_vecs[1], v[1]), v[9]);
-        h_vecs[2] = xor(xor(h_vecs[2], v[2]), v[10]);
-        h_vecs[3] = xor(xor(h_vecs[3], v[3]), v[11]);
-        h_vecs[4] = xor(xor(h_vecs[4], v[4]), v[12]);
-        h_vecs[5] = xor(xor(h_vecs[5], v[5]), v[13]);
-        h_vecs[6] = xor(xor(h_vecs[6], v[6]), v[14]);
-        h_vecs[7] = xor(xor(h_vecs[7], v[7]), v[15]);
+        h_vecs[0] = xor(v[0], v[8]);
+        h_vecs[1] = xor(v[1], v[9]);
+        h_vecs[2] = xor(v[2], v[10]);
+        h_vecs[3] = xor(v[3], v[11]);
+        h_vecs[4] = xor(v[4], v[12]);
+        h_vecs[5] = xor(v[5], v[13]);
+        h_vecs[6] = xor(v[6], v[14]);
+        h_vecs[7] = xor(v[7], v[15]);
     };
 }
 
