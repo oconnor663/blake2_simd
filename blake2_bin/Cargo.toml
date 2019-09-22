@@ -15,11 +15,11 @@ path = "src/main.rs"
 blake2b_simd = { path = "../blake2b", version = "0.5" }
 blake2s_simd = { path = "../blake2s", version = "0.5" }
 failure = "0.1.5"
-hex = "0.3.2"
+hex = "0.4.0"
 memmap = "0.7.0"
-structopt = "0.2.15"
+structopt = "0.3.2"
 
 [dev-dependencies]
 assert_cmd = "0.11.1"
-duct = "0.12.0"
-tempfile = "3.0.8"
+duct = "0.13.0"
+tempfile = "3.1.0"

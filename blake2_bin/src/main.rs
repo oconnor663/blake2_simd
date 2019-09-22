@@ -8,7 +8,6 @@ use std::process::exit;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
-#[structopt(author = "")]
 struct Opt {
     /// Any number of filepaths, or empty for standard input.
     inputs: Vec<PathBuf>,

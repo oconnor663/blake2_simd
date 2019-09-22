@@ -10,7 +10,7 @@ pub fn blake2_exe() -> PathBuf {
 #[test]
 fn test_stdin() {
     let output = cmd!(blake2_exe(), "--length=16")
-        .input("abcdef")
+        .stdin_bytes("abcdef")
         .read()
         .expect("blake2 failed");
     assert_eq!("2465e7ee63a17b4b307c7792c432aef6", output);
@@ -89,7 +89,7 @@ fn test_blake2bp() {
 #[test]
 fn test_last_node_flag() {
     let output = cmd!(blake2_exe(), "--length=16", "--last-node")
-        .input("abcdef")
+        .stdin_bytes("abcdef")
         .read()
         .expect("blake2 failed");
     assert_eq!("d788eeea837a3d10b1f8c097059f815a", output);
@@ -113,7 +113,7 @@ fn test_all_parameters_blake2b() {
         "--last-node",
     ];
     let output = cmd(blake2_exe(), flags.iter())
-        .input("foo")
+        .stdin_bytes("foo")
         .read()
         .expect("blake2 failed");
     assert_eq!("ec0f59cb65f92e7fcca1280ba859a6925ded", output);
@@ -137,7 +137,7 @@ fn test_all_parameters_blake2s() {
         "--last-node",
     ];
     let output = cmd(blake2_exe(), flags.iter())
-        .input("foo")
+        .stdin_bytes("foo")
         .read()
         .expect("blake2 failed");
     assert_eq!("62361e5392ab0eb7dd27e48a6809ee82dc57", output);
@@ -148,7 +148,7 @@ fn test_all_parameters_blake2s() {
 fn test_all_parameters_blake2bp() {
     let flags = ["-bp", "--length=18", "--key=626172"];
     let output = cmd(blake2_exe(), flags.iter())
-        .input("foo")
+        .stdin_bytes("foo")
         .read()
         .expect("blake2 failed");
     assert_eq!("8c54e888a8a01c63da6585c058fe54ea81df", output);
@@ -159,7 +159,7 @@ fn test_all_parameters_blake2bp() {
 fn test_all_parameters_blake2sp() {
     let flags = ["-sp", "--length=18", "--key=626172"];
     let output = cmd(blake2_exe(), flags.iter())
-        .input("foo")
+        .stdin_bytes("foo")
         .read()
         .expect("blake2 failed");
     assert_eq!("947d4c671e2794f5e1a57daeca97bb46ed66", output);
