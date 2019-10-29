@@ -412,6 +412,51 @@ fn bench_byte_libsodium_blake2b(b: &mut Bencher) {
 
 #[cfg(feature = "libsodium-ffi")]
 #[bench]
+fn bench_1mb_libsodium_chacha20(b: &mut Bencher) {
+    b.bytes = MB as u64;
+    let mut out = vec![0; MB];
+    let mut key = [0; libsodium_ffi::crypto_stream_chacha20_KEYBYTES];
+    rand::thread_rng().fill_bytes(&mut key);
+    let mut nonce = [0; libsodium_ffi::crypto_stream_chacha20_NONCEBYTES];
+    rand::thread_rng().fill_bytes(&mut nonce);
+    unsafe {
+        let init_ret = libsodium_ffi::sodium_init();
+        assert!(init_ret != -1);
+    }
+    b.iter(|| unsafe {
+        libsodium_ffi::crypto_stream_chacha20(
+            out.as_mut_ptr(),
+            out.len() as u64,
+            nonce.as_ptr(),
+            key.as_ptr(),
+        );
+    });
+}
+
+#[cfg(feature = "libsodium-ffi")]
+#[bench]
+fn bench_byte_libsodium_chacha20(b: &mut Bencher) {
+    let mut out = [0];
+    let mut key = [0; libsodium_ffi::crypto_stream_chacha20_KEYBYTES];
+    rand::thread_rng().fill_bytes(&mut key);
+    let mut nonce = [0; libsodium_ffi::crypto_stream_chacha20_NONCEBYTES];
+    rand::thread_rng().fill_bytes(&mut nonce);
+    unsafe {
+        let init_ret = libsodium_ffi::sodium_init();
+        assert!(init_ret != -1);
+    }
+    b.iter(|| unsafe {
+        libsodium_ffi::crypto_stream_chacha20(
+            out.as_mut_ptr(),
+            out.len() as u64,
+            nonce.as_ptr(),
+            key.as_ptr(),
+        );
+    });
+}
+
+#[cfg(feature = "libsodium-ffi")]
+#[bench]
 fn bench_1mb_libsodium_poly1305(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     let mut out = [0; libsodium_ffi::crypto_onetimeauth_BYTES];
