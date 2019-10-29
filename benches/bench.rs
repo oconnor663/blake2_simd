@@ -369,7 +369,7 @@ fn bench_byte_kangarootwelve(b: &mut Bencher) {
 
 #[cfg(feature = "libsodium-ffi")]
 #[bench]
-fn bench_1mb_libsodium(b: &mut Bencher) {
+fn bench_1mb_libsodium_blake2b(b: &mut Bencher) {
     let mut input = RandomInput::new(b, MB);
     let mut out = [0; 64];
     unsafe {
@@ -391,7 +391,7 @@ fn bench_1mb_libsodium(b: &mut Bencher) {
 
 #[cfg(feature = "libsodium-ffi")]
 #[bench]
-fn bench_byte_libsodium(b: &mut Bencher) {
+fn bench_byte_libsodium_blake2b(b: &mut Bencher) {
     let mut out = [0; 64];
     unsafe {
         let init_ret = libsodium_ffi::sodium_init();
@@ -406,6 +406,49 @@ fn bench_byte_libsodium(b: &mut Bencher) {
             input_slice.len() as u64,
             std::ptr::null(),
             0,
+        );
+    });
+}
+
+#[cfg(feature = "libsodium-ffi")]
+#[bench]
+fn bench_1mb_libsodium_poly1305(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, MB);
+    let mut out = [0; libsodium_ffi::crypto_onetimeauth_BYTES];
+    let mut key = [0; libsodium_ffi::crypto_onetimeauth_KEYBYTES];
+    rand::thread_rng().fill_bytes(&mut key);
+    unsafe {
+        let init_ret = libsodium_ffi::sodium_init();
+        assert!(init_ret != -1);
+    }
+    b.iter(|| unsafe {
+        let input_slice = input.get();
+        libsodium_ffi::crypto_onetimeauth(
+            out.as_mut_ptr(),
+            input_slice.as_ptr(),
+            input_slice.len() as u64,
+            key.as_ptr(),
+        );
+    });
+}
+
+#[cfg(feature = "libsodium-ffi")]
+#[bench]
+fn bench_byte_libsodium_poly1305(b: &mut Bencher) {
+    let mut out = [0; libsodium_ffi::crypto_onetimeauth_BYTES];
+    let mut key = [0; libsodium_ffi::crypto_onetimeauth_KEYBYTES];
+    rand::thread_rng().fill_bytes(&mut key);
+    unsafe {
+        let init_ret = libsodium_ffi::sodium_init();
+        assert!(init_ret != -1);
+    }
+    b.iter(|| unsafe {
+        let input_slice = b"x";
+        libsodium_ffi::crypto_onetimeauth(
+            out.as_mut_ptr(),
+            input_slice.as_ptr(),
+            input_slice.len() as u64,
+            key.as_ptr(),
         );
     });
 }
