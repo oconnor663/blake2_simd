@@ -642,3 +642,23 @@ fn bench_byte_ring_chacha20poly1305(b: &mut Bencher) {
             .expect("invalid encryption")
     });
 }
+
+#[bench]
+fn bench_blake2s_cf(b: &mut Bencher) {
+    b.bytes = blake2s_simd::BLOCKBYTES as u64;
+    let mut words = [1; 8];
+    let block = [2; blake2s_simd::BLOCKBYTES];
+    unsafe {
+        b.iter(|| blake2s_simd::benchmarks::sse41_compress(&block, &mut words, 0, 0, 0));
+    }
+}
+
+#[bench]
+fn bench_blake2b_cf(b: &mut Bencher) {
+    b.bytes = blake2b_simd::BLOCKBYTES as u64;
+    let mut words = [1; 8];
+    let block = [2; blake2b_simd::BLOCKBYTES];
+    unsafe {
+        b.iter(|| blake2b_simd::benchmarks::avx2_compress(&block, &mut words, 0, 0, 0));
+    }
+}

@@ -336,6 +336,17 @@ unsafe fn compress_block(
 }
 
 #[target_feature(enable = "avx2")]
+pub unsafe fn compress(
+    block: &[u8; BLOCKBYTES],
+    words: &mut [Word; 8],
+    count: Count,
+    last_block: Word,
+    last_node: Word,
+) {
+    compress_block(block, words, count, last_block, last_node)
+}
+
+#[target_feature(enable = "avx2")]
 pub unsafe fn compress1_loop(
     input: &[u8],
     words: &mut [Word; 8],
