@@ -664,6 +664,7 @@ fn paint_test_input(buf: &mut [u8]) {
 pub mod benchmarks {
     use super::*;
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub unsafe fn avx2_compress(
         block: &[u8; BLOCKBYTES],
         words: &mut [Word; 8],

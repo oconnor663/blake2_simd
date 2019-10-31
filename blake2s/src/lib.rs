@@ -656,6 +656,7 @@ fn paint_test_input(buf: &mut [u8]) {
 pub mod benchmarks {
     use super::*;
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub unsafe fn sse41_compress(
         block: &[u8; BLOCKBYTES],
         words: &mut [Word; 8],
@@ -665,6 +666,7 @@ pub mod benchmarks {
     ) {
         sse41::compress(block, words, count, last_block, last_node)
     }
+
     pub fn force_portable(params: &mut Params) {
         params.implementation = guts::Implementation::portable();
     }

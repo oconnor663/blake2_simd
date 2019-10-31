@@ -644,7 +644,9 @@ fn bench_byte_ring_chacha20poly1305(b: &mut Bencher) {
 }
 
 #[bench]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn bench_blake2s_cf(b: &mut Bencher) {
+    assert!(is_x86_feature_detected!("sse4.1"));
     b.bytes = blake2s_simd::BLOCKBYTES as u64;
     let mut words = [1; 8];
     let block = [2; blake2s_simd::BLOCKBYTES];
@@ -654,7 +656,9 @@ fn bench_blake2s_cf(b: &mut Bencher) {
 }
 
 #[bench]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn bench_blake2b_cf(b: &mut Bencher) {
+    assert!(is_x86_feature_detected!("avx2"));
     b.bytes = blake2b_simd::BLOCKBYTES as u64;
     let mut words = [1; 8];
     let block = [2; blake2b_simd::BLOCKBYTES];
