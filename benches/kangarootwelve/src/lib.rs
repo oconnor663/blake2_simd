@@ -1,5 +1,4 @@
 pub fn kangarootwelve(input: &[u8]) -> [u8; 32] {
-    check_avx2();
     let mut hash = [0u8; 32];
     let ret = unsafe {
         KangarooTwelve(
@@ -11,14 +10,8 @@ pub fn kangarootwelve(input: &[u8]) -> [u8; 32] {
             0,
         )
     };
-    assert_eq!(0, ret, "KangarooTwelve returned an error code");
+    debug_assert_eq!(0, ret, "KangarooTwelve returned an error code");
     hash
-}
-
-fn check_avx2() {
-    if !is_x86_feature_detected!("avx2") {
-        panic!("AVX2 support is missing")
-    }
 }
 
 extern "C" {
