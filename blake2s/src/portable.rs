@@ -109,6 +109,16 @@ fn compress_block(
     words[7] = v[7] ^ v[15];
 }
 
+pub fn compress(
+    block: &[u8; BLOCKBYTES],
+    words: &mut [Word; 8],
+    count: Count,
+    last_block: Word,
+    last_node: Word,
+) {
+    compress_block(block, words, count, last_block, last_node)
+}
+
 pub fn compress1_loop(
     input: &[u8],
     words: &mut [Word; 8],

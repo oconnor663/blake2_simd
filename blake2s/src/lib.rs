@@ -656,6 +656,16 @@ fn paint_test_input(buf: &mut [u8]) {
 pub mod benchmarks {
     use super::*;
 
+    pub fn portable_compress(
+        block: &[u8; BLOCKBYTES],
+        words: &mut [Word; 8],
+        count: Count,
+        last_block: Word,
+        last_node: Word,
+    ) {
+        portable::compress(block, words, count, last_block, last_node)
+    }
+
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub unsafe fn sse41_compress(
         block: &[u8; BLOCKBYTES],
