@@ -546,6 +546,19 @@ fn bench_1mb_openssl_sha512(b: &mut Bencher) {
 
 #[cfg(feature = "openssl")]
 #[bench]
+fn bench_byte_openssl_sha3_256(b: &mut Bencher) {
+    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha3_256(), b"x"));
+}
+
+#[cfg(feature = "openssl")]
+#[bench]
+fn bench_1mb_openssl_sha3_256(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, MB);
+    b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha3_256(), input.get()));
+}
+
+#[cfg(feature = "openssl")]
+#[bench]
 fn bench_byte_openssl_sha512(b: &mut Bencher) {
     b.iter(|| openssl::hash::hash(openssl::hash::MessageDigest::sha512(), b"x"));
 }
