@@ -1,6 +1,6 @@
 [package]
 name = "blake2_bin"
-version = "0.5.8"
+version = "0.5.9"
 authors = ["Jack O'Connor"]
 description = "a command line implementation of BLAKE2b/s/bp/sp and all their parameters"
 license = "MIT"
