@@ -8,6 +8,7 @@ use test::Bencher;
 
 const LONG: usize = 1 << 16; // 64 KiB
 
+#[cfg(feature = "kangarootwelve")]
 const VERYLONG: usize = 1 << 20; // 1 MiB
 
 // This struct randomizes two things:
