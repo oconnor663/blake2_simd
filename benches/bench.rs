@@ -8,6 +8,8 @@ use test::Bencher;
 
 const LONG: usize = 1 << 16; // 64 KiB
 
+const VERYLONG: usize = 1 << 20; // 1 MiB
+
 // This struct randomizes two things:
 // 1. The actual bytes of input.
 // 2. The page offset the input starts at.
@@ -354,6 +356,13 @@ fn bench_long_sneves_blake2sp(b: &mut Bencher) {
 // Current benchmarks are almost exactly on par with blake2b_simd, maybe just a
 // hair faster, which is a surprising coincidence. However, with the equivalent
 // flag RUSTFLAGS="-C target-cpu=native", blake2b_simd pulls ahead.
+#[cfg(feature = "kangarootwelve")]
+#[bench]
+fn bench_verylong_kangarootwelve(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, VERYLONG);
+    b.iter(|| kangarootwelve::kangarootwelve(input.get()));
+}
+
 #[cfg(feature = "kangarootwelve")]
 #[bench]
 fn bench_long_kangarootwelve(b: &mut Bencher) {
