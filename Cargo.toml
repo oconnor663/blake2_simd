@@ -29,7 +29,7 @@ hex = "0.3.2"
 kangarootwelve = { path = "benches/kangarootwelve", optional = true }
 lazy_static = "1.3.0"
 libsodium-ffi = { version = "0.1.17", optional = true }
-openssl = { version = "0.10.23", optional = true }
+openssl = { version = "0.10.23", optional = true, features = ["vendored"] }
 page_size = "0.4.1"
 serde = { version = "1.0.91", features = ["derive"] }
 serde_json = "1.0.39"
