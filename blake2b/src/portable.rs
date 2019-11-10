@@ -23,7 +23,6 @@ fn g(v: &mut [Word; 16], a: usize, b: usize, c: usize, d: usize, x: Word, y: Wor
     v[b] = (v[b] ^ v[c]).rotate_right(63);
 }
 
-#[inline(always)]
 fn round(r: usize, m: &[Word; 16], v: &mut [Word; 16]) {
     // Select the message schedule based on the round.
     let s = SIGMA[r];
