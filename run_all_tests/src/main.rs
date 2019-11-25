@@ -51,4 +51,7 @@ fn main() {
     // In addition, run the root project under release mode. This lets the fuzz
     // tests use a much larger iteration count.
     run_test_command(".", &["--release"]);
+
+    // In addition, test the uninline_portable feature of blake2b_simd.
+    run_test_command("blake2b", &["--release", "--features=uninline_portable"]);
 }

@@ -12,6 +12,11 @@ edition = "2018"
 [features]
 default = ["std"]
 std = []
+# This crate does a lot of #[inline(always)]. For BLAKE2b on ARM Cortex-M0 (and
+# presumably other tiny chips), some of that inlining actually hurts
+# performance. This feature disables some inlining, improving the performance
+# of the portable implementation in that specific case.
+uninline_portable = []
 
 [dependencies]
 arrayref = "0.3.5"
