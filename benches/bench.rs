@@ -324,12 +324,6 @@ fn bench_oneblock_blake2s_many_8x(b: &mut Bencher) {
     });
 }
 
-// Note for comparison: The blake2-avx2-sneves C code is currently compiled
-// with `clang -mavx2`. That is, not with -march=native. Upstream uses
-// -march=native, but -mavx2 is closer to how blake2b_simd is compiled, and it
-// makes the benchmark more apples-to-apples. When I compare compilers, GCC
-// seems to produce better code than clang under -mavx2, but Clang seems to
-// produce better code under -march=native. Not sure why.
 #[cfg(feature = "blake2-avx2-sneves")]
 #[bench]
 fn bench_long_sneves_blake2b(b: &mut Bencher) {
@@ -349,6 +343,24 @@ fn bench_long_sneves_blake2bp(b: &mut Bencher) {
 fn bench_long_sneves_blake2sp(b: &mut Bencher) {
     let mut input = RandomInput::new(b, LONG);
     b.iter(|| blake2_avx2_sneves::blake2sp(input.get()));
+}
+
+#[cfg(feature = "blake2-avx2-sneves")]
+#[bench]
+fn bench_onebyte_sneves_blake2b(b: &mut Bencher) {
+    b.iter(|| blake2_avx2_sneves::blake2b(b"x"));
+}
+
+#[cfg(feature = "blake2-avx2-sneves")]
+#[bench]
+fn bench_onebyte_sneves_blake2bp(b: &mut Bencher) {
+    b.iter(|| blake2_avx2_sneves::blake2bp(b"x"));
+}
+
+#[cfg(feature = "blake2-avx2-sneves")]
+#[bench]
+fn bench_onebyte_sneves_blake2sp(b: &mut Bencher) {
+    b.iter(|| blake2_avx2_sneves::blake2sp(b"x"));
 }
 
 // Note for comparison: Unlike the blake2-avx2-sneves C code above, the

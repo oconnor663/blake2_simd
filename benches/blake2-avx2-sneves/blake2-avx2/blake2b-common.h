@@ -27,12 +27,6 @@ static INLINE uint64_t LOADU64(void const * p) {
   return v;
 }
 
-#define ROTATE16 _mm256_setr_epi8( 2, 3, 4, 5, 6, 7, 0, 1, 10, 11, 12, 13, 14, 15, 8, 9, \
-                                   2, 3, 4, 5, 6, 7, 0, 1, 10, 11, 12, 13, 14, 15, 8, 9 )
-
-#define ROTATE24 _mm256_setr_epi8( 3, 4, 5, 6, 7, 0, 1, 2, 11, 12, 13, 14, 15, 8, 9, 10, \
-                                   3, 4, 5, 6, 7, 0, 1, 2, 11, 12, 13, 14, 15, 8, 9, 10 )
-
 #define ADD(a, b) _mm256_add_epi64(a, b)
 #define SUB(a, b) _mm256_sub_epi64(a, b)
 
@@ -40,9 +34,9 @@ static INLINE uint64_t LOADU64(void const * p) {
 #define AND(a, b) _mm256_and_si256(a, b)
 #define  OR(a, b) _mm256_or_si256(a, b)
 
-#define ROT32(x) _mm256_shuffle_epi32((x), _MM_SHUFFLE(2, 3, 0, 1))
-#define ROT24(x) _mm256_shuffle_epi8((x), ROTATE24)
-#define ROT16(x) _mm256_shuffle_epi8((x), ROTATE16)
-#define ROT63(x) _mm256_or_si256(_mm256_srli_epi64((x), 63), ADD((x), (x)))
+#define ROT32(x) _mm256_ror_epi64((x), 32)
+#define ROT24(x) _mm256_ror_epi64((x), 24)
+#define ROT16(x) _mm256_ror_epi64((x), 16)
+#define ROT63(x) _mm256_ror_epi64((x), 63)
 
 #endif

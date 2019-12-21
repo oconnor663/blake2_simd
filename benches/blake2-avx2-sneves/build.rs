@@ -12,9 +12,7 @@ fn main() {
         // .define("PERMUTE_WITH_NONE", "1")
         // .define("PERMUTE_WITH_GATHER", "1")
         .define("PERMUTE_WITH_SHUFFLES", "1")
-        // Enable AVX2 for GCC and Clang.
-        .flag_if_supported("-mavx2")
-        // Enable AVX2 for MSVC
-        .flag_if_supported("/arch:AVX2")
+        .flag("-mavx512f")
+        .flag("-mavx512vl")
         .compile("blake2-avx2");
 }
