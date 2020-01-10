@@ -66,7 +66,8 @@ unsafe fn set4(a: u32, b: u32, c: u32, d: u32) -> __m128i {
 // https://github.com/sneves/blake2-avx2/blob/b3723921f668df09ece52dcd225a36d4a4eea1d9/blake2s-common.h#L63-L66.
 // For a discussion of the tradeoffs, see
 // https://github.com/sneves/blake2-avx2/pull/5. In short:
-// - This version performs better on modern x86 chips, Skylake and later.
+// - Due to an LLVM bug (https://bugs.llvm.org/show_bug.cgi?id=44379), this
+//   version performs better on recent x86 chips.
 // - LLVM is able to optimize this version to AVX-512 rotation instructions
 //   when those are enabled.
 
