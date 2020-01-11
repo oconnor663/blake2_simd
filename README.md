@@ -126,4 +126,4 @@ data. Here are the results from my laptop:
 
 - [v0.1.0 announcement on r/rust](https://www.reddit.com/r/rust/comments/96q69x/code_review_request_an_avx2_implementation_of/)
 - [v0.5.1 announcement on r/rust](https://www.reddit.com/r/rust/comments/brqilo/blake2b_simd_is_joined_by_blake2s_simd_with_new/)
-- the [experimental Bao hash](https://github.com/oconnor663/bao), based on this BLAKE2 implementation
+- the [BLAKE3 hash function](https://github.com/BLAKE3-team/BLAKE3), an evolution of BLAKE2
