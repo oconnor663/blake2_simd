@@ -377,6 +377,13 @@ fn bench_onebyte_kangarootwelve(b: &mut Bencher) {
     b.iter(|| kangarootwelve::kangarootwelve(b"x"));
 }
 
+#[cfg(feature = "kangarootwelve")]
+#[bench]
+fn bench_kangarootwelve_406668786(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, 406668786);
+    b.iter(|| kangarootwelve::kangarootwelve(input.get()));
+}
+
 #[cfg(feature = "libsodium-ffi")]
 #[bench]
 fn bench_long_libsodium_blake2b(b: &mut Bencher) {
