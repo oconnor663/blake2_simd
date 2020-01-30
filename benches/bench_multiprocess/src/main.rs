@@ -49,6 +49,7 @@ const OFFSET_PERIOD: usize = 512;
 const BENCH_LEN: usize = 1_000_000;
 
 static ALGOS: &[(&str, HashBench)] = &[
+    ("blake3", hash_blake3),
     ("blake2b_simd BLAKE2b", blake2b_hash),
     ("blake2b_simd many", blake2b_hash_many),
     ("blake2b_simd BLAKE2bp", hash_blake2bp),
@@ -168,6 +169,13 @@ fn hash_blake2sp() -> u128 {
     let mut input = OffsetInput::new(BENCH_LEN);
     bench(|| {
         blake2s_simd::blake2sp::blake2sp(input.get());
+    })
+}
+
+fn hash_blake3() -> u128 {
+    let mut input = OffsetInput::new(BENCH_LEN);
+    bench(|| {
+        blake3::hash(input.get());
     })
 }
 
