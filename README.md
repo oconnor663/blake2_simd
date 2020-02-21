@@ -68,7 +68,7 @@ variability. Here are the results from my laptop for `cargo run
 
 ```table
 ╭─────────────────────────┬──────────╮
-│ BLAKE3                  │ 1.06 cpb │
+│ BLAKE3                  │ 0.95 cpb │
 │ blake2s_simd many::hash │ 1.31 cpb │
 │ blake2s_simd BLAKE2sp   │ 1.32 cpb │
 │ blake2b_simd many::hash │ 1.43 cpb │
