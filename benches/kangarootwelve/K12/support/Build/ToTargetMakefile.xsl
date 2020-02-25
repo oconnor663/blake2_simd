@@ -104,7 +104,9 @@ http://creativecommons.org/publicdomain/zero/1.0/
         <xsl:text>: </xsl:text>
         <xsl:value-of select="."/>
         <xsl:text> $(HEADERS)
-&#9;$(CC) $(INCLUDES) $(CFLAGS) -c $&lt; -o $@
+&#9;$(CC) $(INCLUDES) $(CFLAGS) </xsl:text>
+        <xsl:value-of select="@gcc"/>
+        <xsl:text> -c $&lt; -o $@
 OBJECTS := $(OBJECTS) </xsl:text>
         <xsl:value-of select="$object"/>
         <xsl:text>

@@ -16,11 +16,11 @@ Please refer to the XKCP for more details.
 #ifndef _KeccakP_1600_SnP_h_
 #define _KeccakP_1600_SnP_h_
 
-#define KeccakP1600_implementation      "in-place 32-bit optimized implementation"
 #define KeccakP1600_stateSizeInBytes    200
 #define KeccakP1600_stateAlignment      8
+#define KeccakP1600_disableParallelism
 
-#define KeccakP1600_StaticInitialize()
+const char * KeccakP1600_GetImplementation();
 void KeccakP1600_Initialize(void *state);
 void KeccakP1600_AddByte(void *state, unsigned char data, unsigned int offset);
 void KeccakP1600_AddBytes(void *state, const unsigned char *data, unsigned int offset, unsigned int length);

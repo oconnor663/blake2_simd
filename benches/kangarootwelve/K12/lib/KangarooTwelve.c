@@ -10,12 +10,13 @@ http://creativecommons.org/publicdomain/zero/1.0/
 */
 
 #include <string.h>
+#include <stdint.h>
 #include "KangarooTwelve.h"
 
-int KeccakWidth1600_12rounds_SpongeInitialize(KeccakWidth1600_12rounds_SpongeInstance *spongeInstance, unsigned int rate, unsigned int capacity);
-int KeccakWidth1600_12rounds_SpongeAbsorb(KeccakWidth1600_12rounds_SpongeInstance *spongeInstance, const unsigned char *data, size_t dataByteLen);
-int KeccakWidth1600_12rounds_SpongeAbsorbLastFewBits(KeccakWidth1600_12rounds_SpongeInstance *spongeInstance, unsigned char delimitedData);
-int KeccakWidth1600_12rounds_SpongeSqueeze(KeccakWidth1600_12rounds_SpongeInstance *spongeInstance, unsigned char *data, size_t dataByteLen);
+void KangarooTwelve_SetProcessorCapabilities();
+int K12_enableSSSE3 = 0;
+int K12_enableAVX2 = 0;
+int K12_enableAVX512 = 0;
 
 int KeccakWidth1600_12rounds_SpongeInitialize(KeccakWidth1600_12rounds_SpongeInstance *instance, unsigned int rate, unsigned int capacity)
 {
@@ -23,7 +24,6 @@ int KeccakWidth1600_12rounds_SpongeInitialize(KeccakWidth1600_12rounds_SpongeIns
         return 1;
     if ((rate <= 0) || (rate > 1600) || ((rate % 8) != 0))
         return 1;
-    KeccakP1600_StaticInitialize();
     KeccakP1600_Initialize(instance->state);
     instance->rate = rate;
     instance->byteIOIndex = 0;
@@ -162,66 +162,107 @@ int KeccakWidth1600_12rounds_SpongeSqueeze(KeccakWidth1600_12rounds_SpongeInstan
 #define security        128
 #define capacity        (2*security)
 #define capacityInBytes (capacity/8)
-#define capacityInLanes (capacityInBytes/laneSize)
 #define rate            (1600-capacity)
-#define rateInBytes     (rate/8)
-#define rateInLanes     (rateInBytes/laneSize)
 
-#define ParallelSpongeFastLoop( Parallellism ) \
+#ifndef KeccakP1600_disableParallelism
+
+int KeccakP1600times2_IsAvailable()
+{
+    int result = 0;
+    result |= K12_enableAVX512;
+    result |= K12_enableSSSE3;
+    return result;
+}
+
+const char * KeccakP1600times2_GetImplementation()
+{
+    if (K12_enableAVX512)
+        return "AVX-512 implementation";
+    else
+    if (K12_enableSSSE3)
+        return "SSSE3 implementation";
+    else
+        return "";
+}
+
+void KangarooTwelve_SSSE3_Process2Leaves(const unsigned char *input, unsigned char *output);
+void KangarooTwelve_AVX512_Process2Leaves(const unsigned char *input, unsigned char *output);
+
+void KangarooTwelve_Process2Leaves(const unsigned char *input, unsigned char *output)
+{
+    if (K12_enableAVX512)
+        KangarooTwelve_AVX512_Process2Leaves(input, output);
+    else
+    if (K12_enableSSSE3)
+        KangarooTwelve_SSSE3_Process2Leaves(input, output);
+}
+
+int KeccakP1600times4_IsAvailable()
+{
+    int result = 0;
+    result |= K12_enableAVX512;
+    result |= K12_enableAVX2;
+    return result;
+}
+
+const char * KeccakP1600times4_GetImplementation()
+{
+    if (K12_enableAVX512)
+        return "AVX-512 implementation";
+    else
+    if (K12_enableAVX2)
+        return "AVX2 implementation";
+    else
+        return "";
+}
+
+void KangarooTwelve_AVX2_Process4Leaves(const unsigned char *input, unsigned char *output);
+void KangarooTwelve_AVX512_Process4Leaves(const unsigned char *input, unsigned char *output);
+
+void KangarooTwelve_Process4Leaves(const unsigned char *input, unsigned char *output)
+{
+    if (K12_enableAVX512)
+        KangarooTwelve_AVX512_Process4Leaves(input, output);
+    else
+    if (K12_enableAVX2)
+        KangarooTwelve_AVX2_Process4Leaves(input, output);
+}
+
+int KeccakP1600times8_IsAvailable()
+{
+    int result = 0;
+    result |= K12_enableAVX512;
+    return result;
+}
+
+const char * KeccakP1600times8_GetImplementation()
+{
+    if (K12_enableAVX512)
+        return "AVX-512 implementation";
+    else
+        return "";
+}
+
+void KangarooTwelve_AVX512_Process8Leaves(const unsigned char *input, unsigned char *output);
+
+void KangarooTwelve_Process8Leaves(const unsigned char *input, unsigned char *output)
+{
+    if (K12_enableAVX512)
+        KangarooTwelve_AVX512_Process8Leaves(input, output);
+}
+
+#define ProcessLeaves( Parallellism ) \
     while ( inLen >= Parallellism * chunkSize ) { \
-        ALIGN(KeccakP1600times##Parallellism##_statesAlignment) unsigned char states[KeccakP1600times##Parallellism##_statesSizeInBytes]; \
         unsigned char intermediate[Parallellism*capacityInBytes]; \
-        unsigned int localBlockLen = chunkSize; \
-        const unsigned char * localInput = input; \
-        unsigned int i; \
-        unsigned int fastLoopOffset; \
         \
-        KeccakP1600times##Parallellism##_StaticInitialize(); \
-        KeccakP1600times##Parallellism##_InitializeAll(states); \
-        fastLoopOffset = KeccakP1600times##Parallellism##_12rounds_FastLoop_Absorb(states, rateInLanes, chunkSize / laneSize, rateInLanes, localInput, Parallellism * chunkSize); \
-        localBlockLen -= fastLoopOffset; \
-        localInput += fastLoopOffset; \
-        for ( i = 0; i < Parallellism; ++i, localInput += chunkSize ) { \
-            KeccakP1600times##Parallellism##_AddBytes(states, i, localInput, 0, localBlockLen); \
-            KeccakP1600times##Parallellism##_AddByte(states, i, suffixLeaf, localBlockLen); \
-            KeccakP1600times##Parallellism##_AddByte(states, i, 0x80, rateInBytes-1); \
-        } \
-        KeccakP1600times##Parallellism##_PermuteAll_12rounds(states); \
+        KangarooTwelve_Process##Parallellism##Leaves(input, intermediate); \
         input += Parallellism * chunkSize; \
         inLen -= Parallellism * chunkSize; \
         ktInstance->blockNumber += Parallellism; \
-        KeccakP1600times##Parallellism##_ExtractLanesAll(states, intermediate, capacityInLanes, capacityInLanes ); \
         if (KeccakWidth1600_12rounds_SpongeAbsorb(&ktInstance->finalNode, intermediate, Parallellism * capacityInBytes) != 0) return 1; \
     }
 
-#define ParallelSpongeLoop( Parallellism ) \
-    while ( inLen >= Parallellism * chunkSize ) { \
-        ALIGN(KeccakP1600times##Parallellism##_statesAlignment) unsigned char states[KeccakP1600times##Parallellism##_statesSizeInBytes]; \
-        unsigned char intermediate[Parallellism*capacityInBytes]; \
-        unsigned int localBlockLen = chunkSize; \
-        const unsigned char * localInput = input; \
-        unsigned int i; \
-        \
-        KeccakP1600times##Parallellism##_StaticInitialize(); \
-        KeccakP1600times##Parallellism##_InitializeAll(states); \
-        while(localBlockLen >= rateInBytes) { \
-            KeccakP1600times##Parallellism##_AddLanesAll(states, localInput, rateInLanes, chunkSize / laneSize); \
-            KeccakP1600times##Parallellism##_PermuteAll_12rounds(states); \
-            localBlockLen -= rateInBytes; \
-            localInput += rateInBytes; \
-           } \
-        for ( i = 0; i < Parallellism; ++i, localInput += chunkSize ) { \
-            KeccakP1600times##Parallellism##_AddBytes(states, i, localInput, 0, localBlockLen); \
-            KeccakP1600times##Parallellism##_AddByte(states, i, suffixLeaf, localBlockLen); \
-            KeccakP1600times##Parallellism##_AddByte(states, i, 0x80, rateInBytes-1); \
-        } \
-        KeccakP1600times##Parallellism##_PermuteAll_12rounds(states); \
-        input += Parallellism * chunkSize; \
-        inLen -= Parallellism * chunkSize; \
-        ktInstance->blockNumber += Parallellism; \
-        KeccakP1600times##Parallellism##_ExtractLanesAll(states, intermediate, capacityInLanes, capacityInLanes ); \
-        if (KeccakWidth1600_12rounds_SpongeAbsorb(&ktInstance->finalNode, intermediate, Parallellism * capacityInBytes) != 0) return 1; \
-    }
+#endif
 
 static unsigned int right_encode( unsigned char * encbuf, size_t value )
 {
@@ -238,6 +279,7 @@ static unsigned int right_encode( unsigned char * encbuf, size_t value )
 
 int KangarooTwelve_Initialize(KangarooTwelve_Instance *ktInstance, size_t outputLen)
 {
+    KangarooTwelve_SetProcessorCapabilities();
     ktInstance->fixedOutputLength = outputLen;
     ktInstance->queueAbsorbedLen = 0;
     ktInstance->blockNumber = 0;
@@ -289,29 +331,19 @@ int KangarooTwelve_Update(KangarooTwelve_Instance *ktInstance, const unsigned ch
         }
     }
 
-    #if defined(KeccakP1600times8_implementation) && !defined(KeccakP1600times8_isFallback)
-    #if defined(KeccakP1600times8_12rounds_FastLoop_supported)
-    ParallelSpongeFastLoop( 8 )
-    #else
-    ParallelSpongeLoop( 8 )
-    #endif
-    #endif
+#ifndef KeccakP1600_disableParallelism
+    if (KeccakP1600times8_IsAvailable()) {
+        ProcessLeaves(8);
+    }
 
-    #if defined(KeccakP1600times4_implementation) && !defined(KeccakP1600times4_isFallback)
-    #if defined(KeccakP1600times4_12rounds_FastLoop_supported)
-    ParallelSpongeFastLoop( 4 )
-    #else
-    ParallelSpongeLoop( 4 )
-    #endif
-    #endif
+    if (KeccakP1600times4_IsAvailable()) {
+        ProcessLeaves(4);
+    }
 
-    #if defined(KeccakP1600times2_implementation) && !defined(KeccakP1600times2_isFallback)
-    #if defined(KeccakP1600times2_12rounds_FastLoop_supported)
-    ParallelSpongeFastLoop( 2 )
-    #else
-    ParallelSpongeLoop( 2 )
-    #endif
-    #endif
+    if (KeccakP1600times2_IsAvailable()) {
+        ProcessLeaves(2);
+    }
+#endif
 
     while ( inLen > 0 ) {
         unsigned int len = (inLen < chunkSize) ? inLen : chunkSize;
@@ -406,4 +438,135 @@ int KangarooTwelve( const unsigned char * input, size_t inLen, unsigned char * o
     if (KangarooTwelve_Update(&ktInstance, input, inLen) != 0)
         return 1;
     return KangarooTwelve_Final(&ktInstance, output, customization, customLen);
+}
+
+/* Processor capability detection code by Samuel Neves and Jack O'Connor, see
+ * https://github.com/BLAKE3-team/BLAKE3/blob/master/c/blake3_dispatch.c
+ */
+
+#if defined(__x86_64__) || defined(_M_X64)
+#define IS_X86
+#define IS_X86_64
+#endif
+
+#if defined(__i386__) || defined(_M_IX86)
+#define IS_X86
+#define IS_X86_32
+#endif
+
+#if defined(IS_X86)
+static uint64_t xgetbv() {
+#if defined(_MSC_VER)
+  return _xgetbv(0);
+#else
+  uint32_t eax = 0, edx = 0;
+  __asm__ __volatile__("xgetbv\n" : "=a"(eax), "=d"(edx) : "c"(0));
+  return ((uint64_t)edx << 32) | eax;
+#endif
+}
+
+static void cpuid(uint32_t out[4], uint32_t id) {
+#if defined(_MSC_VER)
+  __cpuid((int *)out, id);
+#else
+#if defined(__i386__) || defined(_M_IX86)
+  __asm__ __volatile__("movl %%ebx, %1\n"
+                       "cpuid\n"
+                       "xchgl %1, %%ebx\n"
+                       : "=a"(out[0]), "=r"(out[1]), "=c"(out[2]), "=d"(out[3])
+                       : "a"(id));
+#else
+  __asm__ __volatile__("cpuid\n"
+                       : "=a"(out[0]), "=b"(out[1]), "=c"(out[2]), "=d"(out[3])
+                       : "a"(id));
+#endif
+#endif
+}
+
+static void cpuidex(uint32_t out[4], uint32_t id, uint32_t sid) {
+#if defined(_MSC_VER)
+  __cpuidex((int *)out, id, sid);
+#else
+  __asm__ __volatile__("movl %%ebx, %1\n"
+                       "cpuid\n"
+                       "xchgl %1, %%ebx\n"
+                       : "=a"(out[0]), "=r"(out[1]), "=c"(out[2]), "=d"(out[3])
+                       : "a"(id), "c"(sid));
+#endif
+}
+
+#endif
+
+enum cpu_feature {
+  SSE2 = 1 << 0,
+  SSSE3 = 1 << 1,
+  SSE41 = 1 << 2,
+  AVX = 1 << 3,
+  AVX2 = 1 << 4,
+  AVX512F = 1 << 5,
+  AVX512VL = 1 << 6,
+  /* ... */
+  UNDEFINED = 1 << 30
+};
+
+static enum cpu_feature g_cpu_features = UNDEFINED;
+
+static enum cpu_feature
+    get_cpu_features() {
+
+  if (g_cpu_features != UNDEFINED) {
+    return g_cpu_features;
+  } else {
+#if defined(IS_X86)
+    uint32_t regs[4] = {0};
+    uint32_t *eax = &regs[0], *ebx = &regs[1], *ecx = &regs[2], *edx = &regs[3];
+    (void)edx;
+    enum cpu_feature features = 0;
+    cpuid(regs, 0);
+    const int max_id = *eax;
+    cpuid(regs, 1);
+#if defined(__amd64__) || defined(_M_X64)
+    features |= SSE2;
+#else
+    if (*edx & (1UL << 26))
+      features |= SSE2;
+#endif
+    if (*ecx & (1UL << 0))
+      features |= SSSE3;
+    if (*ecx & (1UL << 19))
+      features |= SSE41;
+
+    if (*ecx & (1UL << 27)) { // OSXSAVE
+      const uint64_t mask = xgetbv();
+      if ((mask & 6) == 6) { // SSE and AVX states
+        if (*ecx & (1UL << 28))
+          features |= AVX;
+        if (max_id >= 7) {
+          cpuidex(regs, 7, 0);
+          if (*ebx & (1UL << 5))
+            features |= AVX2;
+          if ((mask & 224) == 224) { // Opmask, ZMM_Hi256, Hi16_Zmm
+            if (*ebx & (1UL << 31))
+              features |= AVX512VL;
+            if (*ebx & (1UL << 16))
+              features |= AVX512F;
+          }
+        }
+      }
+    }
+    g_cpu_features = features;
+    return features;
+#else
+    /* How to detect NEON? */
+    return 0;
+#endif
+  }
+}
+
+void KangarooTwelve_SetProcessorCapabilities()
+{
+    enum cpu_feature features = get_cpu_features();
+    K12_enableSSSE3 = (features & SSSE3);
+    K12_enableAVX2 = (features & AVX2);
+    K12_enableAVX512 = (features & AVX512F) && (features & AVX512VL);
 }

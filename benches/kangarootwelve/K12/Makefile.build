@@ -1,8 +1,6 @@
 <?xml version="1.0"?>
 <!--
-Implementation by the Keccak Team, namely, Guido Bertoni, Joan Daemen,
-Michaël Peeters, Gilles Van Assche and Ronny Van Keer,
-hereby denoted as "the implementer".
+Implementation by Gilles Van Assche and Ronny Van Keer, hereby denoted as "the implementer".
 
 For more information, feedback or questions, please refer to our website:
 https://keccak.team/
@@ -17,8 +15,6 @@ http://creativecommons.org/publicdomain/zero/1.0/
         <gcc>-fomit-frame-pointer</gcc>
         <gcc>-O2</gcc>
         <gcc>-g0</gcc>
-        <gcc>-march=native</gcc>
-        <gcc>-mtune=native</gcc>
     </fragment>
 
     <!-- Keccak-p[1600] -->
@@ -30,26 +26,12 @@ http://creativecommons.org/publicdomain/zero/1.0/
 
     <fragment name="optimized64" inherits="optimized">
         <c>lib/Optimized64/KeccakP-1600-opt64.c</c>
-        <h>lib/Optimized64/KeccakP-1600-config.h</h>
         <h>lib/Optimized64/KeccakP-1600-SnP.h</h>
-        <gcc>-m64</gcc>
-    </fragment>
-
-    <fragment name="optimizedAVX2" inherits="optimized">
-        <c>lib/OptimizedAVX2/KeccakP-1600-AVX2.s</c>
-        <h>lib/OptimizedAVX2/KeccakP-1600-config.h</h>
-        <h>lib/OptimizedAVX2/KeccakP-1600-SnP.h</h>
-        <c>lib/OptimizedAVX2/KeccakP-1600-times2-SIMD128.c</c>
-        <c>lib/OptimizedAVX2/KeccakP-1600-times4-SIMD256.c</c>
-    </fragment>
-
-    <fragment name="optimizedAVX512" inherits="optimized">
-        <c>lib/OptimizedAVX512/KeccakP-1600-AVX512.s</c>
-        <h>lib/OptimizedAVX512/KeccakP-1600-config.h</h>
-        <h>lib/OptimizedAVX512/KeccakP-1600-SnP.h</h>
-        <c>lib/OptimizedAVX512/KeccakP-1600-times2-SIMD512.c</c>
-        <c>lib/OptimizedAVX512/KeccakP-1600-times4-SIMD512.c</c>
-        <c>lib/OptimizedAVX512/KeccakP-1600-times8-SIMD512.c</c>
+        <c>lib/Optimized64/KeccakP-1600-AVX2.s</c>
+        <c>lib/Optimized64/KeccakP-1600-AVX512.s</c>
+        <c gcc="-mssse3">lib/Optimized64/KeccakP-1600-timesN-SSSE3.c</c>
+        <c gcc="-mavx2">lib/Optimized64/KeccakP-1600-timesN-AVX2.c</c>
+        <c gcc="-mavx512f -mavx512vl">lib/Optimized64/KeccakP-1600-timesN-AVX512.c</c>
     </fragment>
 
     <!-- KangarooTwelve -->
@@ -83,19 +65,13 @@ http://creativecommons.org/publicdomain/zero/1.0/
     <!-- Generically optimized 32-bit implementation -->
     <fragment name="generic32" inherits="inplace32bi"/>
 
-    <!-- Generically optimized 64-bit implementation -->
+    <!-- Generically optimized 64-bit implementation, including SSSE3, AVX2 and AVX512 -->
     <fragment name="generic64" inherits="optimized64"/>
-
-    <!-- Implementation selected for the Haswell and Skylake microarchitectures -->
-    <fragment name="Haswell" inherits="optimizedAVX2"/>
-
-    <!-- Implementation selected for the SkylakeX microarchitecture -->
-    <fragment name="SkylakeX" inherits="optimizedAVX512"/>
 
     <!-- Target names are of the form x/y where x is taken from the first set and y from the second set. -->
     <group all="all">
         <product delimiter="/">
-            <factor set="generic32 generic64 Haswell SkylakeX"/>
+            <factor set="generic32 generic64"/>
             <factor set="K12Tests libk12.a libk12.so"/>
         </product>
     </group>

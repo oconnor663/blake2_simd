@@ -26,11 +26,11 @@ void displayMeasurements1101001000(uint_32t *measurements, uint_32t *laneCounts,
 
 uint_32t measureKangarooTwelve(uint_32t dtMin, unsigned int inputLen)
 {
-    ALIGN(32) unsigned char input[1024*1024];
+    ALIGN(32) unsigned char input[2*1024*1024];
     ALIGN(32) unsigned char output[32];
     measureTimingDeclare
 
-    assert(inputLen <= 1024*1024);
+    assert(inputLen <= 2*1024*1024);
 
     memset(input, 0xA5, 16);
 
@@ -39,41 +39,46 @@ uint_32t measureKangarooTwelve(uint_32t dtMin, unsigned int inputLen)
     measureTimingEnd
 }
 
+void KangarooTwelve_SetProcessorCapabilities();
+
 void printKangarooTwelvePerformanceHeader( void )
 {
+    KangarooTwelve_SetProcessorCapabilities();
     printf("*** KangarooTwelve ***\n");
     printf("Using Keccak-p[1600,12] implementations:\n");
-    printf("- \303\2271: " KeccakP1600_implementation "\n");
+    printf("- \303\2271: %s\n", KeccakP1600_GetImplementation());
     #if defined(KeccakP1600_12rounds_FastLoop_supported)
     printf("      + KeccakP1600_12rounds_FastLoop_Absorb()\n");
     #endif
 
-    #if defined(KeccakP1600times2_implementation) && !defined(KeccakP1600times2_isFallback)
-    printf("- \303\2272: " KeccakP1600times2_implementation "\n");
+#ifndef KeccakP1600_disableParallelism
+    if (KeccakP1600times2_IsAvailable()) {
+        printf("- \303\2272: %s\n", KeccakP1600times2_GetImplementation());
     #if defined(KeccakP1600times2_12rounds_FastLoop_supported)
-    printf("      + KeccakP1600times2_12rounds_FastLoop_Absorb()\n");
+        printf("      + KeccakP1600times2_12rounds_FastLoop_Absorb()\n");
     #endif
-    #else
-    printf("- \303\2272: not used\n");
-    #endif
+    }
+    else
+        printf("- \303\2272: not used\n");
 
-    #if defined(KeccakP1600times4_implementation) && !defined(KeccakP1600times4_isFallback)
-    printf("- \303\2274: " KeccakP1600times4_implementation "\n");
+    if (KeccakP1600times4_IsAvailable()) {
+        printf("- \303\2274: %s\n", KeccakP1600times4_GetImplementation());
     #if defined(KeccakP1600times4_12rounds_FastLoop_supported)
-    printf("      + KeccakP1600times4_12rounds_FastLoop_Absorb()\n");
+        printf("      + KeccakP1600times4_12rounds_FastLoop_Absorb()\n");
     #endif
-    #else
-    printf("- \303\2274: not used\n");
-    #endif
+    }
+    else
+        printf("- \303\2274: not used\n");
 
-    #if defined(KeccakP1600times8_implementation) && !defined(KeccakP1600times8_isFallback)
-    printf("- \303\2278: " KeccakP1600times8_implementation "\n");
+    if (KeccakP1600times8_IsAvailable()) {
+        printf("- \303\2278: %s\n", KeccakP1600times8_GetImplementation());
     #if defined(KeccakP1600times8_12rounds_FastLoop_supported)
-    printf("      + KeccakP1600times8_12rounds_FastLoop_Absorb()\n");
+        printf("      + KeccakP1600times8_12rounds_FastLoop_Absorb()\n");
     #endif
-    #else
-    printf("- \303\2278: not used\n");
-    #endif
+    }
+    else
+        printf("- \303\2278: not used\n");
+#endif
 
     printf("\n");
 }
@@ -91,7 +96,7 @@ void testKangarooTwelvePerformanceOne( void )
         double I = pow(2.0, halfTones/12.0);
         unsigned int i  = (unsigned int)floor(I+0.5);
         uint_32t time, timePlus1Block, timePlus2Blocks, timePlus4Blocks, timePlus8Blocks;
-        uint_32t timePlus84Blocks;
+        uint_32t timePlus84Blocks, timePlus168Blocks;
         time = measureKangarooTwelve(calibration, i);
         if (i == chunkSize) {
             displaySlope = 1;
@@ -100,6 +105,7 @@ void testKangarooTwelvePerformanceOne( void )
             timePlus4Blocks = measureKangarooTwelve(calibration, i+4*chunkSize);
             timePlus8Blocks = measureKangarooTwelve(calibration, i+8*chunkSize);
             timePlus84Blocks = measureKangarooTwelve(calibration, i+84*chunkSize);
+            timePlus168Blocks = measureKangarooTwelve(calibration, i+168*chunkSize);
         }
         printf("%8d bytes: %9d cycles, %6.3f cycles/byte\n", i, time, time*1.0/i);
         if (displaySlope) {
@@ -108,10 +114,11 @@ void testKangarooTwelvePerformanceOne( void )
             printf("     +4 blocks: %9d cycles, %6.3f cycles/byte (slope)\n", timePlus4Blocks, (timePlus4Blocks-(double)(time))*1.0/chunkSize/4.0);
             printf("     +8 blocks: %9d cycles, %6.3f cycles/byte (slope)\n", timePlus8Blocks, (timePlus8Blocks-(double)(time))*1.0/chunkSize/8.0);
             printf("    +84 blocks: %9d cycles, %6.3f cycles/byte (slope)\n", timePlus84Blocks, (timePlus84Blocks-(double)(time))*1.0/chunkSize/84.0);
+            printf("   +168 blocks: %9d cycles, %6.3f cycles/byte (slope)\n", timePlus168Blocks, (timePlus168Blocks-(double)(time))*1.0/chunkSize/168.0);
             displaySlope = 0;
         }
     }
-    for(halfTones=12*12; halfTones<=19*12; halfTones+=4) {
+    for(halfTones=12*12; halfTones<=20*12; halfTones+=4) {
         double I = chunkSize + pow(2.0, halfTones/12.0);
         unsigned int i  = (unsigned int)floor(I+0.5);
         uint_32t time;

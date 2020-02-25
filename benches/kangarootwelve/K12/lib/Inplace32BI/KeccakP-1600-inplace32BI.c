@@ -17,6 +17,12 @@ Please refer to the XKCP for more details.
 #include "brg_endian.h"
 #include "KeccakP-1600-SnP.h"
 
+const char * KeccakP1600_GetImplementation()
+{
+    return "in-place 32-bit implementation";
+}
+
+
 typedef unsigned char UINT8;
 typedef unsigned int UINT32;
 /* WARNING: on 8-bit and 16-bit platforms, this should be replaced by: */
