@@ -8,25 +8,27 @@ fn project_root() -> &'static Path {
         .expect("parent failed")
 }
 
-fn run_test_command(project: &str, flags: &[&str]) {
+fn run_cmd(project: &str, cmd: &[&str]) {
     let project_dir = Path::new(project_root()).join(project);
-    println!("=== TEST COMMAND ===");
-    println!(
-        "cd {} && cargo test {}",
-        project_dir.to_string_lossy(),
-        flags.join(" ")
-    );
+    println!("=== COMMAND ===");
+    println!("cd {} && {}", project_dir.to_string_lossy(), cmd.join(" "));
     println!();
-    let status = Command::new(env!("CARGO"))
-        .arg("test")
-        .args(flags)
+    let status = Command::new(cmd[0])
+        .args(&cmd[1..])
         .current_dir(project_dir)
         .status()
         .expect("spawn failed");
 
     if !status.success() {
+        println!("Command failed :(");
         process::exit(1);
     }
+}
+
+fn run_cargo_cmd(project: &str, flags: &[&str]) {
+    let mut cmd = vec![env!("CARGO")];
+    cmd.extend_from_slice(flags);
+    run_cmd(project, &cmd);
 }
 
 fn main() {
@@ -40,18 +42,40 @@ fn main() {
     // Test all the sub-projects under both std and no_std.
     for &project in &["blake2b", "blake2s", ".", "blake2_bin"] {
         for &no_std in &[false, true] {
-            let mut flags = Vec::new();
+            let mut flags = vec!["test"];
             if no_std {
                 flags.push("--no-default-features");
             }
-            run_test_command(project, &flags);
+            run_cargo_cmd(project, &flags);
         }
     }
 
-    // In addition, run the root project under release mode. This lets the fuzz
-    // tests use a much larger iteration count.
-    run_test_command(".", &["--release"]);
+    // Run the root project under release mode. This lets the "fuzz" unit tests
+    // (not to be confused with the actual "cargo fuzz" tests) use a much
+    // larger iteration count.
+    run_cargo_cmd(".", &["test", "--release"]);
 
-    // In addition, test the uninline_portable feature of blake2b_simd.
-    run_test_command("blake2b", &["--release", "--features=uninline_portable"]);
+    // Test the uninline_portable feature of blake2b_simd.
+    run_cargo_cmd(
+        "blake2b",
+        &["test", "--release", "--features=uninline_portable"],
+    );
+
+    // Make sure the "cargo fuzz" tests can at least build. This requires Clang
+    // as a dependency, so if we detect we're on Travis CI then we'll only run
+    // this on Linux, and we'll install Clang first.
+    let test_fuzz = if env::var_os("TRAVIS").is_some() {
+        if cfg!(target_os = "linux") {
+            run_cmd(".", &["sudo", "apt-get", "install", "clang"]);
+            true
+        } else {
+            false
+        }
+    } else {
+        true
+    };
+    if test_fuzz {
+        run_cargo_cmd("blake2b/fuzz", &["check"]);
+        run_cargo_cmd("blake2s/fuzz", &["check"]);
+    }
 }
