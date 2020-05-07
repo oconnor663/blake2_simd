@@ -1,4 +1,4 @@
-# blake2s_simd [![GitHub](https://img.shields.io/github/tag/oconnor663/blake2_simd.svg?label=GitHub)](https://github.com/oconnor663/blake2_simd) [![crates.io](https://img.shields.io/crates/v/blake2s_simd.svg)](https://crates.io/crates/blake2s_simd) [![Build Status](https://travis-ci.org/oconnor663/blake2_simd.svg?branch=master)](https://travis-ci.org/oconnor663/blake2_simd)
+# blake2s_simd [![GitHub](https://img.shields.io/github/tag/oconnor663/blake2_simd.svg?label=GitHub)](https://github.com/oconnor663/blake2_simd) [![crates.io](https://img.shields.io/crates/v/blake2s_simd.svg)](https://crates.io/crates/blake2s_simd) [![Actions Status](https://github.com/oconnor663/blake2_simd/workflows/tests/badge.svg)](https://github.com/oconnor663/blake2_simd/actions)
 
 An implementation of the BLAKE2s and BLAKE2sp hash functions. See also
 [`blake2b_simd`](../blake2b).
