@@ -61,21 +61,7 @@ fn main() {
         &["test", "--release", "--features=uninline_portable"],
     );
 
-    // Make sure the "cargo fuzz" tests can at least build. This requires Clang
-    // as a dependency, so if we detect we're on Travis CI then we'll only run
-    // this on Linux, and we'll install Clang first.
-    let test_fuzz = if env::var_os("TRAVIS").is_some() {
-        if cfg!(target_os = "linux") {
-            run_cmd(".", &["sudo", "apt-get", "install", "clang"]);
-            true
-        } else {
-            false
-        }
-    } else {
-        true
-    };
-    if test_fuzz {
-        run_cargo_cmd("blake2b/fuzz", &["check"]);
-        run_cargo_cmd("blake2s/fuzz", &["check"]);
-    }
+    // Make sure the "cargo fuzz" tests can at least build.
+    run_cargo_cmd("blake2b/fuzz", &["check"]);
+    run_cargo_cmd("blake2s/fuzz", &["check"]);
 }
