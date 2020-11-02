@@ -5,6 +5,8 @@ authors = ["Jack O'Connor"]
 description = "a command line implementation of BLAKE2b/s/bp/sp and all their parameters"
 license = "MIT"
 repository = "https://github.com/oconnor663/blake2_simd/tree/master/blake2_bin"
+readme = "README.md"
+keywords = ["blake2b", "blake2bp", "blake2s", "blake2sp", "blake2"]
 edition = "2018"
 
 [[bin]]
