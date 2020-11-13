@@ -652,3 +652,85 @@ fn bench_onebyte_ring_chacha20poly1305(b: &mut Bencher) {
             .expect("invalid encryption")
     });
 }
+
+#[cfg(feature = "ring")]
+#[bench]
+fn bench_long_ring_aes128gcm(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, LONG);
+    let mut buf = input.get().to_vec();
+    let alg = &ring::aead::AES_128_GCM;
+    let mut key_bytes = vec![0; alg.key_len()];
+    rand::thread_rng().fill_bytes(&mut key_bytes);
+    let unbound_key = ring::aead::UnboundKey::new(alg, &key_bytes).expect("invalid key");
+    let less_safe_key = ring::aead::LessSafeKey::new(unbound_key);
+    let mut nonce_bytes = vec![0; alg.nonce_len()];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    b.iter(|| {
+        let nonce =
+            ring::aead::Nonce::try_assume_unique_for_key(&nonce_bytes).expect("invalid nonce");
+        less_safe_key
+            .seal_in_place_separate_tag(nonce, ring::aead::Aad::empty(), &mut buf)
+            .expect("invalid encryption")
+    });
+}
+
+#[cfg(feature = "ring")]
+#[bench]
+fn bench_onebyte_ring_aes128gcm(b: &mut Bencher) {
+    let mut buf = [0];
+    let alg = &ring::aead::AES_128_GCM;
+    let mut key_bytes = vec![0; alg.key_len()];
+    rand::thread_rng().fill_bytes(&mut key_bytes);
+    let unbound_key = ring::aead::UnboundKey::new(alg, &key_bytes).expect("invalid key");
+    let less_safe_key = ring::aead::LessSafeKey::new(unbound_key);
+    let mut nonce_bytes = vec![0; alg.nonce_len()];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    b.iter(|| {
+        let nonce =
+            ring::aead::Nonce::try_assume_unique_for_key(&nonce_bytes).expect("invalid nonce");
+        less_safe_key
+            .seal_in_place_separate_tag(nonce, ring::aead::Aad::empty(), &mut buf)
+            .expect("invalid encryption")
+    });
+}
+
+#[cfg(feature = "ring")]
+#[bench]
+fn bench_long_ring_aes256gcm(b: &mut Bencher) {
+    let mut input = RandomInput::new(b, LONG);
+    let mut buf = input.get().to_vec();
+    let alg = &ring::aead::AES_256_GCM;
+    let mut key_bytes = vec![0; alg.key_len()];
+    rand::thread_rng().fill_bytes(&mut key_bytes);
+    let unbound_key = ring::aead::UnboundKey::new(alg, &key_bytes).expect("invalid key");
+    let less_safe_key = ring::aead::LessSafeKey::new(unbound_key);
+    let mut nonce_bytes = vec![0; alg.nonce_len()];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    b.iter(|| {
+        let nonce =
+            ring::aead::Nonce::try_assume_unique_for_key(&nonce_bytes).expect("invalid nonce");
+        less_safe_key
+            .seal_in_place_separate_tag(nonce, ring::aead::Aad::empty(), &mut buf)
+            .expect("invalid encryption")
+    });
+}
+
+#[cfg(feature = "ring")]
+#[bench]
+fn bench_onebyte_ring_aes256gcm(b: &mut Bencher) {
+    let mut buf = [0];
+    let alg = &ring::aead::AES_256_GCM;
+    let mut key_bytes = vec![0; alg.key_len()];
+    rand::thread_rng().fill_bytes(&mut key_bytes);
+    let unbound_key = ring::aead::UnboundKey::new(alg, &key_bytes).expect("invalid key");
+    let less_safe_key = ring::aead::LessSafeKey::new(unbound_key);
+    let mut nonce_bytes = vec![0; alg.nonce_len()];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    b.iter(|| {
+        let nonce =
+            ring::aead::Nonce::try_assume_unique_for_key(&nonce_bytes).expect("invalid nonce");
+        less_safe_key
+            .seal_in_place_separate_tag(nonce, ring::aead::Aad::empty(), &mut buf)
+            .expect("invalid encryption")
+    });
+}
