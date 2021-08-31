@@ -50,7 +50,6 @@ use crate::Params;
 use crate::State;
 use crate::Word;
 use crate::BLOCKBYTES;
-use arrayref::array_mut_ref;
 use arrayvec::ArrayVec;
 use core::fmt;
 
@@ -95,6 +94,7 @@ pub fn degree() -> usize {
 
 type JobsVec<'a, 'b> = ArrayVec<Job<'a, 'b>, { guts::MAX_DEGREE }>;
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
 fn fill_jobs_vec<'a, 'b>(
     jobs_iter: &mut impl Iterator<Item = Job<'a, 'b>>,
@@ -110,6 +110,7 @@ fn fill_jobs_vec<'a, 'b>(
     }
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline(always)]
 fn evict_finished<'a, 'b>(vec: &mut JobsVec<'a, 'b>, num_jobs: usize) {
     // Iterate backwards so that removal doesn't cause an out-of-bounds panic.
@@ -140,28 +141,32 @@ pub(crate) fn compress_many<'a, 'b, I>(
 {
     // Fuse is important for correctness, since each of these blocks tries to
     // advance the iterator, even if a previous block emptied it.
+    #[allow(unused_mut)]
     let mut jobs_iter = jobs.into_iter().fuse();
+    #[allow(unused_mut)]
     let mut jobs_vec = JobsVec::new();
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if imp.degree() >= 8 {
         loop {
             fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 8);
             if jobs_vec.len() < 8 {
                 break;
             }
-            let jobs_array = array_mut_ref!(jobs_vec, 0, 8);
+            let jobs_array = arrayref::array_mut_ref!(jobs_vec, 0, 8);
             imp.compress8_loop(jobs_array, finalize, stride);
             evict_finished(&mut jobs_vec, 8);
         }
     }
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     if imp.degree() >= 4 {
         loop {
             fill_jobs_vec(&mut jobs_iter, &mut jobs_vec, 4);
             if jobs_vec.len() < 4 {
                 break;
             }
-            let jobs_array = array_mut_ref!(jobs_vec, 0, 4);
+            let jobs_array = arrayref::array_mut_ref!(jobs_vec, 0, 4);
             imp.compress4_loop(jobs_array, finalize, stride);
             evict_finished(&mut jobs_vec, 4);
         }

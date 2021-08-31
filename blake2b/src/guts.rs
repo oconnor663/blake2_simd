@@ -115,9 +115,9 @@ impl Implementation {
         }
     }
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn compress2_loop(&self, jobs: &mut [Job; 2], finalize: Finalize, stride: Stride) {
         match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 | Platform::SSE41 => unsafe {
                 sse41::compress2_loop(jobs, finalize, stride)
             },
@@ -125,9 +125,9 @@ impl Implementation {
         }
     }
 
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn compress4_loop(&self, jobs: &mut [Job; 4], finalize: Finalize, stride: Stride) {
         match self.0 {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             Platform::AVX2 => unsafe { avx2::compress4_loop(jobs, finalize, stride) },
             _ => panic!("unsupported"),
         }
@@ -209,6 +209,7 @@ pub(crate) fn count_high(count: Count) -> Word {
     (count >> 8 * size_of::<Word>()) as Word
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(crate) fn assemble_count(low: Word, high: Word) -> Count {
     low as Count + ((high as Count) << 8 * size_of::<Word>())
 }
