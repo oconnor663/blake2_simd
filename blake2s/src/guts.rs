@@ -259,7 +259,6 @@ pub fn input_debug_asserts(input: &[u8], finalize: Finalize) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use arrayvec::ArrayVec;
     use core::mem::size_of;
 
     #[test]
@@ -437,18 +436,19 @@ mod test {
     // since really all we care about with no_std is that the library builds,
     // but for now it's here. Everything is keyed off of this N constant so
     // that it's easy to copy the code to exercise_compress4_loop.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn exercise_compress4_loop(implementation: Implementation) {
         const N: usize = 4;
 
         let mut input_buffer = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input_buffer);
-        let mut inputs = ArrayVec::<_, N>::new();
+        let mut inputs = arrayvec::ArrayVec::<_, N>::new();
         for i in 0..N {
             inputs.push(&input_buffer[i..]);
         }
 
         exercise_cases(|stride, length, last_node, finalize, count| {
-            let mut reference_words = ArrayVec::<_, N>::new();
+            let mut reference_words = arrayvec::ArrayVec::<_, N>::new();
             for i in 0..N {
                 let words = reference_compression(
                     &inputs[i][..length],
@@ -461,11 +461,11 @@ mod test {
                 reference_words.push(words);
             }
 
-            let mut test_words = ArrayVec::<_, N>::new();
+            let mut test_words = arrayvec::ArrayVec::<_, N>::new();
             for i in 0..N {
                 test_words.push(initial_test_words(i));
             }
-            let mut jobs = ArrayVec::<_, N>::new();
+            let mut jobs = arrayvec::ArrayVec::<_, N>::new();
             for (i, words) in test_words.iter_mut().enumerate() {
                 jobs.push(Job {
                     input: &inputs[i][..length],
@@ -502,18 +502,19 @@ mod test {
 
     // Copied from exercise_compress2_loop, with a different value of N and an
     // interior call to compress4_loop.
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     fn exercise_compress8_loop(implementation: Implementation) {
         const N: usize = 8;
 
         let mut input_buffer = [0; 100 * BLOCKBYTES];
         paint_test_input(&mut input_buffer);
-        let mut inputs = ArrayVec::<_, N>::new();
+        let mut inputs = arrayvec::ArrayVec::<_, N>::new();
         for i in 0..N {
             inputs.push(&input_buffer[i..]);
         }
 
         exercise_cases(|stride, length, last_node, finalize, count| {
-            let mut reference_words = ArrayVec::<_, N>::new();
+            let mut reference_words = arrayvec::ArrayVec::<_, N>::new();
             for i in 0..N {
                 let words = reference_compression(
                     &inputs[i][..length],
@@ -526,11 +527,11 @@ mod test {
                 reference_words.push(words);
             }
 
-            let mut test_words = ArrayVec::<_, N>::new();
+            let mut test_words = arrayvec::ArrayVec::<_, N>::new();
             for i in 0..N {
                 test_words.push(initial_test_words(i));
             }
-            let mut jobs = ArrayVec::<_, N>::new();
+            let mut jobs = arrayvec::ArrayVec::<_, N>::new();
             for (i, words) in test_words.iter_mut().enumerate() {
                 jobs.push(Job {
                     input: &inputs[i][..length],
