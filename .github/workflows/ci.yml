@@ -35,3 +35,32 @@ jobs:
     - name: Run all tests
       run: cargo run --quiet
       working-directory: ./run_all_tests
+
+  cross_tests:
+    name: cross ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - i586-unknown-linux-musl
+          - i686-unknown-linux-musl
+          - armv7-unknown-linux-gnueabihf
+          - aarch64-unknown-linux-gnu
+          - mips-unknown-linux-gnu
+
+    steps:
+    - uses: actions/checkout@v1
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - run: cargo install cross
+    - run: cross test --target ${{ matrix.arch }}
+      working-directory: ./blake2b/
+    - run: cross test --target ${{ matrix.arch }} --no-default-features
+      working-directory: ./blake2b/
+    - run: cross test --target ${{ matrix.arch }}
+      working-directory: ./blake2s/
+    - run: cross test --target ${{ matrix.arch }} --no-default-features
+      working-directory: ./blake2s/
