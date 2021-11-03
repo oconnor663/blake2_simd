@@ -608,6 +608,21 @@ fn bytes_to_hex(bytes: &[u8]) -> HexString {
     s
 }
 
+impl From<[u8; OUTBYTES]> for Hash {
+    fn from(bytes: [u8; OUTBYTES]) -> Self {
+        Self {
+            bytes,
+            len: OUTBYTES as u8,
+        }
+    }
+}
+
+impl From<&[u8; OUTBYTES]> for Hash {
+    fn from(bytes: &[u8; OUTBYTES]) -> Self {
+        Self::from(*bytes)
+    }
+}
+
 /// This implementation is constant time, if the two hashes are the same length.
 impl PartialEq for Hash {
     fn eq(&self, other: &Hash) -> bool {

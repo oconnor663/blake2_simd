@@ -199,3 +199,10 @@ fn test_blake2bp_long_hash_length_panics() {
 fn test_blake2bp_long_key_panics() {
     blake2bp::Params::new().key(&[0; KEYBYTES + 1]);
 }
+
+#[test]
+fn test_hash_from() {
+    let h = blake2b(b"foo");
+    assert_eq!(h, Hash::from(h.as_array()));
+    assert_eq!(h, Hash::from(*h.as_array()));
+}

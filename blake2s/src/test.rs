@@ -206,3 +206,10 @@ fn test_blake2sp_max_offset_ok() {
 fn test_blake2sp_offset_too_large_panics() {
     Params::new().node_offset(1 << 48);
 }
+
+#[test]
+fn test_hash_from() {
+    let h = blake2s(b"foo");
+    assert_eq!(h, Hash::from(h.as_array()));
+    assert_eq!(h, Hash::from(*h.as_array()));
+}
