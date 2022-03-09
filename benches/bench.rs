@@ -638,6 +638,26 @@ fn bench_long_openssl_aes256ctr(b: &mut Bencher) {
 
 #[cfg(feature = "openssl")]
 #[bench]
+fn bench_long_openssl_chacha20(b: &mut Bencher) {
+    let mut ciphertext = [0; LONG];
+    let mut input = RandomInput::new(b, LONG);
+    b.iter(|| {
+        use openssl::symm::{Cipher, Crypter, Mode};
+
+        let key = &[0; 32];
+        let iv = b"\x00\x01\x02\x03\x04\x05\x06\x07\x00\x01\x02\x03\x04\x05\x06\x07";
+
+        // Create a cipher context for encryption.
+        let mut encrypter = Crypter::new(Cipher::chacha20(), Mode::Encrypt, key, Some(iv)).unwrap();
+
+        // Encrypt 2 chunks of plaintexts successively.
+        encrypter.update(input.get(), &mut ciphertext).unwrap();
+        test::black_box(&ciphertext);
+    });
+}
+
+#[cfg(feature = "openssl")]
+#[bench]
 fn bench_onebyte_openssl_aes256ctr(b: &mut Bencher) {
     b.iter(|| {
         use openssl::symm::{Cipher, Crypter, Mode};
