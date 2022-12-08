@@ -361,20 +361,20 @@ fn bench_long_sneves_blake2sp(b: &mut Bencher) {
 #[bench]
 fn bench_verylong_kangarootwelve(b: &mut Bencher) {
     let mut input = RandomInput::new(b, VERYLONG);
-    b.iter(|| kangarootwelve::kangarootwelve(input.get()));
+    b.iter(|| kangarootwelve_xkcp::hash(input.get()));
 }
 
 #[cfg(feature = "kangarootwelve")]
 #[bench]
 fn bench_long_kangarootwelve(b: &mut Bencher) {
     let mut input = RandomInput::new(b, LONG);
-    b.iter(|| kangarootwelve::kangarootwelve(input.get()));
+    b.iter(|| kangarootwelve_xkcp::hash(input.get()));
 }
 
 #[cfg(feature = "kangarootwelve")]
 #[bench]
 fn bench_onebyte_kangarootwelve(b: &mut Bencher) {
-    b.iter(|| kangarootwelve::kangarootwelve(b"x"));
+    b.iter(|| kangarootwelve_xkcp::hash(b"x"));
 }
 
 #[cfg(feature = "libsodium-ffi")]
