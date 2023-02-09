@@ -23,7 +23,17 @@ jobs:
           { "os": "windows-latest", "toolchain": "x86_64-pc-windows-msvc",   "name": "Windows MSVC" },
           { "os": "windows-latest", "toolchain": "x86_64-pc-windows-gnu",    "name": "Windows GNU" }
         ]
-        channel: [stable, beta, nightly]
+        channel: [
+          stable,
+          beta,
+          nightly,
+          # The current MSRV. This crate doesn't have an official MSRV policy,
+          # but in practice we'll probably do what libc does:
+          # https://github.com/rust-lang/libs-team/issues/72.
+          # This test target is here so that we notice if we accidentally bump
+          # the MSRV, but it's not a promise that we won't bump it.
+          "1.59.0",
+        ]
 
     steps:
     - uses: actions/checkout@v1
