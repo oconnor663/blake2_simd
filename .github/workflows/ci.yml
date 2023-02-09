@@ -27,12 +27,6 @@ jobs:
           stable,
           beta,
           nightly,
-          # The current MSRV. This crate doesn't have an official MSRV policy,
-          # but in practice we'll probably do what libc does:
-          # https://github.com/rust-lang/libs-team/issues/72.
-          # This test target is here so that we notice if we accidentally bump
-          # the MSRV, but it's not a promise that we won't bump it.
-          "1.59.0",
         ]
 
     steps:
@@ -74,3 +68,48 @@ jobs:
       working-directory: ./blake2s/
     - run: cross test --target ${{ matrix.arch }} --no-default-features
       working-directory: ./blake2s/
+
+  msrv_test:
+    name: MSRV check ${{ matrix.target.name }} ${{ matrix.channel }}
+    runs-on: ${{ matrix.target.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [
+          { "os": "ubuntu-latest",  "toolchain": "x86_64-unknown-linux-gnu", "name": "Linux GNU" },
+          { "os": "macOS-latest",   "toolchain": "x86_64-apple-darwin",      "name": "macOS" },
+          { "os": "windows-latest", "toolchain": "x86_64-pc-windows-msvc",   "name": "Windows MSVC" },
+          { "os": "windows-latest", "toolchain": "x86_64-pc-windows-gnu",    "name": "Windows GNU" }
+        ]
+        channel: [
+          # The current MSRV. This crate doesn't have an official MSRV policy,
+          # but in practice we'll probably do what libc does:
+          # https://github.com/rust-lang/libs-team/issues/72.
+          # This test target is here so that we notice if we accidentally bump
+          # the MSRV, but it's not a promise that we won't bump it.
+          "1.59.0",
+        ]
+
+    steps:
+    - uses: actions/checkout@v1
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ format('{0}-{1}', matrix.channel, matrix.target.toolchain) }}
+        profile: minimal
+        override: true
+    # The `assert_cmd` dev dependency has a higher MSRV, so use `avoid-dev-deps` here.
+    - name: Build blake2b
+      run: cargo build -Z avoid-dev-deps
+      env:
+        RUSTC_BOOTSTRAP: 1
+      working-directory: ./blake2b
+    - name: Build blake2s
+      run: cargo build -Z avoid-dev-deps
+      env:
+        RUSTC_BOOTSTRAP: 1
+      working-directory: ./blake2s
+    - name: Build blake2_bin
+      run: cargo build -Z avoid-dev-deps
+      env:
+        RUSTC_BOOTSTRAP: 1
+      working-directory: ./blake2_bin
