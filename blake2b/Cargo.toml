@@ -22,4 +22,4 @@ uninline_portable = []
 [dependencies]
 arrayref = "0.3.5"
 arrayvec = { version = "0.7.0", default-features = false }
-constant_time_eq = "0.2.4"
+constant_time_eq = "0.3.0"
