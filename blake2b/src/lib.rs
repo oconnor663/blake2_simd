@@ -616,6 +616,40 @@ fn bytes_to_hex(bytes: &[u8]) -> HexString {
     s
 }
 
+impl From<[u8; 16]> for Hash {
+    fn from(bytes: [u8; 16]) -> Self {
+        let mut buf = [0u8; OUTBYTES];
+        buf[0..16].copy_from_slice(&bytes);
+        Self {
+            bytes: buf,
+            len: 16 as u8,
+        }
+    }
+}
+
+impl From<&[u8; 16]> for Hash {
+    fn from(bytes: &[u8; 16]) -> Self {
+        Self::from(*bytes)
+    }
+}
+
+impl From<[u8; 32]> for Hash {
+    fn from(bytes: [u8; 32]) -> Self {
+        let mut buf = [0u8; OUTBYTES];
+        buf[0..32].copy_from_slice(&bytes);
+        Self {
+            bytes: buf,
+            len: 32 as u8,
+        }
+    }
+}
+
+impl From<&[u8; 32]> for Hash {
+    fn from(bytes: &[u8; 32]) -> Self {
+        Self::from(*bytes)
+    }
+}
+
 impl From<[u8; OUTBYTES]> for Hash {
     fn from(bytes: [u8; OUTBYTES]) -> Self {
         Self {
