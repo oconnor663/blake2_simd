@@ -7,13 +7,10 @@ use std::path::{Path, PathBuf};
 use std::process::exit;
 
 #[derive(Debug, Parser)]
+#[command(name = env!("CARGO_BIN_NAME"), version)]
 struct Args {
     /// Any number of filepaths, or empty for standard input.
     inputs: Vec<PathBuf>,
-
-    #[arg(long = "mmap")]
-    /// Read input with memory mapping.
-    mmap: bool,
 
     #[arg(short = 'b')]
     /// Use the BLAKE2b hash function (default).
@@ -70,6 +67,10 @@ struct Args {
     #[arg(long = "last-node")]
     /// Set the last node flag.
     last_node: bool,
+
+    #[arg(long = "mmap")]
+    /// Read input with memory mapping.
+    mmap: bool,
 }
 
 enum Params {

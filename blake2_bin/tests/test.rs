@@ -164,3 +164,14 @@ fn test_all_parameters_blake2sp() {
         .expect("blake2 failed");
     assert_eq!("947d4c671e2794f5e1a57daeca97bb46ed66", output);
 }
+
+// Just make sure that these exist and don't produce errors.
+#[test]
+fn test_help_and_version_flags() {
+    for flag in ["--version", "-V", "--help", "-h"] {
+        dbg!(flag);
+        _ = cmd!(blake2_exe(), flag)
+            .read()
+            .expect("flag should be supported");
+    }
+}
