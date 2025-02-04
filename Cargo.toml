@@ -12,7 +12,7 @@ license = "MIT"
 repository = "https://github.com/oconnor663/blake2b_simd"
 documentation = "https://docs.rs/blake2b_simd"
 readme = "README.md"
-edition = "2018"
+edition = "2021"
 
 [features]
 # Note that this root crates never builds itself with no_std. The "std" feature

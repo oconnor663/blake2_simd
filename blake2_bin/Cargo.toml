@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/oconnor663/blake2_simd/tree/master/blake2_bin"
 readme = "README.md"
 keywords = ["blake2b", "blake2bp", "blake2s", "blake2sp", "blake2"]
-edition = "2018"
+edition = "2021"
 
 [[bin]]
 name = "blake2"

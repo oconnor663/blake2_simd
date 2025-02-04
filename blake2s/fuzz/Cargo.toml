@@ -4,7 +4,7 @@ name = "blake2s_simd-fuzz"
 version = "0.0.0"
 authors = ["Kirk Baird"]
 publish = false
-edition = "2018"
+edition = "2021"
 
 [package.metadata]
 cargo-fuzz = true

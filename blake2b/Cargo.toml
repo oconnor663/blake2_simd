@@ -8,7 +8,7 @@ repository = "https://github.com/oconnor663/blake2_simd"
 documentation = "https://docs.rs/blake2b_simd"
 readme = "README.md"
 keywords = ["blake2b", "blake2bp", "blake2"]
-edition = "2018"
+edition = "2021"
 
 [features]
 default = ["std"]
