@@ -18,7 +18,7 @@ anyhow = "1.0.95"
 blake2b_simd = { path = "../blake2b", version = "1" }
 blake2s_simd = { path = "../blake2s", version = "1" }
 hex = "0.4.0"
-memmap = "0.7.0"
+memmap2 = "0.9.5"
 structopt = "0.3.2"
 
 [dev-dependencies]

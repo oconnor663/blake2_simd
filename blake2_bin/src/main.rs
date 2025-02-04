@@ -2,7 +2,6 @@ use anyhow::bail;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
-use std::isize;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use structopt::StructOpt;
@@ -125,22 +124,6 @@ impl State {
             State::Blake2sp(s) => s.finalize().to_hex().to_string(),
         }
     }
-}
-
-fn mmap_file(file: &File) -> io::Result<memmap::Mmap> {
-    let metadata = file.metadata()?;
-    let len = metadata.len();
-    // See https://github.com/danburkert/memmap-rs/issues/69.
-    if len > isize::MAX as u64 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "mmap length would overflow isize",
-        ));
-    }
-    // Note that this will currently fail if the file is empty. We treat the --mmap flag as
-    // mandatory and don't try to recover. See https://github.com/danburkert/memmap-rs/issues/72
-    // for a discussion about whether this case should succeed in the future.
-    unsafe { memmap::MmapOptions::new().len(len as usize).map(file) }
 }
 
 fn read_write_all<R: Read>(mut reader: R, state: &mut State) -> io::Result<()> {
@@ -330,8 +313,8 @@ fn hash_file(opt: &Opt, params: &Params, path: &Path) -> anyhow::Result<String> 
     let mut state = params.to_state();
     let mut file = File::open(path)?;
     if opt.mmap {
-        let map = mmap_file(&file)?;
-        state.update(&map);
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
+        state.update(&mmap);
     } else {
         read_write_all(&mut file, &mut state)?;
     }
