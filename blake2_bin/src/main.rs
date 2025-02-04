@@ -1,73 +1,73 @@
 use anyhow::bail;
+use clap::Parser;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::process::exit;
-use structopt::StructOpt;
 
-#[derive(Debug, StructOpt)]
-struct Opt {
+#[derive(Debug, Parser)]
+struct Args {
     /// Any number of filepaths, or empty for standard input.
     inputs: Vec<PathBuf>,
 
-    #[structopt(long = "mmap")]
+    #[arg(long = "mmap")]
     /// Read input with memory mapping.
     mmap: bool,
 
-    #[structopt(short = "b")]
+    #[arg(short = 'b')]
     /// Use the BLAKE2b hash function (default).
     big: bool,
 
-    #[structopt(short = "s")]
+    #[arg(short = 's')]
     /// Use the BLAKE2s hash function.
     small: bool,
 
-    #[structopt(short = "p")]
+    #[arg(short = 'p')]
     /// Use the parallel variant, BLAKE2bp or BLAKE2sp.
     parallel: bool,
 
-    #[structopt(long = "length")]
+    #[arg(long = "length")]
     /// Set the length of the output in bytes.
     length: Option<usize>,
 
-    #[structopt(long = "key")]
+    #[arg(long = "key")]
     /// Set the key parameter with a hex string.
     key: Option<String>,
 
-    #[structopt(long = "salt")]
+    #[arg(long = "salt")]
     /// Set the salt parameter with a hex string.
     salt: Option<String>,
 
-    #[structopt(long = "personal")]
+    #[arg(long = "personal")]
     /// Set the personalization parameter with a hex string.
     personal: Option<String>,
 
-    #[structopt(long = "fanout")]
+    #[arg(long = "fanout")]
     /// Set the fanout parameter.
     fanout: Option<u8>,
 
-    #[structopt(long = "max-depth")]
+    #[arg(long = "max-depth")]
     /// Set the max depth parameter.
     max_depth: Option<u8>,
 
-    #[structopt(long = "max-leaf-length")]
+    #[arg(long = "max-leaf-length")]
     /// Set the max leaf length parameter.
     max_leaf_length: Option<u32>,
 
-    #[structopt(long = "node-offset")]
+    #[arg(long = "node-offset")]
     /// Set the node offset parameter.
     node_offset: Option<u64>,
 
-    #[structopt(long = "node-depth")]
+    #[arg(long = "node-depth")]
     /// Set the node depth parameter.
     node_depth: Option<u8>,
 
-    #[structopt(long = "inner-hash-length")]
+    #[arg(long = "inner-hash-length")]
     /// Set the inner hash length parameter.
     inner_hash_length: Option<usize>,
 
-    #[structopt(long = "last-node")]
+    #[arg(long = "last-node")]
     /// Set the last node flag.
     last_node: bool,
 }
@@ -155,24 +155,24 @@ fn read_write_all<R: Read>(mut reader: R, state: &mut State) -> io::Result<()> {
     }
 }
 
-fn make_params(opt: &Opt) -> anyhow::Result<Params> {
-    if opt.big && opt.small {
+fn make_params(args: &Args) -> anyhow::Result<Params> {
+    if args.big && args.small {
         bail!("-b and -s can't be used together");
     }
-    let mut params = if opt.small {
-        if opt.parallel {
+    let mut params = if args.small {
+        if args.parallel {
             Params::Blake2sp(blake2s_simd::blake2sp::Params::new())
         } else {
             Params::Blake2s(blake2s_simd::Params::new())
         }
     } else {
-        if opt.parallel {
+        if args.parallel {
             Params::Blake2bp(blake2b_simd::blake2bp::Params::new())
         } else {
             Params::Blake2b(blake2b_simd::Params::new())
         }
     };
-    if let Some(length) = opt.length {
+    if let Some(length) = args.length {
         match &mut params {
             Params::Blake2b(p) => {
                 p.hash_length(length);
@@ -188,7 +188,7 @@ fn make_params(opt: &Opt) -> anyhow::Result<Params> {
             }
         }
     }
-    if let Some(ref key) = opt.key {
+    if let Some(ref key) = args.key {
         let key_bytes = hex::decode(key)?;
         match &mut params {
             Params::Blake2b(p) => {
@@ -205,7 +205,7 @@ fn make_params(opt: &Opt) -> anyhow::Result<Params> {
             }
         }
     }
-    if let Some(ref salt) = opt.salt {
+    if let Some(ref salt) = args.salt {
         let salt_bytes = hex::decode(salt)?;
         match &mut params {
             Params::Blake2b(p) => {
@@ -217,7 +217,7 @@ fn make_params(opt: &Opt) -> anyhow::Result<Params> {
             _ => bail!("--salt not supported"),
         }
     }
-    if let Some(ref personal) = opt.personal {
+    if let Some(ref personal) = args.personal {
         let personal_bytes = hex::decode(personal)?;
         match &mut params {
             Params::Blake2b(p) => {
@@ -229,7 +229,7 @@ fn make_params(opt: &Opt) -> anyhow::Result<Params> {
             _ => bail!("--personal not supported"),
         }
     }
-    if let Some(fanout) = opt.fanout {
+    if let Some(fanout) = args.fanout {
         match &mut params {
             Params::Blake2b(p) => {
                 p.fanout(fanout);
@@ -240,7 +240,7 @@ fn make_params(opt: &Opt) -> anyhow::Result<Params> {
             _ => bail!("--fanout not supported"),
         }
     }
-    if let Some(max_depth) = opt.max_depth {
+    if let Some(max_depth) = args.max_depth {
         match &mut params {
             Params::Blake2b(p) => {
                 p.max_depth(max_depth);
@@ -251,7 +251,7 @@ fn make_params(opt: &Opt) -> anyhow::Result<Params> {
             _ => bail!("--max-depth not supported"),
         }
     }
-    if let Some(max_leaf_length) = opt.max_leaf_length {
+    if let Some(max_leaf_length) = args.max_leaf_length {
         match &mut params {
             Params::Blake2b(p) => {
                 p.max_leaf_length(max_leaf_length);
@@ -262,7 +262,7 @@ fn make_params(opt: &Opt) -> anyhow::Result<Params> {
             _ => bail!("--max-leaf-length not supported"),
         }
     }
-    if let Some(node_offset) = opt.node_offset {
+    if let Some(node_offset) = args.node_offset {
         match &mut params {
             Params::Blake2b(p) => {
                 p.node_offset(node_offset);
@@ -273,7 +273,7 @@ fn make_params(opt: &Opt) -> anyhow::Result<Params> {
             _ => bail!("--node-offset not supported"),
         }
     }
-    if let Some(node_depth) = opt.node_depth {
+    if let Some(node_depth) = args.node_depth {
         match &mut params {
             Params::Blake2b(p) => {
                 p.node_depth(node_depth);
@@ -284,7 +284,7 @@ fn make_params(opt: &Opt) -> anyhow::Result<Params> {
             _ => bail!("--node-depth not supported"),
         }
     }
-    if let Some(inner_hash_length) = opt.inner_hash_length {
+    if let Some(inner_hash_length) = args.inner_hash_length {
         match &mut params {
             Params::Blake2b(p) => {
                 p.inner_hash_length(inner_hash_length);
@@ -295,7 +295,7 @@ fn make_params(opt: &Opt) -> anyhow::Result<Params> {
             _ => bail!("--inner-hash-length not supported"),
         }
     }
-    if opt.last_node {
+    if args.last_node {
         match &mut params {
             Params::Blake2b(p) => {
                 p.last_node(true);
@@ -309,10 +309,10 @@ fn make_params(opt: &Opt) -> anyhow::Result<Params> {
     Ok(params)
 }
 
-fn hash_file(opt: &Opt, params: &Params, path: &Path) -> anyhow::Result<String> {
+fn hash_file(args: &Args, params: &Params, path: &Path) -> anyhow::Result<String> {
     let mut state = params.to_state();
     let mut file = File::open(path)?;
-    if opt.mmap {
+    if args.mmap {
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
         state.update(&mmap);
     } else {
@@ -321,8 +321,8 @@ fn hash_file(opt: &Opt, params: &Params, path: &Path) -> anyhow::Result<String> 
     Ok(state.finalize())
 }
 
-fn hash_stdin(opt: &Opt, params: &Params) -> anyhow::Result<String> {
-    if opt.mmap {
+fn hash_stdin(args: &Args, params: &Params) -> anyhow::Result<String> {
+    if args.mmap {
         bail!("--mmap not supported for stdin");
     }
     let mut state = params.to_state();
@@ -331,9 +331,9 @@ fn hash_stdin(opt: &Opt, params: &Params) -> anyhow::Result<String> {
 }
 
 fn main() {
-    let opt = Opt::from_args();
+    let args = Args::parse();
 
-    let params = match make_params(&opt) {
+    let params = match make_params(&args) {
         Ok(params) => params,
         Err(e) => {
             eprintln!("blake2: {}", e);
@@ -342,8 +342,8 @@ fn main() {
     };
 
     let mut failed = false;
-    if opt.inputs.is_empty() {
-        match hash_stdin(&opt, &params) {
+    if args.inputs.is_empty() {
+        match hash_stdin(&args, &params) {
             Ok(hash) => println!("{}", hash),
             Err(e) => {
                 eprintln!("blake2: stdin: {}", e);
@@ -351,10 +351,10 @@ fn main() {
             }
         }
     } else {
-        for input in &opt.inputs {
-            match hash_file(&opt, &params, input) {
+        for input in &args.inputs {
+            match hash_file(&args, &params, input) {
                 Ok(hash) => {
-                    if opt.inputs.len() > 1 {
+                    if args.inputs.len() > 1 {
                         println!("{}  {}", hash, input.to_string_lossy());
                     } else {
                         println!("{}", hash);
