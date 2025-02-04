@@ -1,4 +1,4 @@
-use failure::{bail, Error};
+use anyhow::bail;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -172,7 +172,7 @@ fn read_write_all<R: Read>(mut reader: R, state: &mut State) -> io::Result<()> {
     }
 }
 
-fn make_params(opt: &Opt) -> Result<Params, Error> {
+fn make_params(opt: &Opt) -> anyhow::Result<Params> {
     if opt.big && opt.small {
         bail!("-b and -s can't be used together");
     }
@@ -326,7 +326,7 @@ fn make_params(opt: &Opt) -> Result<Params, Error> {
     Ok(params)
 }
 
-fn hash_file(opt: &Opt, params: &Params, path: &Path) -> Result<String, Error> {
+fn hash_file(opt: &Opt, params: &Params, path: &Path) -> anyhow::Result<String> {
     let mut state = params.to_state();
     let mut file = File::open(path)?;
     if opt.mmap {
@@ -338,7 +338,7 @@ fn hash_file(opt: &Opt, params: &Params, path: &Path) -> Result<String, Error> {
     Ok(state.finalize())
 }
 
-fn hash_stdin(opt: &Opt, params: &Params) -> Result<String, Error> {
+fn hash_stdin(opt: &Opt, params: &Params) -> anyhow::Result<String> {
     if opt.mmap {
         bail!("--mmap not supported for stdin");
     }
