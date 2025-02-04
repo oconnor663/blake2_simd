@@ -29,30 +29,27 @@ $ echo hello world | blake2 -sp
 
 # The full set of command line options.
 $ blake2 --help
-USAGE:
-    blake2 [FLAGS] [OPTIONS] [inputs]...
+Usage: blake2 [OPTIONS] [INPUTS]...
 
-FLAGS:
-    -b                 Use the BLAKE2b hash function (default)
-    -h, --help         Prints help information
-        --last-node    Set the last node flag
-        --mmap         Read input with memory mapping
-    -p                 Use the parallel variant, BLAKE2bp or BLAKE2sp
-    -s                 Use the BLAKE2s hash function
-    -V, --version      Prints version information
+Arguments:
+  [INPUTS]...  Any number of filepaths, or empty for standard input
 
-OPTIONS:
-        --fanout <fanout>                          Set the fanout parameter
-        --inner-hash-length <inner-hash-length>    Set the inner hash length parameter
-        --key <key>                                Set the key parameter with a hex string
-        --length <length>                          Set the length of the output in bytes
-        --max-depth <max-depth>                    Set the max depth parameter
-        --max-leaf-length <max-leaf-length>        Set the max leaf length parameter
-        --node-depth <node-depth>                  Set the node depth parameter
-        --node-offset <node-offset>                Set the node offset parameter
-        --personal <personal>                      Set the personalization parameter with a hex string
-        --salt <salt>                              Set the salt parameter with a hex string
-
-ARGS:
-    <inputs>...    Any number of filepaths, or empty for standard input
+Options:
+  -b                                           Use the BLAKE2b hash function (default)
+  -s                                           Use the BLAKE2s hash function
+  -p                                           Use the parallel variant, BLAKE2bp or BLAKE2sp
+      --length <LENGTH>                        Set the length of the output in bytes
+      --key <KEY>                              Set the key parameter with a hex string
+      --salt <SALT>                            Set the salt parameter with a hex string
+      --personal <PERSONAL>                    Set the personalization parameter with a hex string
+      --fanout <FANOUT>                        Set the fanout parameter
+      --max-depth <MAX_DEPTH>                  Set the max depth parameter
+      --max-leaf-length <MAX_LEAF_LENGTH>      Set the max leaf length parameter
+      --node-offset <NODE_OFFSET>              Set the node offset parameter
+      --node-depth <NODE_DEPTH>                Set the node depth parameter
+      --inner-hash-length <INNER_HASH_LENGTH>  Set the inner hash length parameter
+      --last-node                              Set the last node flag
+      --mmap                                   Read input with memory mapping
+  -h, --help                                   Print help
+  -V, --version                                Print version
 ```
