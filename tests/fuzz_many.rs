@@ -18,13 +18,13 @@ fn random_params_blake2b(rng: &mut rand_chacha::ChaChaRng) -> blake2b_simd::Para
     // from the Params through to the State or whatever. Randomize those.
     // Everything else just winds up in the state words and doesn't really need
     // to be exercised here.
-    params.hash_length(rng.gen_range(1, blake2b_simd::OUTBYTES + 1));
-    if rng.gen() {
-        let len: usize = rng.gen_range(1, blake2b_simd::KEYBYTES + 1);
+    params.hash_length(rng.random_range(1..blake2b_simd::OUTBYTES + 1));
+    if rng.random() {
+        let len: usize = rng.random_range(1..blake2b_simd::KEYBYTES + 1);
         let key_buf = &[1; blake2b_simd::KEYBYTES];
         params.key(&key_buf[..len]);
     }
-    params.last_node(rng.gen());
+    params.last_node(rng.random());
     params
 }
 
@@ -40,10 +40,10 @@ fn with_random_inputs_blake2b(mut f: impl FnMut(&[blake2b_simd::Params], &[&[u8]
     for _ in 0..NUM_TESTS {
         // Select a random number of random length input slices from the
         // buffers.
-        let num_inputs: usize = rng.gen_range(0, BLAKE2B_MAX_N + 1);
+        let num_inputs: usize = rng.random_range(0..BLAKE2B_MAX_N + 1);
         let mut inputs = ArrayVec::<&[u8], BLAKE2B_MAX_N>::new();
         for i in 0..num_inputs {
-            let input_length = rng.gen_range(0, BLAKE2B_MAX_LEN + 1);
+            let input_length = rng.random_range(0..BLAKE2B_MAX_LEN + 1);
             inputs.push(&input_bufs[i][..input_length]);
         }
 
@@ -117,13 +117,13 @@ fn random_params_blake2s(rng: &mut rand_chacha::ChaChaRng) -> blake2s_simd::Para
     // from the Params through to the State or whatever. Randomize those.
     // Everything else just winds up in the state words and doesn't really need
     // to be exercised here.
-    params.hash_length(rng.gen_range(1, blake2s_simd::OUTBYTES + 1));
-    if rng.gen() {
-        let len: usize = rng.gen_range(1, blake2s_simd::KEYBYTES + 1);
+    params.hash_length(rng.random_range(1..blake2s_simd::OUTBYTES + 1));
+    if rng.random() {
+        let len: usize = rng.random_range(1..blake2s_simd::KEYBYTES + 1);
         let key_buf = &[1; blake2s_simd::KEYBYTES];
         params.key(&key_buf[..len]);
     }
-    params.last_node(rng.gen());
+    params.last_node(rng.random());
     params
 }
 
@@ -139,10 +139,10 @@ fn with_random_inputs_blake2s(mut f: impl FnMut(&[blake2s_simd::Params], &[&[u8]
     for _ in 0..NUM_TESTS {
         // Select a random number of random length input slices from the
         // buffers.
-        let num_inputs: usize = rng.gen_range(0, BLAKE2S_MAX_N + 1);
+        let num_inputs: usize = rng.random_range(0..BLAKE2S_MAX_N + 1);
         let mut inputs = ArrayVec::<&[u8], BLAKE2S_MAX_N>::new();
         for i in 0..num_inputs {
-            let input_length = rng.gen_range(0, BLAKE2S_MAX_LEN + 1);
+            let input_length = rng.random_range(0..BLAKE2S_MAX_LEN + 1);
             inputs.push(&input_bufs[i][..input_length]);
         }
 
