@@ -109,8 +109,3 @@ jobs:
       env:
         RUSTC_BOOTSTRAP: 1
       working-directory: ./blake2s
-    - name: Build blake2_bin
-      run: cargo build -Z avoid-dev-deps
-      env:
-        RUSTC_BOOTSTRAP: 1
-      working-directory: ./blake2_bin
