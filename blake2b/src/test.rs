@@ -205,4 +205,24 @@ fn test_hash_from() {
     let h = blake2b(b"foo");
     assert_eq!(h, Hash::from(h.as_array()));
     assert_eq!(h, Hash::from(*h.as_array()));
+
+    let h = crate::Params::new()
+        .hash_length(16)
+        .to_state()
+        .update(b"foo")
+        .finalize();
+    let mut h_s = [0u8; 16];
+    h_s[0..16].copy_from_slice(h.as_bytes());
+    assert_eq!(h, Hash::from(&h_s));
+    assert_eq!(h, Hash::from(h_s));
+
+    let h = crate::Params::new()
+        .hash_length(32)
+        .to_state()
+        .update(b"foo")
+        .finalize();
+    let mut h_s = [0u8; 32];
+    h_s[0..32].copy_from_slice(h.as_bytes());
+    assert_eq!(h, Hash::from(&h_s));
+    assert_eq!(h, Hash::from(h_s));
 }
