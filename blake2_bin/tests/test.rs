@@ -1,10 +1,10 @@
 use duct::cmd;
 use std::io::prelude::*;
-use std::path::PathBuf;
+use std::path::Path;
 use tempfile::NamedTempFile;
 
-pub fn blake2_exe() -> PathBuf {
-    assert_cmd::cargo::cargo_bin("blake2")
+pub fn blake2_exe() -> &'static Path {
+    assert_cmd::cargo::cargo_bin!("blake2")
 }
 
 #[test]
