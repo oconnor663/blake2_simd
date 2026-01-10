@@ -12,7 +12,7 @@ edition = "2021"
 
 [features]
 default = ["std"]
-std = []
+std = ["constant_time_eq/std"]
 # This crate does a lot of #[inline(always)]. For BLAKE2b on ARM Cortex-M0 (and
 # presumably other tiny chips), some of that inlining actually hurts
 # performance. This feature disables some inlining, improving the performance
@@ -22,4 +22,4 @@ uninline_portable = []
 [dependencies]
 arrayref = "0.3.5"
 arrayvec = { version = "0.7.0", default-features = false }
-constant_time_eq = "0.3.0"
+constant_time_eq = { version = "0.4.2", default-features = false }
