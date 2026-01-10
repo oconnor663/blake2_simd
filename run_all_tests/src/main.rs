@@ -71,7 +71,10 @@ fn main() {
         envs,
     );
 
-    // Make sure the "cargo fuzz" tests can at least build.
-    run_cargo_cmd("blake2b/fuzz", &["check"], envs);
-    run_cargo_cmd("blake2s/fuzz", &["check"], envs);
+    // Make sure the "cargo fuzz" tests can at least build. The `libfuzzer-sys` readme says it's
+    // Linux-only, so only check this on Linux.
+    if cfg!(target_os = "linux") {
+        run_cargo_cmd("blake2b/fuzz", &["check"], envs);
+        run_cargo_cmd("blake2s/fuzz", &["check"], envs);
+    }
 }
