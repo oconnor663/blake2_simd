@@ -32,7 +32,7 @@ fn check_avx2() {
 }
 
 mod sys {
-    extern "C" {
+    unsafe extern "C" {
         pub fn blake2b(
             out: *mut ::std::os::raw::c_uchar,
             in_: *const ::std::os::raw::c_uchar,

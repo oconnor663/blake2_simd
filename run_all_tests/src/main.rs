@@ -1,4 +1,5 @@
 use std::env;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 
@@ -8,16 +9,20 @@ fn project_root() -> &'static Path {
         .expect("parent failed")
 }
 
-fn run_cmd(project: &str, cmd: &[&str]) {
+fn run_cmd<K: AsRef<OsStr>, V: AsRef<OsStr>>(
+    project: &str,
+    cmd: &[&str],
+    envs: impl IntoIterator<Item = (K, V)>,
+) {
+    let mut command = Command::new(cmd[0]);
+    command.args(&cmd[1..]);
     let project_dir = Path::new(project_root()).join(project);
+    command.current_dir(&project_dir);
+    command.envs(envs);
     println!("=== COMMAND ===");
     println!("cd {} && {}", project_dir.to_string_lossy(), cmd.join(" "));
     println!();
-    let status = Command::new(cmd[0])
-        .args(&cmd[1..])
-        .current_dir(project_dir)
-        .status()
-        .expect("spawn failed");
+    let status = command.status().expect("spawn failed");
 
     if !status.success() {
         println!("Command failed :(");
@@ -25,10 +30,14 @@ fn run_cmd(project: &str, cmd: &[&str]) {
     }
 }
 
-fn run_cargo_cmd(project: &str, flags: &[&str]) {
+fn run_cargo_cmd<K: AsRef<OsStr>, V: AsRef<OsStr>>(
+    project: &str,
+    flags: &[&str],
+    envs: impl IntoIterator<Item = (K, V)>,
+) {
     let mut cmd = vec![env!("CARGO")];
     cmd.extend_from_slice(flags);
-    run_cmd(project, &cmd);
+    run_cmd(project, &cmd, envs);
 }
 
 fn main() {
@@ -37,7 +46,7 @@ fn main() {
     let target_dir = env::var_os("CARGO_TARGET_DIR")
         .map(Into::<PathBuf>::into)
         .unwrap_or(project_root().join("target"));
-    env::set_var("CARGO_TARGET_DIR", &target_dir);
+    let envs = [("CARGO_TARGET_DIR", &target_dir)];
 
     // Test all the sub-projects under both std and no_std.
     for &project in &["blake2b", "blake2s", ".", "blake2_bin"] {
@@ -46,22 +55,23 @@ fn main() {
             if no_std {
                 flags.push("--no-default-features");
             }
-            run_cargo_cmd(project, &flags);
+            run_cargo_cmd(project, &flags, envs);
         }
     }
 
     // Run the root project under release mode. This lets the "fuzz" unit tests
     // (not to be confused with the actual "cargo fuzz" tests) use a much
     // larger iteration count.
-    run_cargo_cmd(".", &["test", "--release"]);
+    run_cargo_cmd(".", &["test", "--release"], envs);
 
     // Test the uninline_portable feature of blake2b_simd.
     run_cargo_cmd(
         "blake2b",
         &["test", "--release", "--features=uninline_portable"],
+        envs,
     );
 
     // Make sure the "cargo fuzz" tests can at least build.
-    run_cargo_cmd("blake2b/fuzz", &["check"]);
-    run_cargo_cmd("blake2s/fuzz", &["check"]);
+    run_cargo_cmd("blake2b/fuzz", &["check"], envs);
+    run_cargo_cmd("blake2s/fuzz", &["check"], envs);
 }
