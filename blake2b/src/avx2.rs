@@ -8,7 +8,6 @@ use crate::guts::{
     Job, LastNode, Stride,
 };
 use crate::{Count, Word, BLOCKBYTES, IV, SIGMA};
-use arrayref::{array_refs, mut_array_refs};
 use core::cmp;
 use core::mem;
 
@@ -159,15 +158,36 @@ unsafe fn compress_block(
     last_node: Word,
 ) {
     unsafe {
-        let (words_low, words_high) = mut_array_refs!(words, DEGREE, DEGREE);
-        let (iv_low, iv_high) = array_refs!(&IV, DEGREE, DEGREE);
+        let (words_low, words_high) = words.split_at_mut(DEGREE);
+        let words_low: &mut [Word; DEGREE] = words_low.try_into().unwrap();
+        let words_high: &mut [Word; DEGREE] = words_high.try_into().unwrap();
+        let iv_low: &[Word; DEGREE] = (&IV[..DEGREE]).try_into().unwrap();
+        let iv_high: &[Word; DEGREE] = (&IV[DEGREE..]).try_into().unwrap();
         let mut a = loadu(words_low);
         let mut b = loadu(words_high);
         let mut c = loadu(iv_low);
         let flags = set4(count_low(count), count_high(count), last_block, last_node);
         let mut d = xor(loadu(iv_high), flags);
 
-        let msg_chunks = array_refs!(block, 16, 16, 16, 16, 16, 16, 16, 16);
+        let msg_chunks: (
+            &[u8; 16],
+            &[u8; 16],
+            &[u8; 16],
+            &[u8; 16],
+            &[u8; 16],
+            &[u8; 16],
+            &[u8; 16],
+            &[u8; 16],
+        ) = (
+            (&block[0 * 16..][..16]).try_into().unwrap(),
+            (&block[1 * 16..][..16]).try_into().unwrap(),
+            (&block[2 * 16..][..16]).try_into().unwrap(),
+            (&block[3 * 16..][..16]).try_into().unwrap(),
+            (&block[4 * 16..][..16]).try_into().unwrap(),
+            (&block[5 * 16..][..16]).try_into().unwrap(),
+            (&block[6 * 16..][..16]).try_into().unwrap(),
+            (&block[7 * 16..][..16]).try_into().unwrap(),
+        );
         let m0 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.0));
         let m1 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.1));
         let m2 = _mm256_broadcastsi128_si256(loadu_128(msg_chunks.2));
@@ -722,10 +742,22 @@ unsafe fn transpose_state_vecs(jobs: &[Job; DEGREE]) -> [__m256i; 8] {
         // Load all the state words into transposed vectors, where the first vector
         // has the first word of each state, etc. Transposing once at the beginning
         // and once at the end is more efficient that repeating it for each block.
-        let words0 = array_refs!(&jobs[0].words, DEGREE, DEGREE);
-        let words1 = array_refs!(&jobs[1].words, DEGREE, DEGREE);
-        let words2 = array_refs!(&jobs[2].words, DEGREE, DEGREE);
-        let words3 = array_refs!(&jobs[3].words, DEGREE, DEGREE);
+        let words0: (&[Word; DEGREE], &[Word; DEGREE]) = (
+            (&jobs[0].words[..DEGREE]).try_into().unwrap(),
+            (&jobs[0].words[DEGREE..]).try_into().unwrap(),
+        );
+        let words1: (&[Word; DEGREE], &[Word; DEGREE]) = (
+            (&jobs[1].words[..DEGREE]).try_into().unwrap(),
+            (&jobs[1].words[DEGREE..]).try_into().unwrap(),
+        );
+        let words2: (&[Word; DEGREE], &[Word; DEGREE]) = (
+            (&jobs[2].words[..DEGREE]).try_into().unwrap(),
+            (&jobs[2].words[DEGREE..]).try_into().unwrap(),
+        );
+        let words3: (&[Word; DEGREE], &[Word; DEGREE]) = (
+            (&jobs[3].words[..DEGREE]).try_into().unwrap(),
+            (&jobs[3].words[DEGREE..]).try_into().unwrap(),
+        );
         let [h0, h1, h2, h3] = transpose_vecs(
             loadu(words0.0),
             loadu(words1.0),
@@ -747,10 +779,18 @@ unsafe fn untranspose_state_vecs(h_vecs: &[__m256i; 8], jobs: &mut [Job; DEGREE]
     unsafe {
         // Un-transpose the updated state vectors back into the caller's arrays.
         let [job0, job1, job2, job3] = jobs;
-        let words0 = mut_array_refs!(&mut job0.words, DEGREE, DEGREE);
-        let words1 = mut_array_refs!(&mut job1.words, DEGREE, DEGREE);
-        let words2 = mut_array_refs!(&mut job2.words, DEGREE, DEGREE);
-        let words3 = mut_array_refs!(&mut job3.words, DEGREE, DEGREE);
+        let words0 = job0.words.split_at_mut(DEGREE);
+        let words0: (&mut [Word; DEGREE], &mut [Word; DEGREE]) =
+            (words0.0.try_into().unwrap(), words0.1.try_into().unwrap());
+        let words1 = job1.words.split_at_mut(DEGREE);
+        let words1: (&mut [Word; DEGREE], &mut [Word; DEGREE]) =
+            (words1.0.try_into().unwrap(), words1.1.try_into().unwrap());
+        let words2 = job2.words.split_at_mut(DEGREE);
+        let words2: (&mut [Word; DEGREE], &mut [Word; DEGREE]) =
+            (words2.0.try_into().unwrap(), words2.1.try_into().unwrap());
+        let words3 = job3.words.split_at_mut(DEGREE);
+        let words3: (&mut [Word; DEGREE], &mut [Word; DEGREE]) =
+            (words3.0.try_into().unwrap(), words3.1.try_into().unwrap());
         let out = transpose_vecs(h_vecs[0], h_vecs[1], h_vecs[2], h_vecs[3]);
         storeu(out[0], words0.0);
         storeu(out[1], words1.0);

@@ -1,5 +1,4 @@
 use crate::*;
-use arrayref::array_ref;
 use core::cmp;
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -238,7 +237,7 @@ pub fn final_block<'a>(
     let capped_offset = cmp::min(offset, input.len());
     let offset_slice = &input[capped_offset..];
     if offset_slice.len() >= BLOCKBYTES {
-        let block = array_ref!(offset_slice, 0, BLOCKBYTES);
+        let block = (&offset_slice[..BLOCKBYTES]).try_into().unwrap();
         let should_finalize = offset_slice.len() <= stride.padded_blockbytes();
         (block, BLOCKBYTES, should_finalize)
     } else {

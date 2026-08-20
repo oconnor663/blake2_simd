@@ -8,7 +8,6 @@ use crate::guts::{
     Job, Stride,
 };
 use crate::{Word, BLOCKBYTES, IV, SIGMA};
-use arrayref::{array_refs, mut_array_refs};
 use core::cmp;
 use core::mem;
 
@@ -295,8 +294,28 @@ unsafe fn transpose_state_vecs(jobs: &[Job; DEGREE]) -> [__m128i; 8] {
         // Load all the state words into transposed vectors, where the first vector
         // has the first word of each state, etc. Transposing once at the beginning
         // and once at the end is more efficient that repeating it for each block.
-        let words0 = array_refs!(&jobs[0].words, DEGREE, DEGREE, DEGREE, DEGREE);
-        let words1 = array_refs!(&jobs[1].words, DEGREE, DEGREE, DEGREE, DEGREE);
+        let words0: (
+            &[Word; DEGREE],
+            &[Word; DEGREE],
+            &[Word; DEGREE],
+            &[Word; DEGREE],
+        ) = (
+            (&jobs[0].words[0 * DEGREE..][..DEGREE]).try_into().unwrap(),
+            (&jobs[0].words[1 * DEGREE..][..DEGREE]).try_into().unwrap(),
+            (&jobs[0].words[2 * DEGREE..][..DEGREE]).try_into().unwrap(),
+            (&jobs[0].words[3 * DEGREE..][..DEGREE]).try_into().unwrap(),
+        );
+        let words1: (
+            &[Word; DEGREE],
+            &[Word; DEGREE],
+            &[Word; DEGREE],
+            &[Word; DEGREE],
+        ) = (
+            (&jobs[1].words[0 * DEGREE..][..DEGREE]).try_into().unwrap(),
+            (&jobs[1].words[1 * DEGREE..][..DEGREE]).try_into().unwrap(),
+            (&jobs[1].words[2 * DEGREE..][..DEGREE]).try_into().unwrap(),
+            (&jobs[1].words[3 * DEGREE..][..DEGREE]).try_into().unwrap(),
+        );
         let [h0, h1] = transpose_vecs(loadu(words0.0), loadu(words1.0));
         let [h2, h3] = transpose_vecs(loadu(words0.1), loadu(words1.1));
         let [h4, h5] = transpose_vecs(loadu(words0.2), loadu(words1.2));
@@ -310,8 +329,34 @@ unsafe fn untranspose_state_vecs(h_vecs: &[__m128i; 8], jobs: &mut [Job; DEGREE]
     unsafe {
         // Un-transpose the updated state vectors back into the caller's arrays.
         let [job0, job1] = jobs;
-        let words0 = mut_array_refs!(&mut job0.words, DEGREE, DEGREE, DEGREE, DEGREE);
-        let words1 = mut_array_refs!(&mut job1.words, DEGREE, DEGREE, DEGREE, DEGREE);
+        let (words00, rest) = job0.words.split_at_mut(DEGREE);
+        let (words01, rest) = rest.split_at_mut(DEGREE);
+        let (words02, words03) = rest.split_at_mut(DEGREE);
+        let words0: (
+            &mut [Word; DEGREE],
+            &mut [Word; DEGREE],
+            &mut [Word; DEGREE],
+            &mut [Word; DEGREE],
+        ) = (
+            words00.try_into().unwrap(),
+            words01.try_into().unwrap(),
+            words02.try_into().unwrap(),
+            words03.try_into().unwrap(),
+        );
+        let (words10, rest) = job1.words.split_at_mut(DEGREE);
+        let (words11, rest) = rest.split_at_mut(DEGREE);
+        let (words12, words13) = rest.split_at_mut(DEGREE);
+        let words1: (
+            &mut [Word; DEGREE],
+            &mut [Word; DEGREE],
+            &mut [Word; DEGREE],
+            &mut [Word; DEGREE],
+        ) = (
+            words10.try_into().unwrap(),
+            words11.try_into().unwrap(),
+            words12.try_into().unwrap(),
+            words13.try_into().unwrap(),
+        );
 
         let out = transpose_vecs(h_vecs[0], h_vecs[1]);
         storeu(out[0], words0.0);

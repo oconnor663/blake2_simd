@@ -42,7 +42,6 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use arrayref::{array_refs, mut_array_refs};
 use core::cmp;
 use core::fmt;
 use core::mem::size_of;
@@ -172,9 +171,12 @@ impl Params {
 
     #[inline(always)]
     fn to_words(&self) -> [Word; 8] {
-        let (salt_left, salt_right) = array_refs!(&self.salt, SALTBYTES / 2, SALTBYTES / 2);
-        let (personal_left, personal_right) =
-            array_refs!(&self.personal, PERSONALBYTES / 2, PERSONALBYTES / 2);
+        let salt_left: &[u8; SALTBYTES / 2] = (&self.salt[..SALTBYTES / 2]).try_into().unwrap();
+        let salt_right: &[u8; SALTBYTES / 2] = (&self.salt[SALTBYTES / 2..]).try_into().unwrap();
+        let personal_left: &[u8; PERSONALBYTES / 2] =
+            (&self.personal[..PERSONALBYTES / 2]).try_into().unwrap();
+        let personal_right: &[u8; PERSONALBYTES / 2] =
+            (&self.personal[PERSONALBYTES / 2..]).try_into().unwrap();
         [
             IV[0]
                 ^ self.hash_length as u32
@@ -522,15 +524,14 @@ fn state_words_to_bytes(state_words: &[Word; 8]) -> [u8; OUTBYTES] {
     let mut bytes = [0; OUTBYTES];
     {
         const W: usize = size_of::<Word>();
-        let refs = mut_array_refs!(&mut bytes, W, W, W, W, W, W, W, W);
-        *refs.0 = state_words[0].to_le_bytes();
-        *refs.1 = state_words[1].to_le_bytes();
-        *refs.2 = state_words[2].to_le_bytes();
-        *refs.3 = state_words[3].to_le_bytes();
-        *refs.4 = state_words[4].to_le_bytes();
-        *refs.5 = state_words[5].to_le_bytes();
-        *refs.6 = state_words[6].to_le_bytes();
-        *refs.7 = state_words[7].to_le_bytes();
+        *<&mut [u8; W]>::try_from(&mut bytes[0 * W..][..W]).unwrap() = state_words[0].to_le_bytes();
+        *<&mut [u8; W]>::try_from(&mut bytes[1 * W..][..W]).unwrap() = state_words[1].to_le_bytes();
+        *<&mut [u8; W]>::try_from(&mut bytes[2 * W..][..W]).unwrap() = state_words[2].to_le_bytes();
+        *<&mut [u8; W]>::try_from(&mut bytes[3 * W..][..W]).unwrap() = state_words[3].to_le_bytes();
+        *<&mut [u8; W]>::try_from(&mut bytes[4 * W..][..W]).unwrap() = state_words[4].to_le_bytes();
+        *<&mut [u8; W]>::try_from(&mut bytes[5 * W..][..W]).unwrap() = state_words[5].to_le_bytes();
+        *<&mut [u8; W]>::try_from(&mut bytes[6 * W..][..W]).unwrap() = state_words[6].to_le_bytes();
+        *<&mut [u8; W]>::try_from(&mut bytes[7 * W..][..W]).unwrap() = state_words[7].to_le_bytes();
     }
     bytes
 }

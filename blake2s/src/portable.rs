@@ -1,5 +1,3 @@
-use arrayref::{array_ref, array_refs};
-
 use super::*;
 use crate::guts::{
     count_high, count_low, final_block, flag_word, input_debug_asserts, Finalize, LastNode, Stride,
@@ -71,7 +69,41 @@ fn compress_block(
 
     // Parse the message bytes as ints in little endian order.
     const W: usize = size_of::<Word>();
-    let msg_refs = array_refs!(block, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W);
+    let msg_refs: (
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+        &[u8; W],
+    ) = (
+        (&block[0 * W..][..W]).try_into().unwrap(),
+        (&block[1 * W..][..W]).try_into().unwrap(),
+        (&block[2 * W..][..W]).try_into().unwrap(),
+        (&block[3 * W..][..W]).try_into().unwrap(),
+        (&block[4 * W..][..W]).try_into().unwrap(),
+        (&block[5 * W..][..W]).try_into().unwrap(),
+        (&block[6 * W..][..W]).try_into().unwrap(),
+        (&block[7 * W..][..W]).try_into().unwrap(),
+        (&block[8 * W..][..W]).try_into().unwrap(),
+        (&block[9 * W..][..W]).try_into().unwrap(),
+        (&block[10 * W..][..W]).try_into().unwrap(),
+        (&block[11 * W..][..W]).try_into().unwrap(),
+        (&block[12 * W..][..W]).try_into().unwrap(),
+        (&block[13 * W..][..W]).try_into().unwrap(),
+        (&block[14 * W..][..W]).try_into().unwrap(),
+        (&block[15 * W..][..W]).try_into().unwrap(),
+    );
     let m = [
         Word::from_le_bytes(*msg_refs.0),
         Word::from_le_bytes(*msg_refs.1),
@@ -143,7 +175,7 @@ pub fn compress1_loop(
             last_block = fin_last_block;
             last_node = fin_last_node;
         } else {
-            block = array_ref!(input, offset, BLOCKBYTES);
+            block = (&input[offset..][..BLOCKBYTES]).try_into().unwrap();
             count_delta = BLOCKBYTES;
             last_block = flag_word(false);
             last_node = flag_word(false);

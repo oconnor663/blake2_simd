@@ -153,7 +153,7 @@ pub(crate) fn compress_many<'a, 'b, I>(
             if jobs_vec.len() < 8 {
                 break;
             }
-            let jobs_array = arrayref::array_mut_ref!(jobs_vec, 0, 8);
+            let jobs_array = (&mut jobs_vec[..8]).try_into().unwrap();
             imp.compress8_loop(jobs_array, finalize, stride);
             evict_finished(&mut jobs_vec, 8);
         }
@@ -166,7 +166,7 @@ pub(crate) fn compress_many<'a, 'b, I>(
             if jobs_vec.len() < 4 {
                 break;
             }
-            let jobs_array = arrayref::array_mut_ref!(jobs_vec, 0, 4);
+            let jobs_array = (&mut jobs_vec[..4]).try_into().unwrap();
             imp.compress4_loop(jobs_array, finalize, stride);
             evict_finished(&mut jobs_vec, 4);
         }
